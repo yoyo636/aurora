@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aurora IDE</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- 活动栏 -->
+  <div id="activitybar">
+    <button class="activity-btn active" id="act-files" title="文件资源管理器">
+      <svg viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z"/></svg>
+    </button>
+    <div class="activity-spacer"></div>
+    <button class="activity-btn" id="act-settings" title="关于">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </div>
+
+  <!-- 侧边栏(文件浏览器) -->
+  <aside id="sidebar">
+    <div class="side-head">
+      <span id="side-title">资源管理器</span>
+      <span class="side-actions">
+        <button id="btn-new-file" class="icon-btn" title="新建文件">＋</button>
+        <button id="btn-collapse-dirs" class="icon-btn" title="折叠全部">⌄</button>
+        <button id="btn-refresh" class="icon-btn" title="刷新">⟳</button>
+      </span>
+    </div>
+    <div id="file-tree" class="side-view"></div>
+  </aside>
+
+  <!-- 主区 -->
+  <main id="main">
+    <!-- 编辑器标签栏 -->
+    <div id="tabbar">
+      <div id="tabs"></div>
+      <div class="editor-actions">
+        <button id="btn-save" class="btn btn-small" title="保存 (⌘S)" disabled>保存</button>
+        <button id="btn-run" class="btn btn-small btn-primary" title="运行 (⌘R)" disabled>▶ 运行</button>
+        <button id="btn-check" class="btn btn-small" title="静态检查 (⌘K)" disabled>检查</button>
+      </div>
+    </div>
+
+    <!-- 编辑器 -->
+    <div id="editor-area">
+      <div id="editor-empty" class="editor-empty">
+        <div class="empty-logo">⬢</div>
+        <div>Aurora IDE</div>
+        <div class="empty-sub">从左侧文件树打开一个 <code>.aur</code> 文件,或新建文件开始编程</div>
+        <div class="empty-sub">⌘S 保存 · ⌘R 运行 · ⌘K 静态检查</div>
+      </div>
+      <div id="editor-wrap" class="editor-wrap hidden">
+        <div id="gutter" class="gutter"></div>
+        <div class="code-layer">
+          <pre id="code-hl" class="code-hl" aria-hidden="true"></pre>
+          <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" placeholder="在这里写 Aurora 代码…"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部面板 -->
+    <div id="panel">
+      <div id="panel-tabs">
+        <button class="panel-tab active" data-panel="output">输出</button>
+        <button class="panel-tab" data-panel="problems">问题 <span id="prob-count" class="badge hidden"></span></button>
+        <button class="panel-tab" data-panel="input">输入</button>
+        <span class="panel-right">
+          <button id="panel-collapse" class="icon-btn" title="收起面板">▾</button>
+        </span>
+      </div>
+      <div id="panel-body">
+        <div id="panel-output" class="panel-content active"><div class="dim">运行结果会显示在这里</div></div>
+        <div id="panel-problems" class="panel-content"></div>
+        <div id="panel-input" class="panel-content">
+          <div class="dim">程序输入(每个输入占一行)</div>
+          <textarea id="stdin" class="stdin" spellcheck="false" placeholder="10&#10;4"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- 状态栏 -->
+    <footer id="statusbar">
+      <span class="st-left">
+        <span class="st-item">⬢ <span id="st-version">Aurora v1.2.0</span></span>
+        <span class="st-item" id="st-errors">0 错误</span>
+      </span>
+      <span class="st-right">
+        <span class="st-item" id="st-cursor">Ln 1, Col 1</span>
+        <span class="st-item">UTF-8</span>
+        <span class="st-item">Aurora</span>
+        <span class="st-item" id="st-server">● :8697</span>
+      </span>
+    </footer>
+  </main>
+
+  <!-- 关于弹层 -->
+  <div id="about" class="modal hidden">
+    <div class="modal-box">
+      <h3>Aurora IDE</h3>
+      <p>融合 Rust / Python / Go / TypeScript 风格的教学编程语言与 IDE</p>
+      <p class="dim">本地服务 http://127.0.0.1:8697 · 语言 v1.1.0</p>
+      <button id="about-close" class="btn btn-small">关闭</button>
+    </div>
+  </div>
+
+  <!-- 新建文件弹层 -->
+  <div id="newfile" class="modal hidden">
+    <div class="modal-box">
+      <h3>新建文件</h3>
+      <input id="newfile-name" class="newfile-input" placeholder="例如: hello.aur" autocomplete="off" spellcheck="false">
+      <div class="newfile-hint dim">保存在工作区根目录,支持 .aur .py .md .txt 等文本格式</div>
+      <div style="margin-top:12px">
+        <button id="newfile-ok" class="btn btn-small btn-primary">创建</button>
+        <button id="newfile-cancel" class="btn btn-small">取消</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

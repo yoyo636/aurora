@@ -1,0 +1,42 @@
+// isoceles_area.aur — 等腰三角形面积与高
+// 已知 AB == AC(腰长相等),输入腰长与底边 BC,计算底边上的高与面积
+// 用法: ./aurora-run run examples/triangles/isoceles_area.aur
+
+fn triangle_area(ab, ac, bc) -> float {
+    // 海伦公式:面积 = sqrt(s(s-a)(s-b)(s-c)),用幂运算开方
+    let s = (ab + ac + bc) / 2
+    (s * (s - ab) * (s - ac) * (s - bc)) ** 0.5
+}
+
+println("=== 等腰三角形(AB = AC)计算 ===")
+let ab = read_float("腰长 AB = ")
+let ac = read_float("腰长 AC(通常与 AB 相等)= ")
+let bc = read_float("底边 BC = ")
+
+if ab != ac {
+    println("注意:AB ≠ AC,这不是以 A 为顶点的等腰三角形,但以下计算仍按实际边长进行")
+}
+
+// 两腰之和必须大于底边
+if ab + ac <= bc {
+    println("✗ 无法构成三角形:两腰之和 {ab + ac} 不大于底边 {bc}")
+} else {
+    // 底边上的高:等腰三角形的高垂直平分底边
+    let half = bc / 2
+    let h = (ab * ab - half * half) ** 0.5
+    let area = triangle_area(ab, ac, bc)
+    let p = ab + ac + bc
+
+    println("底边上的高 h = {h}")
+    println("面积 S = {area}")
+    println("周长 P = {p}")
+
+    // 复核:面积应等于 底×高/2
+    let check = bc * h / 2
+    let diff = abs(area - check)
+    if diff < 0.000001 {
+        println("✓ 复核通过:海伦公式结果与底×高/2 一致(差 {diff})")
+    } else {
+        println("⚠ 复核差异 {diff}")
+    }
+}

@@ -1,0 +1,30 @@
+# 任务服务测试
+
+import services.task_service
+
+fn test_add_and_list() {
+    let svc = services.task_service.new_service("/tmp/test_tasks.json")
+    services.task_service.add(svc, "测试任务", "high")
+    let all = services.task_service.list_all(svc)
+    assert all.len() == 1
+    assert all[0]["title"] == "测试任务"
+    println("test_add_and_list 通过")
+}
+
+fn test_complete() {
+    let svc = services.task_service.new_service("/tmp/test_tasks2.json")
+    services.task_service.add(svc, "待完成", "low")
+    services.task_service.complete(svc, 1)
+    let all = services.task_service.list_all(svc)
+    assert all[0]["done"] == true
+    println("test_complete 通过")
+}
+
+fn test_remove() {
+    let svc = services.task_service.new_service("/tmp/test_tasks3.json")
+    services.task_service.add(svc, "要删除", "low")
+    services.task_service.remove(svc, 1)
+    let all = services.task_service.list_all(svc)
+    assert all.len() == 0
+    println("test_remove 通过")
+}

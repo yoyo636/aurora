@@ -1,0 +1,36 @@
+// isoceles_check.aur — 等腰三角形检测
+// 输入三条边长,判断能否构成三角形、是否等腰,并指出哪两条边相等
+// 用法: ./aurora-run run examples/triangles/isoceles_check.aur
+//       然后依次输入 AB、BC、AC 三条边的长度
+
+fn is_isoceles(a, b, c) -> bool {
+    // 三角形不等式:任意两边之和大于第三边
+    if a + b <= c || a + c <= b || b + c <= a {
+        return false
+    }
+    a == b || b == c || a == c
+}
+
+println("=== 等腰三角形检测 ===")
+println("依次输入三条边长(每行一个,支持小数):")
+let ab = read_float("AB = ")
+let bc = read_float("BC = ")
+let ac = read_float("AC = ")
+
+if !is_isoceles(ab, bc, ac) {
+    if ab + bc <= ac || ab + ac <= bc || bc + ac <= ab {
+        println("不能构成三角形:存在两边之和不大于第三边")
+    } else {
+        println("能构成三角形,但不是等腰(三边互不相等)")
+    }
+} else {
+    if ab == ac {
+        println("✓ 等腰三角形:AB = AC,顶角在 A")
+    } elif ab == bc {
+        println("✓ 等腰三角形:AB = BC,顶角在 B")
+    } else {
+        println("✓ 等腰三角形:AC = BC,顶角在 C")
+    }
+    let p = ab + bc + ac
+    println("周长 = {p}")
+}

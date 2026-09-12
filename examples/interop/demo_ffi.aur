@@ -1,0 +1,27 @@
+# demo_ffi.aur — 与 Rust / C++ 打通(FFI)
+# 前置:在 examples/interop 目录下先构建共享库:
+#   cd rust_math && cargo build --release
+#   clang++ -shared -fPIC -O2 cpp_math.cpp -o libcpp_math.dylib
+import std.ffi
+
+# ── Rust 库:librust_math.dylib ──
+let rust = std.ffi.load("rust_math/target/release/librust_math.dylib")
+let add  = std.ffi.func(rust, "add", ["i32", "i32"], "i32")
+let mul  = std.ffi.func(rust, "mul", ["i32", "i32"], "i32")
+let even = std.ffi.func(rust, "is_even", ["i32"], "i32")
+let fib  = std.ffi.func(rust, "fib", ["i32"], "i32")
+
+println("Rust add(3, 4)  = " + str(add(3, 4)))
+println("Rust mul(6, 7)  = " + str(mul(6, 7)))
+println("Rust is_even(10) = " + str(even(10)))
+println("Rust fib(10)    = " + str(fib(10)))
+
+# ── C++ 库:libcpp_math.dylib ──
+let cpp = std.ffi.load("libcpp_math.dylib")
+let sub = std.ffi.func(cpp, "sub", ["i32", "i32"], "i32")
+let gcd = std.ffi.func(cpp, "gcd", ["i32", "i32"], "i32")
+let pow = std.ffi.func(cpp, "ipow", ["i64", "i64"], "i64")
+
+println("C++ sub(10, 4)  = " + str(sub(10, 4)))
+println("C++ gcd(48, 36) = " + str(gcd(48, 36)))
+println("C++ ipow(2, 10) = " + str(pow(2, 10)))

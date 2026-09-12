@@ -1,0 +1,75 @@
+{
+  "name": "Aurora",
+  "scopeName": "source.aurora",
+  "fileTypes": ["aur"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#builtins" },
+    { "include": "#numbers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "match": "//.*$", "name": "comment.line.double-slash.aurora" },
+        { "match": "#.*$", "name": "comment.line.hash.aurora" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "begin": "(r|R)(\")",
+          "beginCaptures": {
+            "1": { "name": "string.quoted.raw.aurora" },
+            "2": { "name": "punctuation.definition.string.begin.aurora" }
+          },
+          "end": "\"",
+          "name": "string.quoted.raw.aurora"
+        },
+        {
+          "begin": "(r|R)(')",
+          "beginCaptures": {
+            "1": { "name": "string.quoted.raw.aurora" },
+            "2": { "name": "punctuation.definition.string.begin.aurora" }
+          },
+          "end": "'",
+          "name": "string.quoted.raw.aurora"
+        },
+        {
+          "begin": "\"",
+          "end": "\"",
+          "name": "string.quoted.double.aurora",
+          "patterns": [
+            { "match": "\\\\[\"\\\\nrt0]", "name": "constant.character.escape.aurora" },
+            { "match": "\\{[^}]*\\}", "name": "string.interpolated.aurora" }
+          ]
+        },
+        {
+          "begin": "'",
+          "end": "'",
+          "name": "string.quoted.single.aurora"
+        }
+      ]
+    },
+    "keywords": {
+      "match": "\\b(fn|let|var|const|if|elif|else|for|while|return|type|enum|impl|match|trait|true|false|nil|in|break|continue|import|from|as|spawn|chan|select|default|try|catch|finally|panic|self|std|and|or|not|loop|pub|mut|defer|yield)\\b",
+      "name": "keyword.control.aurora"
+    },
+    "builtins": {
+      "match": "\\b(println|print|read_int|read_line|read_float|input|range|len|str|int|float|bool|type|assert|sleep|abs|min|max|sqrt|pow|floor|ceil|round|sin|cos|log|random|push|pop|map|filter|reduce|contains|sort|keys|clone|join|split|upper|lower|trim|exists|panic)\\b",
+      "name": "support.function.builtin.aurora"
+    },
+    "numbers": {
+      "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b",
+      "name": "constant.numeric.aurora"
+    },
+    "operators": {
+      "patterns": [
+        { "match": "&&|\\|\\||<<|>>|<=|>=|==|!=|\\+=|-=|\\*=|/=|\\*\\*|->|=>|<-|\\?\\?|\\?\\.|\\|>|\\.\\.", "name": "keyword.operator.aurora" },
+        { "match": "[+\\-*/%<>=!&|^~]", "name": "keyword.operator.aurora" }
+      ]
+    }
+  }
+}

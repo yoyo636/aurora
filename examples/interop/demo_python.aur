@@ -1,0 +1,21 @@
+# demo_python.aur — 与 Python 生态打通
+# 可导入任意已安装 Python 库(numpy / pandas / requests ...)
+import std.python
+
+println("Python 版本: " + std.python.version())
+println("python.eval(1 + 2 * 3) = " + str(std.python.eval("1 + 2 * 3")))
+
+# 导入 Python 模块,像 Aurora 对象一样用
+let m = std.python.import("math")
+println("math.sqrt(81) = " + str(m.sqrt(81)))
+println("math.pi       = " + str(m.pi))
+
+let r = std.python.import("random")
+println("random.randint(1, 100) = " + str(r.randint(1, 100)))
+
+# 调用任意 Python 可调用对象
+println("call(m.floor, 3.7) = " + str(std.python.call(m.floor, 3.7)))
+
+# 与 Python 数据结构互通(dict/list 自动映射)
+let data = std.python.eval(r"{'name': 'Aurora', 'langs': ['Rust', 'Python', 'C++']}")
+println("dict 互通: " + data["name"] + " → " + str(data["langs"]))

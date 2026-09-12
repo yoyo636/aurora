@@ -1,0 +1,24 @@
+# demo_json.aur — 与 JSON 数据格式打通
+# 提示:原始字符串 r'...' 不插值,适合直接书写 JSON/正则/路径
+import std.json
+
+# 解析(用原始字符串避开 { } 插值)
+let data = std.json.parse(r'{"name": "Aurora", "version": "0.3.0", "tags": ["lang", "ffi", "web"]}')
+println("name = " + data["name"])
+println("tags = " + str(data["tags"]))
+
+# 生成
+let obj = {
+    "project": "Aurora 生态",
+    "modules": ["std.json", "std.python", "std.ffi", "std.html", "std.proc"],
+    "score": 99.5,
+    "active": true,
+    "nested": {"a": [1, 2, 3]},
+}
+println(std.json.stringify(obj, 2))
+
+# 文件读写
+let p = "/tmp/aurora_data.json"
+std.json.save(p, obj)
+let back = std.json.load(p)
+println("文件回读: " + back["project"] + " / " + str(back["nested"]["a"]))

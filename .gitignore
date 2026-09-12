@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# 虚拟环境
+ide/.venv/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Aurora 构建产物
+dist/
+*.pyc
+
+# Rust 构建产物
+examples/interop/rust_math/target/
+
+# C++ 构建产物
+examples/interop/*.o
+examples/interop/*.dylib
+examples/interop/*.so
+
+# 运行时数据
+examples/largeapp/tasks.json
+*.aurora-cache/
+
+# VSCode 插件构建
+vscode-aurora/*.vsix
+vscode-aurora/node_modules/
+
+# 临时文件
+/tmp/
+*.log

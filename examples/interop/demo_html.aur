@@ -1,0 +1,19 @@
+# demo_html.aur — 与 HTML 打通:Aurora 数据 → 网页
+import std.html
+
+let items = ["词法分析", "语法分析", "类型检查", "所有权", "解释执行"]
+var rows = ""
+for pair in enumerate(items) {
+    let (i, name) = pair
+    rows = rows + "<tr><td>" + str(i + 1) + "</td><td>" + name + "</td></tr>\n"
+}
+
+let body = std.html.render(
+    r'<h1>{{title}}</h1><table><tr><th>#</th><th>模块</th></tr>{{!rows}}</table>',
+    {"title": "Aurora 编译器管线", "rows": rows},
+)
+let doc = std.html.page("Aurora 生态演示", body)
+
+let path = std.html.write("/tmp/aurora_web.html", doc)
+println("HTML 已写入: " + path)
+println("在浏览器打开即可查看")

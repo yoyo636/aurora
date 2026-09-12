@@ -1,0 +1,10 @@
+#!/bin/bash
+# Aurora 便捷启动脚本 —— 无需安装，从项目任意位置运行
+# 用法：
+#   ./aurora-run repl           交互式 REPL
+#   ./aurora-run run demo.aur   运行程序
+#   ./aurora-run check demo.aur 静态检查
+#   ./aurora-run eval 'code'    执行单行
+#   ./aurora-run --help         全部命令
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "$SCRIPT_DIR/cli.py" "$@"

@@ -1,0 +1,18 @@
+# demo_http.aur — 与 Web / API 打通
+# 请求本机 Aurora IDE 服务(127.0.0.1:8697)或任意 HTTP API
+import std.http
+
+# 本地服务健康检查
+let health = std.http.get_json("http://127.0.0.1:8697/api/health")
+println("IDE 健康: " + str(health))
+
+# 获取网页原文
+let page = std.http.get("http://127.0.0.1:8697/")
+println("IDE 首页字节数: " + str(page.len()))
+
+# POST JSON
+let resp = std.http.post(
+    "http://127.0.0.1:8697/api/check",
+    r'{"code": "fn f(x) { x * 2 }"}',
+)
+println("check 响应: " + resp.trim())

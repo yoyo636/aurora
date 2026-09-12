@@ -1,0 +1,35 @@
+# demo_vex.aur — 与 VEX 机器人打通
+# 导出 VEXcode 工程源码(Python / C++),在 VEXcode 中新建项目粘贴即可编译部署
+import std.vex
+
+# VEXcode Python 工程
+let python_code = r'''
+# 基础:屏幕 + 双电机底盘
+brain.screen.print("Hello Aurora!")
+
+left_motor  = Motor(Ports.PORT1, GearSetting.RATIO_18_1, False)
+right_motor = Motor(Ports.PORT2, GearSetting.RATIO_18_1, True)
+
+# 画一个正方形
+for i in range(4):
+    left_motor.spin_for(FORWARD, 500, DEGREES)
+    right_motor.spin_for(FORWARD, 500, DEGREES)
+'''
+let info = std.vex.python("/tmp", "aurora_robot", python_code)
+println("VEX Python 工程: " + info["dir"] + "/" + info["file"])
+
+# VEXcode C++ 工程
+let cpp_code = r'''
+vex::motor left_motor(vex::PORT1, vex::gearSetting::ratio18_1, false);
+vex::motor right_motor(vex::PORT2, vex::gearSetting::ratio18_1, true);
+
+int main() {
+    Brain.Screen.print("Hello Aurora!");
+    for (int i = 0; i < 4; i++) {
+        left_motor.spinFor(vex::forward, 500, vex::degrees);
+        right_motor.spinFor(vex::forward, 500, vex::degrees);
+    }
+}
+'''
+let info2 = std.vex.cpp("/tmp", "aurora_robot_cpp", cpp_code)
+println("VEX C++ 工程: " + info2["dir"] + "/" + info2["file"])

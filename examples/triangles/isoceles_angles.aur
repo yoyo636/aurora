@@ -1,0 +1,37 @@
+// isoceles_angles.aur — 等腰三角形性质验证:底角相等
+// 输入三条边,若 AB == AC,用余弦定理计算 ∠B 与 ∠C 并验证相等
+// 定理:等腰三角形两底角相等;这里用「对应角的余弦相等」来验证
+// 用法: ./aurora-run run examples/triangles/isoceles_angles.aur
+
+// 返回角 C(对边为 side_c)的余弦:cos C = (a² + b² - c²) / (2ab)
+fn cos_of_angle(side_a, side_b, side_c) -> float {
+    (side_a * side_a + side_b * side_b - side_c * side_c) / (2 * side_a * side_b)
+}
+
+println("=== 底角相等验证(AB = AC) ===")
+let ab = read_float("AB = ")
+let ac = read_float("AC = ")
+let bc = read_float("BC = ")
+
+if ab + ac <= bc {
+    println("✗ 无法构成三角形")
+} elif ab == ac {
+    // ∠B 的邻边是 AB 与 BC,对边是 AC;∠C 的邻边是 AC 与 BC,对边是 AB
+    let cos_b = cos_of_angle(ab, bc, ac)
+    let cos_c = cos_of_angle(ac, bc, ab)
+
+    // 角度在 0..π 内单调,余弦相等 ⇔ 角相等
+    let diff = abs(cos_b - cos_c)
+    println("cos(∠B) = {cos_b}")
+    println("cos(∠C) = {cos_c}")
+    println("差值 = {diff}")
+
+    if diff < 0.000001 {
+        println("✓ 验证通过:AB = AC ⇒ ∠B == ∠C(等腰三角形底角相等)")
+    } else {
+        println("✗ 结果不一致,存在计算误差")
+    }
+} else {
+    println("AB ≠ AC,此三角形不以 A 为顶点;底角相等结论不适用")
+    println("(提示:任意等腰三角形两底角相等,与哪条边是腰无关)")
+}

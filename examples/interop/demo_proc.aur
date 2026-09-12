@@ -1,0 +1,28 @@
+# demo_proc.aur — 多程序协同:一个 Aurora 程序编排其它程序
+# 启动另一个 Aurora 程序(worker.aur),经 JSON 交换数据
+# 也可启动任意外部程序(Python / Rust / shell ...)
+import std.json
+import std.proc
+
+# ── ① Aurora ↔ Aurora:启动 worker 处理数据 ──
+let out = std.proc.call(
+    r'aurora run worker.aur',
+    r'{"nums": [10, 20, 30, 40]}',
+)
+let result = std.json.parse(out)
+println("Aurora worker: sum=" + str(result["sum"])
+        + " count=" + str(result["count"])
+        + " avg=" + str(result["avg"]))
+
+# ── ② Aurora ↔ Python 进程:JSON 管道 ──
+let py = std.proc.call_args(
+    ["python3", "-c",
+     r"import sys,json; d=json.load(sys.stdin); print(json.dumps({'x2': [i*2 for i in d], 'sum': sum(d)}))"],
+    r'[1, 2, 3, 4]',
+)
+let pyj = std.json.parse(py)
+println("Python 进程: x2=" + str(pyj["x2"]) + " sum=" + str(pyj["sum"]))
+
+# ── ③ 简单命令 ──
+let r = std.proc.run("echo 'hello from shell'")
+println("shell: " + r["out"].trim())

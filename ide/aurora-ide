@@ -1,0 +1,11 @@
+#!/bin/bash
+# Aurora 教学工坊 —— 命令行启动(任一目录可用)
+# 用法: ./aurora-ide    (自动打开默认浏览器)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+if curl -s --max-time 1 http://127.0.0.1:8697/api/health > /dev/null 2>&1; then
+  echo "服务已在运行,直接打开浏览器"
+  open "http://127.0.0.1:8697"
+  exit 0
+fi
+exec python3 server.py --open

@@ -1,0 +1,17 @@
+# worker.aur — 多程序协同:从 stdin 读 JSON,处理后回写 JSON
+# 由 main.aur 通过 std.proc 启动,数据经 stdin/stdout 交换
+import std.json
+
+let raw = read_line()
+let data = std.json.parse(raw)
+
+var total = 0
+for x in data["nums"] {
+    total = total + x
+}
+
+let n = data["nums"].len()
+let avg = total / n
+
+# 输出 JSON 结果(主程序经 stdout 捕获)
+println(std.json.stringify({"sum": total, "count": n, "avg": avg}))

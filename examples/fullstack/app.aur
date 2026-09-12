@@ -1,0 +1,173 @@
+# ─────────────────────────────────────────────────────────────
+# Aurora 全栈示例 — 前端 + 后端 + AI Agent 一体
+#
+# 本示例展示 Aurora 同时拥有:
+#   · HTML 前端(可交互页面,由 Aurora 生成并提供)
+#   · Web 后端(std.web HTTP 服务 + JSON API)
+#   · Rust / C++ 后端(FFI 调用共享库计算)
+#   · Python 后端(std.python 直接调用 Python 生态)
+#   · JSON 数据(请求 / 响应全程 JSON)
+#   · AI Agent(std.ai 工具调用式 Agent)
+#
+# 运行:
+#   cd examples/fullstack
+#   ../../aurora-run run app.aur
+# 浏览器打开 http://127.0.0.1:8988/
+# ─────────────────────────────────────────────────────────────
+import std.web
+import std.json
+import std.ffi
+import std.python
+import std.ai
+
+# ══════════════ 后端计算层:Rust + C++(FFI)══════════════
+let rust = std.ffi.load("../interop/rust_math/target/release/librust_math.dylib")
+let add  = std.ffi.func(rust, "add", ["i32", "i32"], "i32")
+let fib  = std.ffi.func(rust, "fib", ["i32"], "i32")
+
+let cpp  = std.ffi.load("../interop/libcpp_math.dylib")
+let gcd  = std.ffi.func(cpp, "gcd", ["i32", "i32"], "i32")
+let ipow = std.ffi.func(cpp, "ipow", ["i64", "i64"], "i64")
+
+# Python 模块(标准库,零安装)
+let py_math = std.python.import("math")
+let py_str  = std.python.import("string")
+
+# ══════════════ AI Agent 工具:让大模型调用 Aurora 函数 ══════════════
+fn tool_add(a, b) -> i64 { return add(a, b) }
+fn tool_gcd(a, b) -> i64 { return gcd(a, b) }
+fn tool_fib(n)   -> i64 { return fib(n) }
+fn tool_upper(s) -> str { return py_str.ascii_uppercase }
+
+let ai_tools = {
+    "add":  {"fn": tool_add,  "desc": "整数加法 add(a, b)"},
+    "gcd":  {"fn": tool_gcd,  "desc": "最大公约数 gcd(a, b)"},
+    "fib":  {"fn": tool_fib,  "desc": "斐波那契数列第 n 项 fib(n)"},
+    "upper": {"fn": tool_upper, "desc": "把字符串转大写 upper(s)"},
+}
+
+# ══════════════ 前端:可交互 HTML 页面(由 Aurora 生成)══════════════
+let front_page = r'<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Aurora 全栈演示</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 20px; color: #1f2328; }
+  h1 { border-bottom: 3px solid #6e56cf; padding-bottom: 10px; }
+  .card { border: 1px solid #d0d7de; border-radius: 10px; padding: 16px; margin: 16px 0; }
+  input { padding: 8px; margin: 4px; border: 1px solid #d0d7de; border-radius: 6px; width: 90px; }
+  button { background: #6e56cf; color: white; border: 0; padding: 9px 18px; border-radius: 6px; cursor: pointer; margin-top: 8px; }
+  button:hover { background: #5a41c9; }
+  pre { background: #f6f8fa; padding: 12px; border-radius: 8px; overflow-x: auto; }
+  .badge { display: inline-block; background: #e6e0fb; color: #5a41c9; border-radius: 12px; padding: 2px 10px; font-size: 12px; margin: 2px; }
+</style>
+</head>
+<body>
+<h1>Aurora 全栈演示</h1>
+<p>
+  <span class="badge">HTML 前端</span>
+  <span class="badge">Web 后端 std.web</span>
+  <span class="badge">Rust 后端 FFI</span>
+  <span class="badge">C++ 后端 FFI</span>
+  <span class="badge">Python 后端</span>
+  <span class="badge">JSON</span>
+  <span class="badge">AI Agent</span>
+</p>
+
+<div class="card">
+  <h3>计算后端( Rust + C++ )</h3>
+  <label>a <input id="a" value="48"></label>
+  <label>b <input id="b" value="36"></label>
+  <label>n <input id="n" value="10"></label>
+  <br>
+  <button onclick="calc()">调用后端计算</button>
+  <pre id="calcOut">结果将显示在这里</pre>
+</div>
+
+<div class="card">
+  <h3>Python 后端</h3>
+  <label>数字 <input id="pyn" value="81"></label>
+  <br>
+  <button onclick="pycall()">调用 Python 计算</button>
+  <pre id="pyOut">结果将显示在这里</pre>
+</div>
+
+<div class="card">
+  <h3>AI Agent( 配置了 API Key 后可用 )</h3>
+  <label>问题 <input id="q" value="计算 48 和 36 的最大公约数, 然后求 fib(10)" style="width: 380px;"></label>
+  <br>
+  <button onclick="aiquest()">让 Agent 思考并调用工具</button>
+  <pre id="aiOut">结果将显示在这里</pre>
+</div>
+
+<script>
+async function calc() {
+  const a = +document.getElementById("a").value;
+  const b = +document.getElementById("b").value;
+  const n = +document.getElementById("n").value;
+  const r = await fetch("/api/calc", {method: "POST", body: JSON.stringify({a, b, n})});
+  document.getElementById("calcOut").textContent = JSON.stringify(await r.json(), null, 2);
+}
+async function pycall() {
+  const n = +document.getElementById("pyn").value;
+  const r = await fetch("/api/py", {method: "POST", body: JSON.stringify({n})});
+  document.getElementById("pyOut").textContent = JSON.stringify(await r.json(), null, 2);
+}
+async function aiquest() {
+  const q = document.getElementById("q").value;
+  const r = await fetch("/api/ai", {method: "POST", body: JSON.stringify({question: q})});
+  const d = await r.json();
+  document.getElementById("aiOut").textContent =
+    "答案: " + d.answer + "\n步数: " + d.steps + "\n调用: " + JSON.stringify(d.calls, null, 2);
+}
+</script>
+</body>
+</html>'
+
+# ══════════════ 路由:后端服务 ══════════════
+fn handle(path, method, query, body) {
+    # HTML 前端
+    if path == "/" {
+        return front_page
+    }
+    # Rust + C++ 计算
+    if path == "/api/calc" and method == "POST" {
+        let d = std.json.parse(body)
+        return {
+            "add": add(d["a"], d["b"]),
+            "gcd": gcd(d["a"], d["b"]),
+            "fib": fib(d["n"]),
+            "ipow": ipow(2, d["n"]),
+            "backend": "Rust + C++ (FFI)",
+        }
+    }
+    # Python 计算
+    if path == "/api/py" and method == "POST" {
+        let d = std.json.parse(body)
+        let n = d["n"]
+        return {
+            "sqrt": py_math.sqrt(n),
+            "floor_pi": py_math.floor(py_math.pi * 100),
+            "prime_less_20": std.python.eval(r"[p for p in range(2, 20) if all(p % i for i in range(2, p))]"),
+            "backend": "Python",
+        }
+    }
+    # AI Agent
+    if path == "/api/ai" and method == "POST" {
+        let d = std.json.parse(body)
+        let r = std.ai.agent(
+            "你是数学计算助手。需要计算时,调用提供的工具,不要自己心算。",
+            ai_tools,
+            d["question"],
+        )
+        return {"answer": r["answer"], "steps": r["steps"], "calls": r["tool_calls"]}
+    }
+    return [404, "not found"]
+}
+
+let info = std.web.serve(8988, handle)
+println("Aurora 全栈服务已启动: " + info["url"])
+println("浏览器打开上面的地址即可体验前端 / 后端 / AI Agent")
+println("Ctrl-C 停止服务")
+std.web.wait()
