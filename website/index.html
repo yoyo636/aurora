@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aurora — 寻求将代码转化为智能的最优解</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: #000;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ===== 导航栏 ===== */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 48px;
+    background: rgba(0,0,0,0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .nav-logo {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 20px; font-weight: 700; letter-spacing: -0.5px;
+    text-decoration: none; color: #fff;
+  }
+  .nav-logo .moon {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #fff; position: relative; overflow: hidden;
+  }
+  .nav-logo .moon::after {
+    content: ''; position: absolute;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: #000; top: -3px; right: -5px;
+  }
+  .nav-links { display: flex; gap: 36px; align-items: center; }
+  .nav-links a {
+    color: rgba(255,255,255,0.6); text-decoration: none;
+    font-size: 14px; font-weight: 400; transition: color 0.2s;
+  }
+  .nav-links a:hover { color: #fff; }
+  .nav-cta {
+    padding: 8px 20px; border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 20px; color: #fff !important; font-size: 13px !important;
+    transition: all 0.2s;
+  }
+  .nav-cta:hover { background: #fff; color: #000 !important; }
+
+  /* ===== Hero 区域 ===== */
+  .hero {
+    position: relative; min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+
+  /* 背景滚动文字 */
+  .scroll-bg {
+    position: absolute; top: 50%; left: 0; right: 0;
+    transform: translateY(-50%);
+    white-space: nowrap; overflow: hidden;
+    pointer-events: none;
+  }
+  .scroll-text {
+    display: inline-block;
+    font-size: 180px; font-weight: 900;
+    letter-spacing: -4px;
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(255,255,255,0.06);
+    animation: scrollLeft 40s linear infinite;
+    padding-right: 60px;
+  }
+  @keyframes scrollLeft {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+
+  /* 月牙图形 */
+  .moon-container {
+    position: relative; width: 320px; height: 320px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 40px;
+  }
+  .moon-glow {
+    position: absolute; width: 400px; height: 400px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 40%, transparent 70%);
+    animation: pulse 4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.08); opacity: 1; }
+  }
+  .moon-body {
+    position: relative; width: 200px; height: 200px;
+    border-radius: 50%; background: #f0f0f0;
+    box-shadow: 0 0 60px rgba(255,255,255,0.15), 0 0 120px rgba(255,255,255,0.05);
+  }
+  .moon-body::after {
+    content: ''; position: absolute;
+    width: 180px; height: 180px; border-radius: 50%;
+    background: #000; top: -20px; right: -30px;
+  }
+  .moon-ring {
+    position: absolute; width: 240px; height: 240px;
+    border-radius: 50%; border: 1px solid rgba(255,255,255,0.08);
+  }
+  .moon-ring-2 {
+    position: absolute; width: 300px; height: 300px;
+    border-radius: 50%; border: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .hero-title {
+    font-size: 72px; font-weight: 800;
+    letter-spacing: -2px; margin-bottom: 16px;
+    background: linear-gradient(180deg, #fff 0%, #888 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero-slogan {
+    font-size: 20px; color: rgba(255,255,255,0.5);
+    font-weight: 300; letter-spacing: 1px;
+    margin-bottom: 48px;
+  }
+  .hero-actions { display: flex; gap: 16px; }
+  .btn {
+    padding: 14px 32px; border-radius: 30px;
+    font-size: 15px; font-weight: 500;
+    text-decoration: none; cursor: pointer;
+    transition: all 0.25s; border: none;
+  }
+  .btn-primary { background: #fff; color: #000; }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(255,255,255,0.2); }
+  .btn-ghost { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.2); }
+  .btn-ghost:hover { border-color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.05); }
+
+  .scroll-hint {
+    position: absolute; bottom: 40px; left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.3); font-size: 12px;
+    letter-spacing: 2px; animation: bounce 2s infinite;
+  }
+  @keyframes bounce {
+    0%, 100% { transform: translateX(-50%) translateY(0); }
+    50% { transform: translateX(-50%) translateY(8px); }
+  }
+
+  /* ===== 通用 section ===== */
+  section { padding: 120px 48px; max-width: 1200px; margin: 0 auto; }
+  .section-label {
+    font-size: 13px; color: rgba(255,255,255,0.4);
+    letter-spacing: 3px; text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-size: 42px; font-weight: 700;
+    letter-spacing: -1px; margin-bottom: 20px;
+    line-height: 1.2;
+  }
+  .section-desc {
+    font-size: 17px; color: rgba(255,255,255,0.5);
+    line-height: 1.7; max-width: 640px;
+  }
+
+  /* ===== 特性网格 ===== */
+  .features-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 1px; background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px; overflow: hidden;
+    margin-top: 60px;
+  }
+  .feature-card {
+    background: #000; padding: 40px 32px;
+    transition: background 0.3s;
+  }
+  .feature-card:hover { background: #0a0a0a; }
+  .feature-icon {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; margin-bottom: 20px;
+  }
+  .feature-name {
+    font-size: 17px; font-weight: 600; margin-bottom: 10px;
+  }
+  .feature-desc {
+    font-size: 14px; color: rgba(255,255,255,0.45);
+    line-height: 1.6;
+  }
+
+  /* ===== 代码示例 ===== */
+  .code-section { background: #000; }
+  .code-wrapper {
+    margin-top: 48px; border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+    overflow: hidden; background: #050505;
+  }
+  .code-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .code-dot { width: 12px; height: 12px; border-radius: 50%; }
+  .code-dot:nth-child(1) { background: #ff5f57; }
+  .code-dot:nth-child(2) { background: #febc2e; }
+  .code-dot:nth-child(3) { background: #28c840; }
+  .code-filename {
+    margin-left: 12px; font-size: 13px;
+    color: rgba(255,255,255,0.4); font-family: "SF Mono", monospace;
+  }
+  .code-body {
+    padding: 28px 32px; font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 14px; line-height: 1.8; overflow-x: auto;
+  }
+  .code-body .kw { color: #fff; font-weight: 600; }
+  .code-body .fn { color: #74c0fc; }
+  .code-body .str { color: #a8d8ea; }
+  .code-body .num { color: #da77f2; }
+  .code-body .cm { color: #444; font-style: italic; }
+  .code-body .op { color: #888; }
+
+  /* ===== 效率对比 ===== */
+  .compare-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 24px; margin-top: 48px;
+  }
+  .compare-card {
+    border-radius: 16px; padding: 32px;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .compare-card.python { background: #050505; opacity: 0.7; }
+  .compare-card.aurora { background: #0a0a0a; border-color: rgba(255,255,255,0.2); }
+  .compare-label {
+    font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+  }
+  .compare-card.python .compare-label { color: rgba(255,255,255,0.3); }
+  .compare-card.aurora .compare-label { color: #fff; }
+  .compare-steps {
+    font-size: 13px; color: rgba(255,255,255,0.5);
+    font-family: "SF Mono", monospace; line-height: 2;
+  }
+  .compare-steps .step-num {
+    display: inline-block; width: 24px; color: rgba(255,255,255,0.25);
+  }
+
+  /* ===== 下载区域 ===== */
+  .download-section { text-align: center; }
+  .download-card {
+    display: inline-block; margin-top: 48px;
+    padding: 48px 64px; border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: linear-gradient(180deg, #0a0a0a 0%, #000 100%);
+  }
+  .download-version {
+    font-size: 13px; color: rgba(255,255,255,0.4);
+    letter-spacing: 2px; margin-bottom: 12px;
+  }
+  .download-size {
+    font-size: 14px; color: rgba(255,255,255,0.3); margin-top: 16px;
+  }
+
+  /* ===== Footer ===== */
+  footer {
+    border-top: 1px solid rgba(255,255,255,0.06);
+    padding: 48px; text-align: center;
+  }
+  .footer-links {
+    display: flex; justify-content: center; gap: 32px;
+    margin-bottom: 20px;
+  }
+  .footer-links a {
+    color: rgba(255,255,255,0.4); text-decoration: none;
+    font-size: 13px; transition: color 0.2s;
+  }
+  .footer-links a:hover { color: #fff; }
+  .footer-copy {
+    font-size: 12px; color: rgba(255,255,255,0.2);
+  }
+
+  /* ===== 响应式 ===== */
+  @media (max-width: 768px) {
+    nav { padding: 16px 20px; }
+    .nav-links { gap: 16px; }
+    .nav-links a:not(.nav-cta) { display: none; }
+    .hero-title { font-size: 42px; }
+    .hero-slogan { font-size: 16px; }
+    .moon-container { width: 220px; height: 220px; }
+    .moon-body { width: 140px; height: 140px; }
+    .moon-body::after { width: 126px; height: 126px; }
+    .moon-glow { width: 280px; height: 280px; }
+    .scroll-text { font-size: 80px; }
+    section { padding: 80px 20px; }
+    .section-title { font-size: 28px; }
+    .features-grid { grid-template-columns: 1fr; }
+    .compare-grid { grid-template-columns: 1fr; }
+    .download-card { padding: 32px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== 导航栏 ===== -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="moon"></div>
+    Aurora
+  </a>
+  <div class="nav-links">
+    <a href="#features">特性</a>
+    <a href="#code">示例</a>
+    <a href="#efficiency">效率</a>
+    <a href="#docs">文档</a>
+    <a href="#download" class="nav-cta">下载</a>
+  </div>
+</nav>
+
+<!-- ===== Hero ===== -->
+<section class="hero" style="max-width:none;padding:0;">
+  <div class="scroll-bg">
+    <span class="scroll-text">AURORA · AURORA · AURORA · AURORA · AURORA · AURORA · AURORA · AURORA · </span>
+    <span class="scroll-text">AURORA · AURORA · AURORA · AURORA · AURORA · AURORA · AURORA · AURORA · </span>
+  </div>
+
+  <div class="moon-container">
+    <div class="moon-ring-2"></div>
+    <div class="moon-ring"></div>
+    <div class="moon-glow"></div>
+    <div class="moon-body"></div>
+  </div>
+
+  <h1 class="hero-title">Aurora</h1>
+  <p class="hero-slogan">寻求将代码转化为智能的最优解</p>
+
+  <div class="hero-actions">
+    <a href="#download" class="btn btn-primary">下载安装器</a>
+    <a href="#code" class="btn btn-ghost">查看示例</a>
+  </div>
+
+  <div class="scroll-hint">SCROLL</div>
+</section>
+
+<!-- ===== 特性 ===== -->
+<section id="features">
+  <div class="section-label">Features</div>
+  <h2 class="section-title">为高效编程而生</h2>
+  <p class="section-desc">融合 Rust 的安全、Python 的简洁、Go 的并发、TypeScript 的类型系统。100+ 全局快捷函数,让 Python 需要十步的操作,Aurora 只需三四步。</p>
+
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">⚡</div>
+      <div class="feature-name">极致效率</div>
+      <div class="feature-desc">100+ 全局函数,read/write/get/json/shell/unique/avg 一行搞定。AOT 编译 + 缓存,只重编变化文件。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🌐</div>
+      <div class="feature-name">全栈能力</div>
+      <div class="feature-desc">HTML 前端 + Web 后端 + AI Agent,一个文件搞定。内置 HTTP 服务器、模板渲染、OpenAI 兼容客户端。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔗</div>
+      <div class="feature-name">生态互通</div>
+      <div class="feature-desc">Rust/C++ FFI 桥接、Python 互操作、JSON/HTML/CSV/XML 解析、VEX 集成、HTTP 客户端。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🛡</div>
+      <div class="feature-name">类型安全</div>
+      <div class="feature-desc">let/var 不可变与可变绑定、type/enum/trait/impl、match 模式匹配、Result + ? 错误处理。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📦</div>
+      <div class="feature-name">工程化</div>
+      <div class="feature-desc">aurora new/test/build/watch 全套工具链。多文件模块系统、src/ 分层结构、161 项全量测试。</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🤖</div>
+      <div class="feature-name">AI 原生</div>
+      <div class="feature-desc">内置 std.ai Agent 框架,OpenAI 兼容协议。AI_GUIDE + AI_SYSTEM_PROMPT 让任何 AI 学会 Aurora。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 代码示例 ===== -->
+<section id="code" class="code-section">
+  <div class="section-label">Example</div>
+  <h2 class="section-title">简洁,而不简单</h2>
+  <p class="section-desc">表达式导向设计,if/match/loop/块都有值,函数最后一个表达式即返回值。</p>
+
+  <div class="code-wrapper">
+    <div class="code-header">
+      <div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div>
+      <span class="code-filename">main.aur</span>
+    </div>
+    <div class="code-body">
+<span class="cm">// 读取 JSON 配置 → 处理 → 写入结果</span>
+<span class="kw">let</span> config = <span class="fn">json</span>(<span class="fn">read</span>(<span class="str">"config.json"</span>))
+<span class="kw">let</span> users = config[<span class="str">"users"</span>]
+
+<span class="cm">// 一行完成:提取字段、去重、计算平均值</span>
+<span class="kw">let</span> names = <span class="fn">unique</span>(<span class="fn">pluck</span>(users, <span class="str">"name"</span>))
+<span class="kw">let</span> avg_age = <span class="fn">avg</span>(<span class="fn">pluck</span>(users, <span class="str">"age"</span>))
+
+<span class="cm">// 管道操作:数据流式处理</span>
+<span class="kw">let</span> result = users
+  |&gt; <span class="fn">filter</span>(<span class="kw">fn</span>(u) u[<span class="str">"active"</span>])
+  |&gt; <span class="fn">map</span>(<span class="kw">fn</span>(u) u[<span class="str">"score"</span>] * <span class="num">2</span>)
+  |&gt; <span class="fn">sum</span>()
+
+<span class="cm">// 一行写入结果</span>
+<span class="fn">write</span>(<span class="str">"result.json"</span>, <span class="fn">to_json</span>({names: names, avg_age: avg_age, total: result}))
+<span class="fn">println</span>(<span class="str">"处理完成: {len(names)} 个用户, 平均年龄 {avg_age}"</span>)
+    </div>
+  </div>
+</section>
+
+<!-- ===== 效率对比 ===== -->
+<section id="efficiency">
+  <div class="section-label">Efficiency</div>
+  <h2 class="section-title">Python 十步,Aurora 三四步</h2>
+  <p class="section-desc">同样的任务,更少的代码。全局快捷函数覆盖文件、网络、JSON、字符串、列表、数学等常见操作。</p>
+
+  <div class="compare-grid">
+    <div class="compare-card python">
+      <div class="compare-label">Python — 10 步</div>
+      <div class="compare-steps">
+<div><span class="step-num">1</span> import json, urllib.request</div>
+<div><span class="step-num">2</span> req = urllib.request.Request(url, headers={...})</div>
+<div><span class="step-num">3</span> resp = urllib.request.urlopen(req)</div>
+<div><span class="step-num">4</span> data = json.loads(resp.read().decode())</div>
+<div><span class="step-num">5</span> names = [u["name"] for u in data["users"]]</div>
+<div><span class="step-num">6</span> unique_names = list(dict.fromkeys(names))</div>
+<div><span class="step-num">7</span> ages = [u["age"] for u in data["users"]]</div>
+<div><span class="step-num">8</span> avg_age = sum(ages) / len(ages)</div>
+<div><span class="step-num">9</span> with open("out.json", "w") as f: json.dump(..., f)</div>
+<div><span class="step-num">10</span> print(f"完成: {len(names)}")</div>
+      </div>
+    </div>
+    <div class="compare-card aurora">
+      <div class="compare-label">◡ Aurora — 4 步</div>
+      <div class="compare-steps">
+<div><span class="step-num">1</span> data = json(get(url))</div>
+<div><span class="step-num">2</span> names = unique(pluck(data["users"], "name"))</div>
+<div><span class="step-num">3</span> avg_age = avg(pluck(data["users"], "age"))</div>
+<div><span class="step-num">4</span> write("out.json", to_json({names, avg_age}))</div>
+<div style="margin-top:16px;color:rgba(255,255,255,0.3);">println("完成: {len(names)}")</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 下载 ===== -->
+<section id="download" class="download-section">
+  <div class="section-label">Download</div>
+  <h2 class="section-title">开始使用 Aurora</h2>
+  <p class="section-desc" style="margin:0 auto;">macOS 一键安装器,自动配置语言运行时、VSCode 插件、Aurora Dark 主题、环境变量、AI 文档。</p>
+
+  <div class="download-card">
+    <div class="download-version">v1.4.0 · macOS</div>
+    <a href="#" class="btn btn-primary" style="display:inline-block;margin-top:8px;">下载 .pkg 安装器</a>
+    <div class="download-size">128 KB · 零第三方依赖 · Python 3.8+</div>
+  </div>
+</section>
+
+<!-- ===== Footer ===== -->
+<footer>
+  <div class="footer-links">
+    <a href="https://github.com/yoyo636/aurora" target="_blank">GitHub</a>
+    <a href="#features">特性</a>
+    <a href="#code">示例</a>
+    <a href="#efficiency">效率</a>
+    <a href="#download">下载</a>
+  </div>
+  <div class="footer-copy">◡ Aurora v1.4.0 · 寻求将代码转化为智能的最优解</div>
+</footer>
+
+</body>
+</html>
