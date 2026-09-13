@@ -1,0 +1,14 @@
+#!/bin/bash
+# Aurora 编程语言 — 全局命令入口
+# 安装到 /usr/local/bin/aurora,实际运行时指向 /usr/local/lib/aurora/
+
+AURORA_HOME="/usr/local/lib/aurora"
+
+if [ ! -d "$AURORA_HOME" ]; then
+    echo "错误: Aurora 运行时未找到 ($AURORA_HOME)"
+    echo "请重新运行安装器"
+    exit 1
+fi
+
+export PYTHONPATH="$AURORA_HOME/..:$PYTHONPATH"
+exec python3 "$AURORA_HOME/cli.py" "$@"

@@ -5,8 +5,11 @@ __pycache__/
 *.so
 .Python
 *.egg-info/
-dist/
-build/
+# 构建产物
+build/*.pkg
+build/*.dmg
+!build/pkg/
+!build/pkg/**
 
 # 虚拟环境
 ide/.venv/

@@ -1,0 +1,547 @@
+# Aurora 编程语言 v1.0.0
+
+> 融合 **Rust / Python / Go / TypeScript** 优势的通用编程语言 —— 纯 Python 实现，零第三方依赖。
+> 正式发布:语义化版本 + 完整规范(`docs/SPEC.md`)+ 版本策略(`docs/VERSIONING.md`)+ 变更日志(`CHANGELOG.md`)。
+
+Aurora 是一个完整的语言工具链:词法分析 → 语法分析 → 类型检查 → 所有权检查 → 树遍历解释执行,外加 REPL、测试运行器、项目脚手架与生态桥接。
+
+- **Rust 基因**:所有权/借用检查、`trait`/`impl`、`enum` + `match`、`Result`/`?`、`let`/`var` 绑定
+- **Python 基因**:无分号压力、动态值、内置集合、`try/catch`、字符串插值
+- **Go 基因**:`spawn` 协程、`chan` 通道、`select` 多路复用、`Mutex`、`defer`
+- **TypeScript 基因**:渐进式类型推断、联合类型、管道 `|>`、可选链 `?.`、空合并 `??`
+
+## 安装
+
+```bash
+bash install.sh          # 安装 aurora 命令到用户 PATH(推荐)
+# 或直接使用源码入口
+./aurora-run repl
+```
+
+## 快速开始
+
+```bash
+aurora repl                        # 交互式 REPL
+aurora run hello.aur               # 运行 .aur 文件
+aurora check hello.aur             # 类型/所有权静态检查
+aurora new myapp && cd myapp       # 创建项目(脚手架 + aurora.toml)
+aurora run                         # 运行项目(读清单入口)
+aurora test                        # 运行测试(*_test.aur / test_* 函数)
+aurora eval 'println(1 + 2)'       # 执行一行
+aurora --version                   # Aurora v1.0.0
+```
+
+`hello.aur`：
+
+```python
+fn greet(name: str) -> str {
+    return "Hello, {name}!"
+}
+
+let msg = greet("Aurora")
+println(msg)            # Hello, Aurora!
+assert msg.len() > 0
+```
+
+## 语言指南
+
+### 变量与常量
+
+```python
+let x = 42              # 可变变量（let 默认 mutable）
+let mut y = 1           # 显式 mutable
+y = y + 1
+const MAX = 100         # 常量（不可变）
+let typed: int = 5      # 类型注解可选
+```
+
+### 函数
+
+```python
+fn add(a: int, b: int = 10) -> int {
+    return a + b
+}
+
+add(5)                  # 15（默认参数）
+add(5, 6)               # 11
+add(a: 5, b: 6)         # 命名参数
+add(5, b: 6)            # 位置 + 命名混用
+
+# lambda 与高阶函数
+let double = |x| x * 2
+[1, 2, 3].map(|x| x * 2)        # [2, 4, 6]
+[1, 2, 3, 4].filter(|x| x % 2 == 0)  # [2, 4]
+[1, 2, 3, 4].reduce(|a, b| a + b)    # 10
+```
+
+### 控制流
+
+```python
+# if / elif / else（也是表达式）
+let grade = if score >= 90 { "A" } elif score >= 60 { "B" } else { "C" }
+
+# for：range、集合、字典、通道
+for i in range(5) { println(i) }
+for k, v in {"a": 1} { println("{k}={v}") }
+for item in ch { ... }          # 通道迭代直到 close
+
+# while / break / continue
+while true { if done { break } }
+```
+
+### 自定义类型
+
+```python
+type Point {
+    x: float,
+    y: float
+}
+
+type Rect {
+    w: float = 1.0,      # 字段默认值
+    h: float = 1.0
+}
+
+let p = Point(x: 3.0, y: 4.0)   # 命名参数
+let r = Rect(5.0, 2.0)          # 位置参数
+println(p.x)                    # 字段访问
+p.y = 9.0                       # 字段赋值
+
+# match 构造器模式绑定
+match p {
+    Point(x, y) => println("{x},{y}"),
+    _ => println("other")
+}
+```
+
+### 枚举与模式匹配
+
+```python
+enum Shape {
+    Circle(radius: float),
+    Rect(w: float, h: float),
+    Dot
+}
+
+let c = Shape.Circle(radius: 2.5)
+println(c.radius)                       # 字段访问
+c == Shape.Circle(radius: 2.5)          # 值比较
+
+fn area(s) -> float {
+    match s {
+        Circle(r) => 3.14159 * r * r,
+        Rect(w, h) => w * h,
+        Dot => 0.0,
+        _ => -1.0
+    }
+}
+```
+
+### trait 与 impl
+
+```python
+trait Greeter {
+    fn greet() -> str          # 纯声明
+    fn farewell() -> str { return "bye" }  # 默认实现
+}
+
+type Person { name: str }
+
+impl Greeter for Person {
+    fn greet() -> str { return "hi, {self.name}" }
+}
+
+let me = Person(name: "aurora")
+me.greet()          # "hi, aurora"
+me.farewell()       # "bye"（默认实现自动补齐）
+```
+
+### 错误处理
+
+```python
+# try / catch / finally
+try {
+    panic("boom")
+} catch e: str {
+    println("caught: {e}")
+} finally {
+    println("cleanup")
+}
+
+# Result / ?
+from std.result import Ok, Err
+
+fn safe_div(a: int, b: int) -> Result {
+    if b == 0 { return Err("divide by zero") }
+    return Ok(a / b)
+}
+
+let v = safe_div(10, 2)?       # 5，Err 时抛 ResultError
+match safe_div(1, 0) {
+    Ok(x) => println(x),
+    Err(e) => println("failed: {e}")
+}
+```
+
+### 并发
+
+```python
+fn worker(ch, items) {
+    for item in items {
+        ch <- item              # 发送
+    }
+    ch.close()
+}
+
+let ch = chan(10)
+spawn worker(ch, [1, 2, 3])
+
+let first = <-ch                # 前缀接收（阻塞）
+let rest = ch.recv()            # 方法接收
+
+select {
+    v = <-ch => { println("got {v}") },   # 接收并绑定变量
+    ch2 => { println("data on ch2") },
+    default => { println("no data yet") }
+}
+```
+
+### 模块与标准库
+
+```python
+import std.io                     # 命名空间访问：std.io.exists(...)
+import std.math as m              # 别名：m.sqrt(16)
+from std.math import sqrt, PI     # 直接导入
+from std.result import Ok as ROk  # 别名导入
+
+import std.json
+std.json.stringify({"k": [1, 2]})   # '{"k": [1, 2]}'
+
+# 多文件模块：import 本地 .aur 文件(自动搜索当前目录/src/项目根)
+import utils                      # 加载 utils.aur 或 utils/__init__.aur
+from utils import helper          # 从本地模块导入指定函数
+import services.task_service      # 加载 services/task_service.aur
+
+# 集合类型
+import std.collections
+let map = std.collections.hash_map()
+map.put("key", "value")
+map.get("key")                     # "value"
+
+# 可用模块
+# std.io          read_file / write_file / append_file / exists / read_line / list_dir / mkdir / is_dir / files
+# std.math        sqrt / pow / floor / ceil / round / sin / cos / log / random ...
+# std.str         split / join / replace / contains / upper / lower / trim / format
+# std.time        now / sleep / timestamp / format
+# std.json        parse / stringify / load / save
+# std.sync        Channel / Mutex / Fiber
+# std.result      Ok / Err / Result
+# std.collections HashMap / HashSet / Vec / hash_map / hash_set / vec
+# std.web         serve / static / wait(HTTP 服务)
+# std.ai          configure / chat / messages / agent(AI Agent)
+# std.ffi         load / func / cstr(C ABI 互操作)
+# std.python      eval / exec / import / call(Python 互操作)
+# std.html        escape / page / render / write / link / list / json_script
+# std.proc        run / call / spawn(子进程)
+# std.http        get / get_json / post
+# std.vex         export / python / cpp(VEX 导出)
+```
+
+### 大型项目:多文件模块 + AOT 编译
+
+Aurora 支持真正的大型项目开发:分层模块、标准工程结构、AOT 编译为可部署产物。
+
+```bash
+# 创建标准工程结构
+aurora new myapp
+# myapp/
+# ├── aurora.toml      项目清单(入口/依赖)
+# ├── src/
+# │   ├── main.aur     入口
+# │   └── lib.aur      库模块
+# └── tests/           测试
+
+# 运行(读 aurora.toml 入口)
+cd myapp && aurora run
+
+# AOT 编译为 Python(输出 dist/,可直接部署)
+aurora build
+python3 dist/main.py
+```
+
+完整分层架构示例见 `examples/largeapp/`(models/services/utils/storage 四层,7 个模块文件)。
+
+### 全栈:HTML 前端 + Web 后端 + AI Agent
+
+Aurora 一个文件即可提供完整 Web 应用:**HTML 前端由 Aurora 生成,HTTP 服务由 Aurora 启动,后端计算可调用 Rust / C++ / Python,AI Agent 自动调用工具**。完整示例见 `examples/fullstack/`。
+
+```python
+import std.web
+import std.json
+
+fn handle(path, method, query, body) {
+    if path == "/" {
+        return std.html.page("首页", "<h1>你好, Aurora</h1>")
+    }
+    if path == "/api/hello" {
+        return {"message": "hello", "query": query}   # dict → JSON
+    }
+    return [404, "not found"]
+}
+
+let info = std.web.serve(8977, handle)   # 启动 HTTP 服务
+println("服务: " + info["url"])
+std.web.wait()                            # 常驻,直到 Ctrl-C
+```
+
+```python
+import std.ai
+
+# AI Agent:大模型决策,自动调用你写的 Aurora 函数
+std.ai.configure(api_key: "你的密钥")     # 或环境变量 AURORA_AI_API_KEY
+
+fn double(x) { x * 2 }
+
+let r = std.ai.agent(
+    "你是数学助手",
+    {"double": {"fn": double, "desc": "把数字翻倍"}},
+    "21 的两倍是多少?",
+)
+println(r["answer"])       # 模型调用 double(21) → 42 → 给出最终答案
+```
+
+- **`std.web`**:`serve(port, handler)`(dict→JSON / str→HTML / [status, body] 响应)、`static(port, dir)`、`wait()`
+- **`std.ai`**:`configure(base_url, api_key, model)`(默认火山方舟/豆包)、`chat(prompt, system)`、`messages(msgs)`、`agent(system, tools, prompt)`(工具调用循环,返回 `{answer, steps, tool_calls}`)
+- **`std.html`**:`escape / render / page / write / open / link / list / json_script`(数据嵌入页面)
+- 支持任意 OpenAI 兼容服务:`AURORA_AI_BASE_URL` 可指向 Ollama 等本地模型
+
+### 生态链:与外部世界互通
+
+Aurora 是"有生态链"的语言:可编排多个程序协同,可连接各种库与语言。
+
+```python
+# ── JSON:与数据格式打通 ──
+import std.json
+let d = std.json.parse(r'{"a": 1, "b": [1, 2, 3]}')   # 原始字符串 r'...' 不插值
+std.json.save("/tmp/d.json", d)                        # 文件读写
+let back = std.json.load("/tmp/d.json")
+
+# ── Python 桥:导入任意已安装库 ──
+import std.python
+let np = std.python.import("numpy")
+println(np.__version__)
+let m = std.python.import("math")
+println(m.sqrt(81))                                    # 9.0
+println(std.python.eval("1 + 2 * 3"))                  # 7
+
+# ── FFI:与 Rust / C++ 打通 ──
+import std.ffi
+let lib = std.ffi.load("path/to/librust_math.dylib")   # Rust #[no_mangle] extern "C"
+let add = std.ffi.func(lib, "add", ["i32", "i32"], "i32")
+println(add(3, 4))                                     # 7
+
+# ── HTML:数据渲染成网页 ──
+import std.html
+let doc = std.html.page("标题", std.html.render(
+    r'<h1>{{title}}</h1>', {"title": "你好"}))
+std.html.open("/tmp/page.html", doc)                   # 写入并在浏览器打开
+
+# ── 多程序协同:一个 Aurora 程序编排其它程序 ──
+import std.proc
+let out = std.proc.call(
+    r'python3 -m aurora.cli run worker.aur',           # 启动另一个 Aurora 程序
+    r'{"nums": [1, 2, 3]}')                            # 经 stdin 传 JSON
+let result = std.json.parse(out)                       # 经 stdout 收 JSON
+
+# ── HTTP / Web API ──
+import std.http
+let data = std.http.get_json("https://api.example.com/data")
+
+# ── VEX 机器人:导出 VEXcode 工程 ──
+import std.vex
+std.vex.python("/tmp", "my_robot", code_string)        # 生成 VEXcode Python 工程
+std.vex.cpp("/tmp", "my_robot_cpp", cpp_string)        # 生成 VEXcode C++ 工程
+```
+
+完整示例见 `examples/interop/`(含 Rust/C++ 库源码与构建命令)。
+
+### 字符串插值
+
+```python
+let name = "aurora"
+println("hello {name}")                 # 变量
+println("sum={1 + 2 * 3}")              # 任意表达式
+println("len={[1,2,3].len()}")          # 方法调用
+println("literal {{braces}}")           # 转义为 {braces}
+
+# 原始字符串 r'...' / r"..." :不插值、反斜杠保留
+# 适合书写 JSON、正则、Windows 路径、外部代码片段
+let raw = r'{"a": 1}   # 不会触发 {a} 插值
+let re  = r'\.\d+'
+```
+
+### 现代语法糖
+
+```python
+# 可选链 ?.:左侧为 nil 时整体安全得到 nil
+let user = { "name": "Aurora" }
+println(user?.name)      # Aurora
+println(user?.email)     # nil
+println(nil?.name)       # nil
+
+# 空合并 ??:左侧为 nil 时取右侧默认值
+let port = nil ?? 8697            # 8697
+let name = user?.name ?? "无名"    # Aurora
+
+# 可选链方法调用
+println([1, 2, 3]?.len())  # 3
+
+# if / match / 代码块都是表达式,可直接作为值
+let grade = if score >= 90 { "A" } else { "B" }
+
+# 换行是语句边界:新一行以 ( 开头不会当作上一行的调用参数
+let s = 1 + 2
+(s * 2)          # 独立语句,不是 1 + 2(s*2)
+
+# 注释支持 // 与 #;nil 打印为 nil
+```
+
+### ZL 设计特性(v0.3.0)
+
+```python
+# let 不可变绑定 / var 可变绑定(赋值给 let 会报错)
+let max_retry = 3
+var count = 0
+count = count + 1
+
+# 管道 |>:左侧值作为右侧调用的最后一个参数,数据流式书写
+fn double(x) { x * 2 }
+fn add(a, b) { a + b }
+10 |> double |> add(1)     # 21
+[1, 2, 3] |> len           # 3
+
+# 区间 a..b:闭区间(含 b),可直接迭代
+for i in 1..5 { print(i) }   # 12345
+1..3 |> len                  # 3
+
+# 模式解构:let (a, b) = ... / let [x, y] = ... / let (k, v) = dict
+let (x, y) = (3, 4)
+let [a, b, c] = [1, 2, 3]
+let p = {"name": "A", "age": 1}
+let (name, age) = p
+
+# defer:函数退出时按 LIFO 执行;调用参数在注册时求值
+fn work() {
+    defer println("cleanup")
+    defer { save_state() }
+    # ... 提前 return 也会执行 defer
+}
+
+# yield:生成器,函数调用返回收集的列表
+fn squares(n) { for i in 1..n { yield i * i } }
+squares(4)     # [1, 4, 9, 16]
+```
+
+### 测试与断言
+
+```python
+test "addition" {
+    assert 1 + 1 == 2
+}
+
+assert 2 > 1, "custom message"
+```
+
+## Aurora IDE(macOS 应用)
+
+Aurora 自带一个 **VSCode 风格**的原生 macOS 编程 IDE,以代码编辑为核心:文件浏览器、多标签编辑器、运行、静态检查、问题面板一应俱全。
+
+```bash
+# 方式一:双击启动(Finder 中双击即可,推荐)
+open "aurora/Aurora IDE.app"
+
+# 方式二:命令行启动(自动打开浏览器)
+./aurora/ide/aurora-ide
+```
+
+应用特点:
+
+- **原生窗口**:基于 pywebview 的内嵌 WebView 窗口(非浏览器标签),Dock 图标 + 应用菜单栏;启动时自动拉起本地服务,退出自动回收
+- **活动栏 + 侧边栏**:文件资源管理器(工作区 = aurora 项目根,自动忽略 .git/__pycache__ 等)
+- **多标签编辑器**:语法高亮、行号、Tab 缩进、错误行标红、脏标记;`⌘N` 新建、`⌘S` 保存、`⌘W` 关闭标签、`⌘B` 折叠侧边栏
+- **▶ 运行**(`⌘R`):结果输出到底部「输出」面板,支持 stdin 输入;超时/错误自动进入「问题」面板,点击可跳转到出错行
+- **检查**(`⌘K`):类型检查 + 所有权检查,错误列表点击定位
+- **状态栏**:光标行列、错误计数、编码、端口状态
+
+语言能力完整保留:输入输出、位运算、函数与闭包、递归与深度优先搜索、集合与高阶函数、类型/枚举/match、协程与通道、可选链与空合并。
+
+手动启动服务:
+
+```bash
+cd aurora/ide && python3 server.py --open
+```
+
+## 命令行工具
+
+| 命令 | 说明 |
+|---|---|
+| `aurora repl` | 交互式 REPL（`:help` 查看命令） |
+| `aurora run [<file>]` | 运行 .aur 文件；无参数时读取 `aurora.toml` 入口 |
+| `aurora build [<file>] [-o dist]` | AOT 编译为 Python 源码，输出到 `dist/`，可直接 `python3` 运行 |
+| `aurora check <file>` | 类型检查 + 所有权检查（不执行） |
+| `aurora eval '<code>'` | 执行一行代码 |
+| `aurora new <name>` | 创建工程化脚手架（`aurora.toml` + `src/main.aur` + `src/lib.aur` + `tests/`） |
+| `aurora test [path]` | 测试运行器：`*_test.aur`/`*_tests.aur` 整体运行，`test_*` 函数逐项运行 |
+| `aurora tokens <file>` | 显示词法分析结果 |
+| `aurora ast <file>` | 显示 AST 结构 |
+| `aurora --version` | 版本信息 |
+
+REPL 内建命令：`:type <expr>` 显示类型、`:ast <code>`、`:tokens <code>`、`:env` 查看环境、`:clear`、`:quit`。
+
+## 正式文档
+
+- **语言规范** `docs/SPEC.md` — 词法 / 类型 / 语义 / 模块 / 生态 / 工具链完整定义
+- **版本策略** `docs/VERSIONING.md` — 语义化版本、稳定性分级、兼容承诺
+- **变更日志** `CHANGELOG.md` — 逐版本变更记录
+
+## 目录结构
+
+```
+aurora/
+├── __init__.py        包定义与版本
+├── __main__.py        python -m aurora 入口
+├── cli.py             命令行工具
+├── repl.py            交互式 REPL
+├── lexer.py           词法分析器
+├── tokens.py          Token 定义
+├── parser.py          递归下降 + Pratt 解析器
+├── ast_nodes.py       AST 节点定义
+├── type_checker.py    渐进式类型推断与检查
+├── ownership.py       Rust 风格所有权/借用检查
+├── interpreter.py     树遍历解释器
+├── stdlib.py          标准库（io/math/str/time/json/sync/result）
+├── tests/             单元测试套件
+├── pyproject.toml     打包配置
+└── ide/               教学工坊 WebIDE（lessons/server/worker/static）
+```
+
+## 测试
+
+```bash
+python3 -m unittest discover -s aurora/tests -v
+# 100 个用例覆盖词法、语法、解释器、类型检查、所有权检查
+```
+
+## 已知限制
+
+- 类型检查与所有权检查是编译期"把关者"：`run` 默认以警告模式运行，`--strict` 可强制拦截
+- 所有权检查聚焦不可变变量与借用冲突；函数参数移动语义暂按简化处理
+- 引用 `&x` 在运行时是值语义的简化实现（不做真实别名追踪）
+- `select` 采用短轮询调度，适用于教学与原型场景
+- trait 泛型约束（`T: Trait`）尚未接入类型检查器
+- `reduce` 参数序约定为 `reduce(初始值, 函数)`，同时兼容经典写法 `reduce(函数)`
+- 位与 `&` 优先级低于 `==`（与 C 相反），逻辑链 `&&` 位于最低优先级——这是当前固定的语义，教学按此讲授
+
+## License
+
+MIT

@@ -1,0 +1,29 @@
+#!/bin/bash
+# Aurora 安装后脚本:设置权限、验证安装
+
+set -e
+
+AURORA_HOME="/usr/local/lib/aurora"
+BIN_PATH="/usr/local/bin/aurora"
+
+# 设置可执行权限
+chmod +x "$BIN_PATH"
+chmod -R a+rX "$AURORA_HOME"
+
+# 验证 Python3 可用
+if ! command -v python3 &> /dev/null; then
+    echo "警告: 未找到 python3,Aurora 需要 Python 3.8+"
+    echo "请安装 Python 3: brew install python"
+fi
+
+# 验证安装
+echo "Aurora 安装完成!"
+echo "  运行时: $AURORA_HOME"
+echo "  命令:   $BIN_PATH"
+echo ""
+echo "快速开始:"
+echo "  aurora --version"
+echo "  aurora new myapp"
+echo "  cd myapp && aurora run"
+
+exit 0
