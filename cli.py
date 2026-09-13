@@ -554,9 +554,11 @@ def _print_tree(node, indent=0, prefix=""):
 def main():
     parser = argparse.ArgumentParser(
         prog='aurora',
-        description='Aurora 编程语言 — 融合 Rust/Python/Go/TypeScript 优势'
+        description='\033[97m◡ Aurora\033[0m — 寻求将代码转化为智能的最优解',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='\033[90m示例: aurora new myapp && cd myapp && aurora run\033[0m'
     )
-    parser.add_argument('--version', action='version', version=f'Aurora v{__version__}')
+    parser.add_argument('--version', action='version', version=f'\033[97m◡ Aurora\033[0m v{__version__}')
     
     subparsers = parser.add_subparsers(dest='command', help='可用命令')
     

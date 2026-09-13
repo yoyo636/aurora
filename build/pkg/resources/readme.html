@@ -3,12 +3,14 @@
 <head>
 <meta charset="utf-8">
 <style>
-body { font-family: -apple-system, "SF Pro Text", sans-serif; color: #1a1a2e; padding: 20px; line-height: 1.6; }
-h2 { color: #6c5ce7; font-size: 20px; margin-top: 20px; }
-code { background: #f0f0f5; padding: 2px 6px; border-radius: 4px; font-family: "SF Mono", monospace; font-size: 12px; }
-pre { background: #1a1a2e; color: #a29bfe; padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; }
-ul { padding-left: 20px; }
-li { margin-bottom: 6px; font-size: 13px; }
+body { font-family: -apple-system, "SF Pro Text", sans-serif; color: #e8e8e8; background: #000; padding: 20px; line-height: 1.6; }
+h2 { color: #fff; font-size: 16px; margin-top: 18px; font-weight: 600; letter-spacing: -0.3px; }
+code { color: #aaa; background: #0a0a0a; padding: 1px 5px; border-radius: 3px; font-family: "SF Mono", monospace; font-size: 11px; }
+pre { background: #0a0a0a; color: #ccc; padding: 12px; border-radius: 6px; font-size: 11px; overflow-x: auto; border: 1px solid #1a1a1a; }
+ul { padding-left: 16px; }
+li { margin-bottom: 5px; font-size: 12px; color: #aaa; }
+li strong { color: #fff; font-weight: 500; }
+p { font-size: 12px; color: #aaa; }
 </style>
 </head>
 <body>
@@ -16,11 +18,11 @@ li { margin-bottom: 6px; font-size: 13px; }
 <h2>语言特性</h2>
 <ul>
 <li><strong>表达式导向</strong>:if / match / loop / 块都有值,函数最后一个表达式即返回值</li>
-<li><strong>let / var</strong>:不可变与可变绑定,消除 C++ 声明歧义</li>
-<li><strong>管道 |></strong>、<strong>区间 a..b</strong>、<strong>defer</strong>、<strong>yield 生成器</strong></li>
+<li><strong>let / var</strong>:不可变与可变绑定,消除声明歧义</li>
+<li><strong>管道 |></strong> · <strong>区间 a..b</strong> · <strong>defer</strong> · <strong>yield 生成器</strong></li>
 <li><strong>多文件模块</strong>:文件即模块,import 本地 .aur,自动搜索 src/</li>
-<li><strong>类型系统</strong>:type / enum / trait / impl / match 模式匹配</li>
-<li><strong>错误处理</strong>:Result + ?、panic、assert、契约式编程</li>
+<li><strong>高效全局函数</strong>:read/write/get/json/shell/unique/avg 等 100+ 一行操作</li>
+<li><strong>错误处理</strong>:Result + ?、panic、assert</li>
 </ul>
 
 <h2>标准库(17 个模块)</h2>
@@ -37,8 +39,8 @@ aurora test           # 运行测试</pre>
 
 <h2>系统要求</h2>
 <ul>
-<li>macOS 11+(Apple Silicon / Intel)</li>
-<li>Python 3.8+(macOS 自带)</li>
+<li>macOS 11+ (Apple Silicon / Intel)</li>
+<li>Python 3.8+ (macOS 自带)</li>
 <li>零第三方依赖</li>
 </ul>
 

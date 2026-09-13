@@ -12,7 +12,7 @@ PAYLOAD="$PKG_DIR/payload"
 RESOURCES="$PKG_DIR/resources"
 SCRIPTS="$PKG_DIR/scripts"
 BUILD_DIR="$PROJECT_ROOT/build"
-VERSION="1.3.0"
+VERSION="1.4.0"
 
 echo "=== Aurora 安装器构建 ==="
 echo "项目根: $PROJECT_ROOT"

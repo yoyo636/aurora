@@ -1291,6 +1291,737 @@ def _aurora_display(x):
     return x
 
 
+# ═══════════════════════════════════════════════════════════════
+#  效率快捷函数 — Python 十步, Aurora 三-四步
+# ═══════════════════════════════════════════════════════════════
+
+def _read_file(path):
+    """一行读取文件全部内容"""
+    with open(path, 'r', encoding='utf-8') as f:
+        return f.read()
+
+def _write_file(path, content):
+    """一行写入文件"""
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(str(content))
+    return True
+
+def _append_file(path, content):
+    """一行追加写入文件"""
+    with open(path, 'a', encoding='utf-8') as f:
+        f.write(str(content))
+    return True
+
+def _read_lines(path):
+    """读取文件为行列表(去换行符)"""
+    with open(path, 'r', encoding='utf-8') as f:
+        return [line.rstrip('\n') for line in f]
+
+def _shell(cmd):
+    """执行 shell 命令,返回输出文本"""
+    import subprocess
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    return result.stdout + result.stderr
+
+def _http_get(url):
+    """一行 HTTP GET,返回响应文本"""
+    import urllib.request
+    req = urllib.request.Request(url, headers={'User-Agent': 'Aurora/1.4'})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read().decode('utf-8', errors='replace')
+
+def _http_download(url, path):
+    """一行下载文件到指定路径"""
+    import urllib.request
+    urllib.request.urlretrieve(url, path)
+    return path
+
+def _json_parse(s):
+    """一行解析 JSON 字符串"""
+    import json
+    return json.loads(s)
+
+def _json_stringify(obj, indent=2):
+    """一行对象转 JSON 字符串"""
+    import json
+    return json.dumps(obj, ensure_ascii=False, indent=indent)
+
+def _unique(lst):
+    """列表去重,保持顺序"""
+    seen = set()
+    result = []
+    for item in lst:
+        key = str(item) if not isinstance(item, (int, float, str, bool)) else item
+        if key not in seen:
+            seen.add(key)
+            result.append(item)
+    return result
+
+def _flatten(lst):
+    """扁平化嵌套列表"""
+    result = []
+    for item in lst:
+        if isinstance(item, (list, tuple)):
+            result.extend(_flatten(item))
+        else:
+            result.append(item)
+    return result
+
+def _chunk(lst, n):
+    """列表分块"""
+    return [lst[i:i+n] for i in range(0, len(lst), n)]
+
+def _avg(lst):
+    """平均值"""
+    return sum(lst) / len(lst) if lst else 0
+
+def _median(lst):
+    """中位数"""
+    if not lst:
+        return 0
+    s = sorted(lst)
+    n = len(s)
+    return s[n//2] if n % 2 else (s[n//2-1] + s[n//2]) / 2
+
+def _clamp(n, lo, hi):
+    """限制数值范围"""
+    return max(lo, min(hi, n))
+
+def _find(fn, lst):
+    """查找第一个满足条件的元素"""
+    for item in lst:
+        if fn(item):
+            return item
+    return None
+
+def _find_index(fn, lst):
+    """查找第一个满足条件的索引"""
+    for i, item in enumerate(lst):
+        if fn(item):
+            return i
+    return -1
+
+def _count(fn, lst):
+    """计数满足条件的元素"""
+    return sum(1 for item in lst if fn(item))
+
+def _partition(fn, lst):
+    """分区为(满足, 不满足)两个列表"""
+    yes, no = [], []
+    for item in lst:
+        (yes if fn(item) else no).append(item)
+    return yes, no
+
+def _pluck(lst, key):
+    """从字典列表中提取指定字段"""
+    return [item.get(key) if isinstance(item, dict) else getattr(item, key, None) for item in lst]
+
+def _group_by(lst, key_fn):
+    """按键函数分组"""
+    groups = {}
+    for item in lst:
+        k = key_fn(item)
+        if k not in groups:
+            groups[k] = []
+        groups[k].append(item)
+    return groups
+
+def _starts_with(s, prefix):
+    return str(s).startswith(str(prefix))
+
+def _ends_with(s, suffix):
+    return str(s).endswith(str(suffix))
+
+def _contains_str(s, sub):
+    return str(sub) in str(s)
+
+def _env(name, default=None):
+    import os
+    return os.environ.get(name, default)
+
+def _now():
+    import datetime
+    return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+def _timestamp():
+    import time
+    return int(time.time())
+
+def _cwd():
+    import os
+    return os.getcwd()
+
+def _cd(path):
+    import os
+    os.chdir(path)
+    return path
+
+def _exists(path):
+    import os
+    return os.path.exists(path)
+
+def _delete(path):
+    import os
+    if os.path.isdir(path):
+        import shutil
+        shutil.rmtree(path)
+    else:
+        os.remove(path)
+    return True
+
+def _mkdir(path):
+    import os
+    os.makedirs(path, exist_ok=True)
+    return path
+
+def _list_dir(path='.'):
+    import os
+    return sorted(os.listdir(path))
+
+def _reduce(fn, lst, init=None):
+    from functools import reduce as _rd
+    return _rd(fn, lst, init) if init is not None else _rd(fn, lst)
+
+def _any(lst):
+    return any(lst)
+
+def _all(lst):
+    return all(lst)
+
+def _product(lst):
+    result = 1
+    for x in lst:
+        result *= x
+    return result
+
+def _keys(d):
+    return list(d.keys()) if isinstance(d, dict) else []
+
+def _values(d):
+    return list(d.values()) if isinstance(d, dict) else []
+
+def _items(d):
+    return list(d.items()) if isinstance(d, dict) else []
+
+def _dict_from(pairs):
+    return dict(pairs)
+
+def _join(lst, sep=''):
+    return sep.join(str(x) for x in lst)
+
+def _contains(lst, item):
+    return item in lst
+
+def _typeof(x):
+    return type(x).__name__
+
+def _repr(x):
+    return repr(x)
+
+def _floor(n):
+    import math
+    return math.floor(n)
+
+def _ceil(n):
+    import math
+    return math.ceil(n)
+
+def _round(n, ndigits=0):
+    return round(n, ndigits)
+
+def _abs(n):
+    return abs(n)
+
+def _exit(code=0):
+    import sys
+    sys.exit(code)
+
+def _args():
+    import sys
+    return sys.argv[1:]
+
+def _basename(path):
+    import os
+    return os.path.basename(path)
+
+def _dirname(path):
+    import os
+    return os.path.dirname(path)
+
+def _extname(path):
+    import os
+    return os.path.splitext(path)[1]
+
+def _splitext(path):
+    import os
+    return list(os.path.splitext(path))
+
+def _tempfile(content='', suffix=''):
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    with os.fdopen(fd, 'w') as f:
+        f.write(content)
+    return path
+
+def _tempdir():
+    import tempfile
+    return tempfile.mkdtemp()
+
+def _copy(src, dst):
+    import shutil
+    shutil.copy2(src, dst)
+    return dst
+
+def _move(src, dst):
+    import shutil
+    shutil.move(src, dst)
+    return dst
+
+def _walk(path):
+    import os
+    result = []
+    for root, dirs, files in os.walk(path):
+        for f in files:
+            result.append(os.path.join(root, f))
+    return sorted(result)
+
+def _grep(pattern, path):
+    """在文件中搜索模式,返回匹配行列表"""
+    import re
+    matches = []
+    with open(path, 'r', encoding='utf-8', errors='replace') as f:
+        for i, line in enumerate(f, 1):
+            if re.search(pattern, line):
+                matches.append({'line': i, 'text': line.rstrip('\n')})
+    return matches
+
+def _replace_in_file(path, old, new):
+    """在文件中替换文本"""
+    content = _read_file(path)
+    content = content.replace(old, new)
+    _write_file(path, content)
+    return True
+
+def _md5(text):
+    import hashlib
+    return hashlib.md5(str(text).encode()).hexdigest()
+
+def _sha256(text):
+    import hashlib
+    return hashlib.sha256(str(text).encode()).hexdigest()
+
+def _base64_encode(text):
+    import base64
+    return base64.b64encode(str(text).encode()).decode()
+
+def _base64_decode(text):
+    import base64
+    return base64.b64decode(str(text).encode()).decode()
+
+def _url_encode(text):
+    import urllib.parse
+    return urllib.parse.quote(str(text))
+
+def _url_decode(text):
+    import urllib.parse
+    return urllib.parse.unquote(str(text))
+
+def _parse_url(url):
+    import urllib.parse
+    p = urllib.parse.urlparse(url)
+    return {
+        'scheme': p.scheme, 'host': p.netloc, 'path': p.path,
+        'query': p.query, 'fragment': p.fragment,
+        'params': dict(urllib.parse.parse_qsl(p.query)),
+    }
+
+def _csv_parse(text, delimiter=','):
+    import csv, io
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+    return [row for row in reader]
+
+def _csv_stringify(rows, delimiter=','):
+    import csv, io
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=delimiter)
+    for row in rows:
+        writer.writerow(row)
+    return output.getvalue()
+
+def _xml_parse(text):
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(text)
+    def _elem_to_dict(elem):
+        d = {'tag': elem.tag, 'attrib': dict(elem.attrib), 'text': (elem.text or '').strip()}
+        children = [_elem_to_dict(c) for c in elem]
+        if children:
+            d['children'] = children
+        return d
+    return _elem_to_dict(root)
+
+def _regex_match(pattern, text):
+    import re
+    m = re.match(pattern, str(text))
+    return m.groups() if m else None
+
+def _regex_search(pattern, text):
+    import re
+    m = re.search(pattern, str(text))
+    return m.group() if m else None
+
+def _regex_findall(pattern, text):
+    import re
+    return re.findall(pattern, str(text))
+
+def _regex_sub(pattern, repl, text):
+    import re
+    return re.sub(pattern, repl, str(text))
+
+def _regex_split(pattern, text):
+    import re
+    return re.split(pattern, str(text))
+
+def _datetime_format(fmt=None):
+    import datetime
+    now = datetime.datetime.now()
+    return now.strftime(fmt) if fmt else now.isoformat()
+
+def _datetime_parse(text, fmt):
+    import datetime
+    return datetime.datetime.strptime(text, fmt).isoformat()
+
+def _sleep(seconds):
+    import time
+    time.sleep(seconds)
+
+def _benchmark(fn, *args, **kwargs):
+    """简单性能测试,返回(结果, 耗时秒)"""
+    import time
+    start = time.perf_counter()
+    result = fn(*args, **kwargs)
+    elapsed = time.perf_counter() - start
+    return result, elapsed
+
+def _memoize(fn):
+    """简单记忆化装饰器"""
+    cache = {}
+    def wrapper(*args):
+        if args not in cache:
+            cache[args] = fn(*args)
+        return cache[args]
+    return wrapper
+
+def _compose(*fns):
+    """函数组合: compose(f, g)(x) = f(g(x))"""
+    def composed(x):
+        result = x
+        for fn in reversed(fns):
+            result = fn(result)
+        return result
+    return composed
+
+def _pipe(value, *fns):
+    """管道:将值依次通过多个函数"""
+    result = value
+    for fn in fns:
+        result = fn(result)
+    return result
+
+def _tap(value, fn):
+    """执行副作用并返回原值(用于调试)"""
+    fn(value)
+    return value
+
+def _clone(obj):
+    """深拷贝"""
+    import copy
+    return copy.deepcopy(obj)
+
+def _merge(d1, d2):
+    """合并两个字典,d2 覆盖 d1"""
+    result = dict(d1) if isinstance(d1, dict) else {}
+    if isinstance(d2, dict):
+        result.update(d2)
+    return result
+
+def _pick(d, keys):
+    """从字典中选取指定键"""
+    return {k: d[k] for k in keys if k in d} if isinstance(d, dict) else {}
+
+def _omit(d, keys):
+    """从字典中排除指定键"""
+    return {k: v for k, v in d.items() if k not in keys} if isinstance(d, dict) else {}
+
+def _range_step(start, stop=None, step=1):
+    if stop is None:
+        return list(range(start))
+    return list(range(start, stop, step))
+
+def _zip_with(fn, *lists):
+    """带函数的 zip"""
+    return [fn(*items) for items in zip(*lists)]
+
+def _interleave(*lists):
+    """交错合并多个列表"""
+    result = []
+    max_len = max(len(l) for l in lists) if lists else 0
+    for i in range(max_len):
+        for l in lists:
+            if i < len(l):
+                result.append(l[i])
+    return result
+
+def _rotate(lst, n=1):
+    """列表旋转"""
+    if not lst:
+        return lst
+    n = n % len(lst)
+    return lst[n:] + lst[:n]
+
+def _sliding_window(lst, size):
+    """滑动窗口"""
+    return [lst[i:i+size] for i in range(len(lst) - size + 1)]
+
+def _degrees_to_radians(deg):
+    import math
+    return deg * math.pi / 180
+
+def _radians_to_degrees(rad):
+    import math
+    return rad * 180 / math.pi
+
+def _is_even(n):
+    return n % 2 == 0
+
+def _is_odd(n):
+    return n % 2 != 0
+
+def _is_prime(n):
+    if n < 2:
+        return False
+    for i in range(2, int(n**0.5) + 1):
+        if n % i == 0:
+            return False
+    return True
+
+def _fibonacci(n):
+    """生成前 n 个斐波那契数"""
+    result = [0, 1]
+    while len(result) < n:
+        result.append(result[-1] + result[-2])
+    return result[:n]
+
+def _factorial(n):
+    if n < 0:
+        raise ValueError("factorial of negative number")
+    result = 1
+    for i in range(2, n + 1):
+        result *= i
+    return result
+
+def _gcd(a, b):
+    import math
+    return math.gcd(a, b)
+
+def _lcm(a, b):
+    import math
+    return abs(a * b) // math.gcd(a, b) if a and b else 0
+
+def _hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+def _rgb_to_hex(r, g, b):
+    return '#{:02x}{:02x}{:02x}'.format(int(r), int(g), int(b))
+
+def _levenshtein(s1, s2):
+    """编辑距离"""
+    if len(s1) < len(s2):
+        return _levenshtein(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    previous_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    return previous_row[-1]
+
+def _similarity(s1, s2):
+    """字符串相似度 0-1"""
+    max_len = max(len(s1), len(s2))
+    if max_len == 0:
+        return 1.0
+    return 1.0 - _levenshtein(s1, s2) / max_len
+
+def _slugify(text):
+    """URL 友好的 slug"""
+    import re
+    text = str(text).lower().strip()
+    text = re.sub(r'[^\w\s-]', '', text)
+    text = re.sub(r'[-\s]+', '-', text)
+    return text.strip('-')
+
+def _truncate(text, length, suffix='...'):
+    text = str(text)
+    return text[:length] + suffix if len(text) > length else text
+
+def _pad_start(text, length, char=' '):
+    return str(text).rjust(length, char)
+
+def _pad_end(text, length, char=' '):
+    return str(text).ljust(length, char)
+
+def _repeat(text, n):
+    return str(text) * n
+
+def _reverse_str(text):
+    return str(text)[::-1]
+
+def _title_case(text):
+    return str(text).title()
+
+def _camel_case(text):
+    import re
+    words = re.sub(r'[^a-zA-Z0-9]', ' ', str(text)).split()
+    if not words:
+        return ''
+    return words[0].lower() + ''.join(w.capitalize() for w in words[1:])
+
+def _snake_case(text):
+    import re
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', str(text))
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+def _kebab_case(text):
+    return _snake_case(text).replace('_', '-')
+
+def _words(text):
+    import re
+    return re.findall(r'\b\w+\b', str(text))
+
+def _word_count(text):
+    return len(_words(text))
+
+def _line_count(text):
+    return str(text).count('\n') + 1
+
+def _char_count(text):
+    return len(str(text))
+
+def _byte_size(text):
+    return len(str(text).encode('utf-8'))
+
+def _is_email(text):
+    import re
+    return bool(re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', str(text)))
+
+def _is_url(text):
+    import re
+    return bool(re.match(r'^https?://[^\s]+$', str(text)))
+
+def _is_ip(text):
+    import re
+    return bool(re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', str(text)))
+
+def _is_json(text):
+    try:
+        import json
+        json.loads(str(text))
+        return True
+    except:
+        return False
+
+def _is_number(text):
+    try:
+        float(str(text))
+        return True
+    except:
+        return False
+
+def _is_int(text):
+    try:
+        int(str(text))
+        return True
+    except:
+        return False
+
+def _random(min_val=0, max_val=1):
+    import random
+    return random.uniform(min_val, max_val)
+
+def _random_int(min_val, max_val):
+    import random
+    return random.randint(min_val, max_val)
+
+def _random_choice(lst):
+    import random
+    return random.choice(lst)
+
+def _shuffle(lst):
+    import random
+    result = list(lst)
+    random.shuffle(result)
+    return result
+
+def _sample(lst, n):
+    import random
+    return random.sample(list(lst), min(n, len(lst)))
+
+def _uuid():
+    import uuid
+    return str(uuid.uuid4())
+
+def _nanoid(length=21):
+    import random, string
+    alphabet = string.ascii_letters + string.digits + '_-'
+    return ''.join(random.choice(alphabet) for _ in range(length))
+
+def _color_console(text, color='white'):
+    """ANSI 颜色输出"""
+    colors = {
+        'black': '30', 'red': '31', 'green': '32', 'yellow': '33',
+        'blue': '34', 'magenta': '35', 'cyan': '36', 'white': '37',
+        'bright_red': '91', 'bright_green': '92', 'bright_yellow': '93',
+        'bright_blue': '94', 'bright_magenta': '95', 'bright_cyan': '96',
+        'bright_white': '97',
+    }
+    code = colors.get(color, '37')
+    return f'\033[{code}m{text}\033[0m'
+
+def _table(rows, headers=None):
+    """简单文本表格"""
+    if not rows:
+        return ''
+    if headers:
+        all_rows = [headers] + list(rows)
+    else:
+        all_rows = list(rows)
+    cols = len(all_rows[0])
+    widths = [max(len(str(row[i])) for row in all_rows) for i in range(cols)]
+    lines = []
+    for idx, row in enumerate(all_rows):
+        line = ' | '.join(str(row[i]).ljust(widths[i]) for i in range(cols))
+        lines.append(line)
+        if idx == 0 and headers:
+            lines.append('-+-'.join('-' * w for w in widths))
+    return '\n'.join(lines)
+
+def _progress(current, total, width=30):
+    """文本进度条"""
+    pct = current / total if total else 0
+    filled = int(width * pct)
+    bar = '█' * filled + '░' * (width - filled)
+    return f'{bar} {pct*100:.1f}% ({current}/{total})'
+
+def _spinner_frame(n):
+    frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+    return frames[n % len(frames)]
+
 BUILTIN_GLOBALS = {
     'print': lambda *args, **kwargs: print(*map(_aurora_display, args), **kwargs),
     'println': lambda *args: print(*map(_aurora_display, args)),
@@ -1321,4 +2052,166 @@ BUILTIN_GLOBALS = {
     'map': lambda fn, xs: list(map(fn, xs)),
     'filter': lambda fn, xs: list(filter(fn, xs)),
     'isinstance': isinstance,
+    # ── 文件操作(一行完成) ──
+    'read': _read_file,
+    'write': _write_file,
+    'append': _append_file,
+    'lines': _read_lines,
+    'exists': _exists,
+    'delete': _delete,
+    'mkdir': _mkdir,
+    'ls': _list_dir,
+    'walk': _walk,
+    'copy': _copy,
+    'move': _move,
+    'basename': _basename,
+    'dirname': _dirname,
+    'extname': _extname,
+    'splitext': _splitext,
+    'grep': _grep,
+    'replace_in_file': _replace_in_file,
+    # ── HTTP / 网络(一行完成) ──
+    'get': _http_get,
+    'download': _http_download,
+    # ── JSON(一行完成) ──
+    'json': _json_parse,
+    'to_json': _json_stringify,
+    # ── Shell / 进程(一行完成) ──
+    'shell': _shell,
+    # ── 列表操作 ──
+    'unique': _unique,
+    'flatten': _flatten,
+    'chunk': _chunk,
+    'group_by': _group_by,
+    'pluck': _pluck,
+    'join': _join,
+    'contains': _contains,
+    'find': _find,
+    'find_index': _find_index,
+    'count': _count,
+    'partition': _partition,
+    'rotate': _rotate,
+    'sliding_window': _sliding_window,
+    'interleave': _interleave,
+    'zip_with': _zip_with,
+    # ── 字符串操作 ──
+    'split': lambda s, sep=' ': str(s).split(sep),
+    'replace': lambda s, old, new: str(s).replace(old, new),
+    'strip': lambda s: str(s).strip(),
+    'upper': lambda s: str(s).upper(),
+    'lower': lambda s: str(s).lower(),
+    'starts_with': _starts_with,
+    'ends_with': _ends_with,
+    'contains_str': _contains_str,
+    'reverse_str': _reverse_str,
+    'title_case': _title_case,
+    'camel_case': _camel_case,
+    'snake_case': _snake_case,
+    'kebab_case': _kebab_case,
+    'slugify': _slugify,
+    'truncate': _truncate,
+    'pad_start': _pad_start,
+    'pad_end': _pad_end,
+    'repeat': _repeat,
+    'words': _words,
+    'word_count': _word_count,
+    'line_count': _line_count,
+    'char_count': _char_count,
+    'byte_size': _byte_size,
+    # ── 系统 / 环境 ──
+    'env': _env,
+    'args': _args,
+    'exit': _exit,
+    'now': _now,
+    'timestamp': _timestamp,
+    'cwd': _cwd,
+    'cd': _cd,
+    'datetime': _datetime_format,
+    'datetime_parse': _datetime_parse,
+    # ── 数学 / 统计 ──
+    'avg': _avg,
+    'mean': _avg,
+    'median': _median,
+    'product': _product,
+    'clamp': _clamp,
+    'floor': _floor,
+    'ceil': _ceil,
+    'round': _round,
+    'abs': _abs,
+    'deg2rad': _degrees_to_radians,
+    'rad2deg': _radians_to_degrees,
+    'is_even': _is_even,
+    'is_odd': _is_odd,
+    'is_prime': _is_prime,
+    'fibonacci': _fibonacci,
+    'factorial': _factorial,
+    'gcd': _gcd,
+    'lcm': _lcm,
+    # ── 函数式 ──
+    'reduce': _reduce,
+    'any': _any,
+    'all': _all,
+    'compose': _compose,
+    'pipe': _pipe,
+    'tap': _tap,
+    'memoize': _memoize,
+    # ── 字典操作 ──
+    'keys': _keys,
+    'values': _values,
+    'items': _items,
+    'dict': _dict_from,
+    'merge': _merge,
+    'pick': _pick,
+    'omit': _omit,
+    'clone': _clone,
+    # ── 类型 / 调试 ──
+    'typeof': _typeof,
+    'repr': _repr,
+    'is_email': _is_email,
+    'is_url': _is_url,
+    'is_ip': _is_ip,
+    'is_json': _is_json,
+    'is_number': _is_number,
+    'is_int': _is_int,
+    # ── 编码 / 哈希 ──
+    'md5': _md5,
+    'sha256': _sha256,
+    'base64_encode': _base64_encode,
+    'base64_decode': _base64_decode,
+    'url_encode': _url_encode,
+    'url_decode': _url_decode,
+    'parse_url': _parse_url,
+    # ── 数据格式 ──
+    'csv_parse': _csv_parse,
+    'csv_stringify': _csv_stringify,
+    'xml_parse': _xml_parse,
+    # ── 正则 ──
+    'regex_match': _regex_match,
+    'regex_search': _regex_search,
+    'regex_findall': _regex_findall,
+    'regex_sub': _regex_sub,
+    'regex_split': _regex_split,
+    # ── 随机 / ID ──
+    'random': _random,
+    'random_int': _random_int,
+    'random_choice': _random_choice,
+    'shuffle': _shuffle,
+    'sample': _sample,
+    'uuid': _uuid,
+    'nanoid': _nanoid,
+    # ── 颜色 ──
+    'hex2rgb': _hex_to_rgb,
+    'rgb2hex': _rgb_to_hex,
+    # ── 文本工具 ──
+    'colorize': _color_console,
+    'table': _table,
+    'progress': _progress,
+    'spinner': _spinner_frame,
+    'levenshtein': _levenshtein,
+    'similarity': _similarity,
+    # ── 临时文件 ──
+    'tempfile': _tempfile,
+    'tempdir': _tempdir,
+    # ── 性能 ──
+    'benchmark': _benchmark,
 }

@@ -3,56 +3,54 @@
 <head>
 <meta charset="utf-8">
 <style>
-body { font-family: -apple-system, "SF Pro Text", sans-serif; color: #1a1a2e; padding: 20px; }
-h1 { font-size: 28px; font-weight: 700; color: #6c5ce7; margin-bottom: 8px; }
-.subtitle { font-size: 16px; color: #636e72; margin-bottom: 24px; }
-.version { display: inline-block; background: #6c5ce7; color: white; padding: 4px 12px; border-radius: 12px; font-size: 13px; font-weight: 600; margin-bottom: 16px; }
-.features { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 20px; }
-.feature { background: #f8f9fa; border-radius: 10px; padding: 14px; }
-.feature-icon { font-size: 24px; margin-bottom: 6px; }
-.feature-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
-.feature-desc { font-size: 12px; color: #636e72; line-height: 1.4; }
+body { font-family: -apple-system, "SF Pro Text", sans-serif; color: #e8e8e8; background: #000; padding: 24px; }
+.moon { font-size: 36px; color: #fff; margin-bottom: 8px; letter-spacing: -2px; }
+h1 { font-size: 30px; font-weight: 700; color: #fff; margin: 0 0 6px 0; letter-spacing: -0.5px; }
+.subtitle { font-size: 14px; color: #888; margin-bottom: 20px; }
+.version { display: inline-block; border: 1px solid #333; color: #aaa; padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 500; margin-bottom: 14px; letter-spacing: 0.5px; }
+.features { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+.feature { background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 8px; padding: 12px; }
+.feature-title { font-weight: 600; font-size: 13px; color: #fff; margin-bottom: 3px; }
+.feature-desc { font-size: 11px; color: #666; line-height: 1.4; }
+.install-list { margin-top: 18px; font-size: 12px; color: #888; line-height: 1.9; padding-left: 0; list-style: none; }
+.install-list li::before { content: "◡ "; color: #fff; }
+code { color: #aaa; background: #0a0a0a; padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+.footer { font-size: 10px; color: #444; margin-top: 14px; }
 </style>
 </head>
 <body>
-<div class="version">v1.3.0</div>
-<h1>Aurora 编程语言</h1>
-<p class="subtitle">表达式导向 · 全栈 + AI Agent · 生态互通 · 零依赖纯 Python 实现</p>
+<div class="moon">◡</div>
+<div class="version">v1.4.0</div>
+<h1>Aurora</h1>
+<p class="subtitle">寻求将代码转化为智能的最优解</p>
 
 <div class="features">
 <div class="feature">
-<div class="feature-icon">⚡</div>
-<div class="feature-title">AOT 编译器</div>
-<div class="feature-desc">编译为 Python 源码,带编译缓存,只重编变化文件</div>
+<div class="feature-title">高效执行</div>
+<div class="feature-desc">AOT 编译 + 缓存,Python 十步 Aurora 三四步</div>
 </div>
 <div class="feature">
-<div class="feature-icon">🌐</div>
-<div class="feature-title">全栈能力</div>
-<div class="feature-desc">HTML 前端 + Web 后端 + AI Agent,一个文件搞定</div>
+<div class="feature-title">全栈 + AI</div>
+<div class="feature-desc">HTML 前端 + Web 后端 + AI Agent</div>
 </div>
 <div class="feature">
-<div class="feature-icon">🔗</div>
 <div class="feature-title">生态互通</div>
-<div class="feature-desc">Rust/C++(FFI)、Python、JSON、HTML、VEX、HTTP</div>
+<div class="feature-desc">Rust/C++ FFI · Python · JSON · HTML · VEX</div>
 </div>
 <div class="feature">
-<div class="feature-icon">🛠</div>
-<div class="feature-title">工程化工具</div>
-<div class="feature-desc">aurora new/test/build/watch,src/ 分层结构,161 项测试</div>
+<div class="feature-title">工程化</div>
+<div class="feature-desc">new/test/build/watch · 分层结构 · 全量测试</div>
 </div>
 </div>
 
-<p style="margin-top: 24px; font-size: 13px; color: #636e72;">
-本安装器将自动完成以下配置:
-</p>
-<ul style="font-size: 13px; color: #636e72; line-height: 1.8; padding-left: 20px;">
-<li>✓ Aurora 语言运行时安装到 <code>/usr/local/lib/aurora/</code></li>
-<li>✓ 全局命令 <code>aurora</code> 注册到 <code>/usr/local/bin/</code></li>
-<li>✓ 环境变量自动配置(<code>/etc/paths.d/aurora</code>)</li>
-<li>✓ VSCode 插件自动安装(语法高亮、一键运行)</li>
-<li>✓ AI 开发文档(AI_GUIDE.md + AI_SYSTEM_PROMPT.md)</li>
-<li>✓ 示例项目与性能基准测试</li>
+<ul class="install-list">
+<li>运行时安装到 <code>/usr/local/lib/aurora/</code></li>
+<li>全局命令 <code>aurora</code> 注册到 <code>/usr/local/bin/</code></li>
+<li>环境变量自动配置(<code>/etc/paths.d/aurora</code>)</li>
+<li>VSCode 插件 + Aurora Dark 主题自动安装</li>
+<li>AI 开发文档(AI_GUIDE + AI_SYSTEM_PROMPT)</li>
+<li>示例项目与性能基准测试</li>
 </ul>
-<p style="font-size: 12px; color: #b2bec3; margin-top: 12px;">需要管理员权限 · 零第三方依赖 · Python 3.8+</p>
+<p class="footer">需要管理员权限 · 零第三方依赖 · Python 3.8+</p>
 </body>
 </html>

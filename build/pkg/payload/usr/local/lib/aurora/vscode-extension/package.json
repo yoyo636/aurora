@@ -2,7 +2,7 @@
   "name": "aurora-ide",
   "displayName": "Aurora Language",
   "description": "Aurora 编程语言支持:语法高亮、一键运行、静态检查与行内诊断",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "aurora",
   "license": "MIT",
   "icon": "icons/aurora.png",
@@ -44,6 +44,13 @@
         "language": "aurora",
         "scopeName": "source.aurora",
         "path": "./syntaxes/aurora.tmLanguage.json"
+      }
+    ],
+    "themes": [
+      {
+        "label": "Aurora Dark",
+        "uiTheme": "vs-dark",
+        "path": "./themes/aurora-dark.json"
       }
     ],
     "commands": [
