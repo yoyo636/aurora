@@ -1,9 +1,11 @@
 """
 Aurora 原生编译器 — 代码生成器(AST → C)
 将 Aurora AST 转换为 C 代码,然后由 gcc/clang 编译为原生机器码。
+支持类型特化:纯 int 函数直接编译为 int64_t,性能接近 C。
 """
 import os
 from .ast_nodes import *
+from .type_infer import infer_program_types, is_pure_int_function, TypeKind
 
 
 class CodeGenerator:
@@ -18,6 +20,10 @@ class CodeGenerator:
         self.has_main = False   # 是否有 main 函数
         self.string_literals = []  # 字符串字面量(避免重复)
         self.in_function = False  # 是否在函数体内
+        self.function_types = {}  # 类型推断结果
+        self.current_fn_type = None  # 当前函数的类型信息
+        self.current_fn_pure_int = False  # 当前函数是否是纯 int 函数
+        self.variable_types = {}  # 当前函数的变量类型 {name: InferType}
 
     # ============================================================
     # 工具方法
@@ -46,7 +52,6 @@ class CodeGenerator:
 
     def c_ident(self, name):
         """将 Aurora 标识符转换为合法的 C 标识符"""
-        # C 关键字和内置函数名映射
         keywords = {
             'auto', 'break', 'case', 'char', 'const', 'continue', 'default',
             'do', 'double', 'else', 'enum', 'extern', 'float', 'for', 'goto',
@@ -68,6 +73,54 @@ class CodeGenerator:
         escaped = s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\t', '\\t').replace('\r', '\\r')
         return f'"{escaped}"'
 
+    def _infer_expr_type(self, expr: Expr):
+        """在代码生成时推断表达式类型(简化版)"""
+        from .type_infer import TYPE_INT, TYPE_FLOAT, TYPE_BOOL, TYPE_STRING, TYPE_NIL, TYPE_UNKNOWN
+
+        if isinstance(expr, IntLiteral):
+            return TYPE_INT
+        elif isinstance(expr, FloatLiteral):
+            return TYPE_FLOAT
+        elif isinstance(expr, BoolLiteral):
+            return TYPE_BOOL
+        elif isinstance(expr, StringLiteral):
+            return TYPE_STRING
+        elif isinstance(expr, NilLiteral):
+            return TYPE_NIL
+        elif isinstance(expr, Identifier):
+            return self.variable_types.get(expr.name, TYPE_UNKNOWN)
+        elif isinstance(expr, BinaryOp):
+            if expr.op in ('==', '!=', '<', '<=', '>', '>=', '&&', '||'):
+                return TYPE_BOOL
+            left_type = self._infer_expr_type(expr.left)
+            right_type = self._infer_expr_type(expr.right)
+            if left_type.is_int() and right_type.is_int():
+                return TYPE_INT
+            if left_type.is_numeric() and right_type.is_numeric():
+                return TYPE_FLOAT
+            if left_type.is_string() or right_type.is_string():
+                return TYPE_STRING
+            return TYPE_UNKNOWN
+        elif isinstance(expr, UnaryOp):
+            if expr.op == '!':
+                return TYPE_BOOL
+            if expr.op == '#':
+                return TYPE_INT
+            return self._infer_expr_type(expr.operand)
+        elif isinstance(expr, CallExpr):
+            if isinstance(expr.callee, Identifier):
+                func_name = expr.callee.name
+                if func_name in self.function_types:
+                    return self.function_types[func_name].get('return', TYPE_UNKNOWN)
+                if func_name in ('len', 'now_ms', 'floor', 'ceil', 'round', 'min', 'max', 'gcd', 'lcm', 'factorial', 'fibonacci'):
+                    return TYPE_INT
+                if func_name in ('sqrt', 'sin', 'cos', 'tan', 'log', 'exp'):
+                    return TYPE_FLOAT
+                if func_name in ('is_prime', 'file_exists'):
+                    return TYPE_BOOL
+            return TYPE_UNKNOWN
+        return TYPE_UNKNOWN
+
     # ============================================================
     # 程序生成
     # ============================================================
@@ -76,18 +129,28 @@ class CodeGenerator:
         self.output = []
         self.indent_level = 0
 
+        # 运行类型推断器
+        self.function_types = infer_program_types(program)
+
         # 头文件
         self.emit_raw('#include "aurora_rt.h"')
         self.emit_raw('#include <stdio.h>')
         self.emit_raw('#include <stdlib.h>')
         self.emit_raw('#include <string.h>')
+        self.emit_raw('#include <stdint.h>')
         self.emit_raw('')
 
         # 前向声明所有函数
         for stmt in program.statements:
             if isinstance(stmt, FnDef):
-                params = ", ".join(["AuValue"] * len(stmt.params)) if stmt.params else "void"
-                self.emit_raw(f"AuValue {self.c_ident(stmt.name)}({params});")
+                fn_type = self.function_types.get(stmt.name, {})
+                pure_int = is_pure_int_function(fn_type) if fn_type else False
+                if pure_int:
+                    params = ", ".join(["int64_t"] * len(stmt.params)) if stmt.params else "void"
+                    self.emit_raw(f"int64_t {self.c_ident(stmt.name)}({params});")
+                else:
+                    params = ", ".join(["AuValue"] * len(stmt.params)) if stmt.params else "void"
+                    self.emit_raw(f"AuValue {self.c_ident(stmt.name)}({params});")
         self.emit_raw('')
 
         # 生成所有函数定义
@@ -167,16 +230,37 @@ class CodeGenerator:
         self.emit("}")
 
     def gen_fn_def(self, fn: FnDef):
-        """生成函数定义"""
+        """生成函数定义(支持类型特化)"""
         if fn.name == "main":
             self.has_main = True
 
-        self.in_function = True
-        params = ", ".join([f"AuValue {self.c_ident(p.name)}" for p in fn.params])
-        if not params:
-            params = "void"
+        # 获取函数类型信息
+        fn_type = self.function_types.get(fn.name, {})
+        self.current_fn_type = fn_type
+        self.current_fn_pure_int = is_pure_int_function(fn_type) if fn_type else False
 
-        self.emit(f"AuValue {self.c_ident(fn.name)}({params}) {{")
+        # 收集变量类型
+        self.variable_types = {}
+        if fn_type and 'params' in fn_type:
+            for i, param in enumerate(fn.params):
+                if i < len(fn_type['params']):
+                    self.variable_types[param.name] = fn_type['params'][i]
+
+        self.in_function = True
+
+        if self.current_fn_pure_int:
+            # 纯 int 函数:生成 int64_t 版本
+            params = ", ".join([f"int64_t {self.c_ident(p.name)}" for p in fn.params])
+            if not params:
+                params = "void"
+            self.emit(f"int64_t {self.c_ident(fn.name)}({params}) {{")
+        else:
+            # 普通函数:生成 AuValue 版本
+            params = ", ".join([f"AuValue {self.c_ident(p.name)}" for p in fn.params])
+            if not params:
+                params = "void"
+            self.emit(f"AuValue {self.c_ident(fn.name)}({params}) {{")
+
         self.indent()
 
         # 函数体
@@ -184,27 +268,51 @@ class CodeGenerator:
             for stmt in fn.body.statements:
                 self.gen_stmt(stmt)
 
-        # 如果函数体最后一个语句不是 return,添加默认 return nil
+        # 如果函数体最后一个语句不是 return,添加默认 return
         if fn.body and fn.body.statements:
             last = fn.body.statements[-1]
             if not isinstance(last, ReturnStmt):
-                self.emit("return AU_NIL_VAL();")
+                if self.current_fn_pure_int:
+                    self.emit("return 0;")
+                else:
+                    self.emit("return AU_NIL_VAL();")
         else:
-            self.emit("return AU_NIL_VAL();")
+            if self.current_fn_pure_int:
+                self.emit("return 0;")
+            else:
+                self.emit("return AU_NIL_VAL();")
 
         self.dedent()
         self.emit("}")
         self.emit("")
         self.in_function = False
+        self.current_fn_pure_int = False
+        self.variable_types = {}
 
     def gen_let_stmt(self, stmt: LetStmt):
-        """生成 let/var 声明"""
+        """生成 let/var 声明(支持类型特化)"""
         name = self.c_ident(stmt.name)
+
+        # 推断变量类型
+        var_type = None
         if stmt.initializer:
-            expr_code = self.gen_expr(stmt.initializer)
-            self.emit(f"AuValue {name} = {expr_code};")
+            var_type = self._infer_expr_type(stmt.initializer)
+
+        if self.current_fn_pure_int and var_type and var_type.is_int():
+            # 纯 int 函数中的 int 变量
+            self.variable_types[stmt.name] = var_type
+            if stmt.initializer:
+                expr_code = self.gen_expr(stmt.initializer)
+                self.emit(f"int64_t {name} = {expr_code};")
+            else:
+                self.emit(f"int64_t {name} = 0;")
         else:
-            self.emit(f"AuValue {name} = AU_NIL_VAL();")
+            # 普通变量
+            if stmt.initializer:
+                expr_code = self.gen_expr(stmt.initializer)
+                self.emit(f"AuValue {name} = {expr_code};")
+            else:
+                self.emit(f"AuValue {name} = AU_NIL_VAL();")
 
     def gen_const_stmt(self, stmt: ConstStmt):
         """生成 const 声明(let 的不可变版本)"""
@@ -243,9 +351,20 @@ class CodeGenerator:
                 self.emit(f"{target} = {op_map[stmt.op]}({target}, {value});")
 
     def gen_if_stmt(self, stmt: IfStmt):
-        """生成 if 语句"""
+        """生成 if 语句(支持类型特化)"""
         cond = self.gen_expr(stmt.condition)
-        self.emit(f"if (au_value_truthy({cond})) {{")
+
+        # 纯 int 函数中,如果条件是比较运算或 bool 变量,直接使用
+        if self.current_fn_pure_int:
+            cond_type = self._infer_expr_type(stmt.condition)
+            if cond_type.is_bool() or cond_type.is_int():
+                cond_code = cond
+            else:
+                cond_code = f"au_value_truthy({cond})"
+        else:
+            cond_code = f"au_value_truthy({cond})"
+
+        self.emit(f"if ({cond_code}) {{")
         self.indent()
         if stmt.then_body:
             for s in stmt.then_body.statements:
@@ -310,9 +429,17 @@ class CodeGenerator:
             self.emit("}")
 
     def gen_while_stmt(self, stmt: WhileStmt):
-        """生成 while 循环"""
+        """生成 while 循环(支持类型特化)"""
         cond = self.gen_expr(stmt.condition)
-        self.emit(f"while (au_value_truthy({cond})) {{")
+        if self.current_fn_pure_int:
+            cond_type = self._infer_expr_type(stmt.condition)
+            if cond_type.is_bool() or cond_type.is_int():
+                cond_code = cond
+            else:
+                cond_code = f"au_value_truthy({cond})"
+        else:
+            cond_code = f"au_value_truthy({cond})"
+        self.emit(f"while ({cond_code}) {{")
         self.indent()
         if stmt.body:
             for s in stmt.body.statements:
@@ -321,12 +448,15 @@ class CodeGenerator:
         self.emit("}")
 
     def gen_return_stmt(self, stmt: ReturnStmt):
-        """生成 return 语句"""
+        """生成 return 语句(支持类型特化)"""
         if stmt.value:
             value = self.gen_expr(stmt.value)
             self.emit(f"return {value};")
         else:
-            self.emit("return AU_NIL_VAL();")
+            if self.current_fn_pure_int:
+                self.emit("return 0;")
+            else:
+                self.emit("return AU_NIL_VAL();")
 
     def gen_expr_stmt(self, stmt: ExprStmt):
         """生成表达式语句"""
@@ -340,7 +470,13 @@ class CodeGenerator:
     # 表达式生成
     # ============================================================
     def gen_expr(self, expr: Expr) -> str:
-        """生成表达式,返回 C 表达式字符串"""
+        """生成表达式,返回 C 表达式字符串(支持类型特化)"""
+        # 纯 int 函数中,对 int/bool 类型表达式使用特化代码
+        if self.current_fn_pure_int:
+            expr_type = self._infer_expr_type(expr)
+            if expr_type.is_int() or expr_type.is_bool():
+                return self.gen_expr_typed(expr)
+
         if isinstance(expr, IntLiteral):
             return f"AU_INT_VAL({expr.value})"
         elif isinstance(expr, FloatLiteral):
@@ -384,6 +520,111 @@ class CodeGenerator:
             return self.gen_match_expr(expr)
         else:
             return f"AU_NIL_VAL() /* TODO: {type(expr).__name__} */"
+
+    def gen_expr_typed(self, expr: Expr) -> str:
+        """生成类型特化的表达式(纯 int/bool 函数中使用,直接使用 C 原生类型)"""
+        if isinstance(expr, IntLiteral):
+            return f"((int64_t){expr.value})"
+        elif isinstance(expr, BoolLiteral):
+            return "true" if expr.value else "false"
+        elif isinstance(expr, Identifier):
+            return self.c_ident(expr.name)
+        elif isinstance(expr, BinaryOp):
+            return self.gen_binary_op_typed(expr)
+        elif isinstance(expr, UnaryOp):
+            operand = self.gen_expr_typed(expr.operand)
+            if expr.op == '-':
+                return f"(-{operand})"
+            elif expr.op == '!':
+                return f"(!{operand})"
+            return operand
+        elif isinstance(expr, CallExpr):
+            # 函数调用:如果是纯 int 函数,直接调用
+            if isinstance(expr.callee, Identifier):
+                func_name = expr.callee.name
+                fn_type = self.function_types.get(func_name, {})
+                if fn_type and is_pure_int_function(fn_type):
+                    args = ", ".join([self.gen_expr_typed(a) for a in expr.args])
+                    return f"{self.c_ident(func_name)}({args})"
+                # 内置 int 函数
+                builtin_int = {
+                    'len', 'now_ms', 'floor', 'ceil', 'round', 'min', 'max',
+                    'gcd', 'lcm', 'factorial', 'fibonacci',
+                }
+                if func_name in builtin_int:
+                    args = ", ".join([self.gen_expr(a) for a in expr.args])
+                    if func_name == 'len':
+                        return f"au_len({args})"
+                    return f"{func_name}({args})"
+                if func_name == 'is_prime':
+                    args = ", ".join([self.gen_expr_typed(a) for a in expr.args])
+                    return f"au_is_prime({args})"
+            # 回退到普通生成
+            return self.gen_call_expr(expr)
+        elif isinstance(expr, IfExpr):
+            # 三元运算符
+            cond = self.gen_expr_typed(expr.condition)
+            then_val = "0"
+            else_val = "0"
+            if expr.then_body and expr.then_body.statements:
+                last = expr.then_body.statements[-1]
+                if isinstance(last, ExprStmt):
+                    then_val = self.gen_expr_typed(last.expr)
+                elif isinstance(last, ReturnStmt) and last.value:
+                    then_val = self.gen_expr_typed(last.value)
+            if expr.else_body and expr.else_body.statements:
+                last = expr.else_body.statements[-1]
+                if isinstance(last, ExprStmt):
+                    else_val = self.gen_expr_typed(last.expr)
+                elif isinstance(last, ReturnStmt) and last.value:
+                    else_val = self.gen_expr_typed(last.value)
+            return f"({cond} ? {then_val} : {else_val})"
+        else:
+            # 回退到普通生成
+            return self.gen_expr(expr)
+
+    def gen_binary_op_typed(self, expr: BinaryOp) -> str:
+        """生成类型特化的二元运算(直接使用 C 运算符)"""
+        left = self.gen_expr_typed(expr.left)
+        right = self.gen_expr_typed(expr.right)
+        op = expr.op
+
+        # 算术运算
+        if op == '+':
+            return f"({left} + {right})"
+        elif op == '-':
+            return f"({left} - {right})"
+        elif op == '*':
+            return f"({left} * {right})"
+        elif op == '/':
+            return f"({left} / {right})"
+        elif op == '%':
+            return f"({left} % {right})"
+        elif op == '**':
+            # 幂运算:使用简单实现
+            return f"_aurora_pow_int({left}, {right})"
+
+        # 比较运算
+        elif op == '==':
+            return f"({left} == {right})"
+        elif op == '!=':
+            return f"({left} != {right})"
+        elif op == '<':
+            return f"({left} < {right})"
+        elif op == '<=':
+            return f"({left} <= {right})"
+        elif op == '>':
+            return f"({left} > {right})"
+        elif op == '>=':
+            return f"({left} >= {right})"
+
+        # 逻辑运算
+        elif op == '&&':
+            return f"({left} && {right})"
+        elif op == '||':
+            return f"({left} || {right})"
+
+        return f"({left} {op} {right})"
 
     def gen_string_literal(self, expr: StringLiteral) -> str:
         """生成字符串字面量(处理插值 {expr})"""
@@ -504,10 +745,26 @@ class CodeGenerator:
             return operand
 
     def gen_call_expr(self, expr: CallExpr) -> str:
-        """生成函数调用"""
+        """生成函数调用(支持类型特化)"""
         callee_name = None
         if isinstance(expr.callee, Identifier):
             callee_name = expr.callee.name
+
+        # 如果调用的是纯 int 函数,且当前不是纯 int 函数,需要类型转换
+        if callee_name and callee_name in self.function_types:
+            fn_type = self.function_types[callee_name]
+            if is_pure_int_function(fn_type) and not self.current_fn_pure_int:
+                # 将 AuValue 参数转换为 int64_t,将 int64_t 返回值包装为 AuValue
+                temp = self.new_temp("_call")
+                args_converted = []
+                for i, arg in enumerate(expr.args):
+                    arg_code = self.gen_expr(arg)
+                    arg_temp = f"{temp}_arg{i}"
+                    self.emit(f"AuValue {arg_temp} = {arg_code};")
+                    args_converted.append(f"{arg_temp}.as.i")
+                args_str = ", ".join(args_converted)
+                self.emit(f"int64_t {temp}_result = {self.c_ident(callee_name)}({args_str});")
+                return f"AU_INT_VAL({temp}_result)"
 
         # 内置函数映射
         builtin_map = {

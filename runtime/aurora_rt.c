@@ -850,6 +850,18 @@ int64_t au_fibonacci(int64_t n) {
     return b;
 }
 
+/* int 幂运算(用于类型特化代码) */
+int64_t _aurora_pow_int(int64_t base, int64_t exp) {
+    if (exp < 0) return 0;
+    int64_t result = 1;
+    while (exp > 0) {
+        if (exp & 1) result *= base;
+        base *= base;
+        exp >>= 1;
+    }
+    return result;
+}
+
 /* ============================================================
  * JSON 解析与序列化(递归下降)
  * ============================================================ */
