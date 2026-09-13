@@ -244,6 +244,55 @@ class CodeGenerator:
         self._indent -= 1
         return "(lambda: (" + body.replace("\n", "; ") + ", None)[-1])()"
 
+    def _gen_match(self, expr: MatchExpr) -> str:
+        """match 表达式 → Python lambda + if/elif 链"""
+        subject = self.gen_expr(expr.subject)
+        # 构建嵌套三元表达式:val1 if cond1 else val2 if cond2 else default
+        result = None
+        for arm in reversed(expr.arms):
+            body = self.gen_expr(arm.body)
+            pat = arm.pattern
+            if isinstance(pat, WildcardPattern):
+                result = body
+            elif isinstance(pat, LiteralPattern):
+                cond = "_m == " + self.gen_expr(pat.value)
+                result = body + " if " + cond + " else " + (result if result else "None")
+            elif isinstance(pat, BindPattern):
+                # 绑定模式:总是匹配,_m 即绑定值
+                result = body
+            elif isinstance(pat, ConstructorPattern):
+                # 构造器模式:简化为类型检查
+                cond = "isinstance(_m, tuple) and _m and _m[0] == " + repr(pat.name)
+                result = body + " if " + cond + " else " + (result if result else "None")
+            else:
+                result = body
+        if result is None:
+            result = "None"
+        return "(lambda _m: " + result + ")(" + subject + ")"
+
+    def _gen_match_stmt(self, stmt: MatchStmt) -> str:
+        """match 语句 → Python if/elif 链"""
+        var_name = "_match_" + str(id(stmt))[-6:]
+        lines = [self._ind(var_name + " = " + self.gen_expr(stmt.subject))]
+        first = True
+        for arm in stmt.arms:
+            pat = arm.pattern
+            body_code = self.gen_expr(arm.body)
+            if isinstance(pat, WildcardPattern):
+                lines.append(self._ind("else:"))
+            elif isinstance(pat, LiteralPattern):
+                kw = "if" if first else "elif"
+                lines.append(self._ind(kw + " " + var_name + " == " + self.gen_expr(pat.value) + ":"))
+                first = False
+            elif isinstance(pat, BindPattern):
+                lines.append(self._ind("else:"))
+            else:
+                kw = "if" if first else "elif"
+                lines.append(self._ind(kw + " True:"))
+                first = False
+            lines.append(self._ind("    " + body_code))
+        return "\n".join(lines)
+
     # ── 语句生成 ────────────────────────────────────
 
     def gen_stmt(self, stmt: Stmt) -> str:
@@ -275,6 +324,8 @@ class CodeGenerator:
             return self._gen_import(stmt)
         if isinstance(stmt, Block):
             return self._block(stmt.statements)
+        if isinstance(stmt, MatchStmt):
+            return self._gen_match_stmt(stmt)
         # 不支持的语句:生成运行时错误
         return self._ind(f'raise NotImplementedError("Aurora 编译器暂不支持语句: {type(stmt).__name__},请使用解释器运行")')
 
@@ -292,8 +343,15 @@ class CodeGenerator:
         body_stmts = stmt.body.statements if isinstance(stmt.body, Block) else stmt.body
         processed = []
         for i, s in enumerate(body_stmts):
-            if i == len(body_stmts) - 1 and isinstance(s, ExprStmt):
-                processed.append(ReturnStmt(value=s.expr))
+            if i == len(body_stmts) - 1:
+                if isinstance(s, ExprStmt):
+                    processed.append(ReturnStmt(value=s.expr))
+                elif isinstance(s, MatchStmt):
+                    # 函数末尾的 match 语句 → 转为 match 表达式返回
+                    me = MatchExpr(subject=s.subject, arms=s.arms)
+                    processed.append(ReturnStmt(value=me))
+                else:
+                    processed.append(s)
             else:
                 processed.append(s)
         fake_block = Block(statements=processed)
@@ -385,6 +443,8 @@ class CodeGenerator:
             then_v = self._block_last_expr(expr.then_body)
             else_v = self._block_last_expr(expr.else_body) if expr.else_body else "None"
             return "(" + then_v + " if " + cond + " else " + else_v + ")"
+        if isinstance(expr, MatchExpr):
+            return self._gen_match(expr)
         if isinstance(expr, StringInterpolation):
             return self._gen_interpolation(expr)
         # 不支持的表达式

@@ -12,6 +12,7 @@ const state = {
   panel: "output",
   errors: [],          // [{line, col, kind, message}]
   running: false,
+  autoRun: false,
 };
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -418,6 +419,10 @@ async function saveFile() {
   tab.dirty = false;
   renderTabs();
   appendOutput("✓ 已保存 " + tab.title, "ok-line");
+  if (state.autoRun) {
+    appendOutput("⚡ 自动运行...", "dim-line");
+    setTimeout(runCode, 100);
+  }
 }
 
 // ───────── 新建文件 ─────────
@@ -473,6 +478,12 @@ $("#about-close").addEventListener("click", () => $("#about").classList.add("hid
 $("#newfile-ok").addEventListener("click", doNewFile);
 $("#newfile-cancel").addEventListener("click", () => $("#newfile").classList.add("hidden"));
 $("#newfile-name").addEventListener("keydown", (e) => { if (e.key === "Enter") doNewFile(); if (e.key === "Escape") $("#newfile").classList.add("hidden"); });
+$("#st-autorun").addEventListener("click", () => {
+  state.autoRun = !state.autoRun;
+  const el = $("#st-autorun");
+  el.textContent = state.autoRun ? "⚡ 自动运行:开" : "⚡ 自动运行:关";
+  el.style.opacity = state.autoRun ? "1" : "0.5";
+});
 
 // ───────── 启动 ─────────
 async function init() {

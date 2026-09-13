@@ -178,6 +178,12 @@ def cmd_new(args):
     print(f"  └─ README.md")
     print(f"下一步: cd {name} && aurora run")
 
+def _needs_compile(src: str, dst: str) -> bool:
+    """检查源文件是否需要重新编译(产物不存在或源文件更新)"""
+    if not os.path.exists(dst):
+        return True
+    return os.path.getmtime(src) > os.path.getmtime(dst)
+
 def cmd_build(args):
     """AOT 编译:将 .aur 项目编译为 Python 源码"""
     entry = getattr(args, 'file', None)
@@ -201,9 +207,13 @@ def cmd_build(args):
     os.makedirs(out_dir, exist_ok=True)
     base = os.path.splitext(os.path.basename(entry))[0]
     out_path = os.path.join(out_dir, base + '.py')
+    force = getattr(args, 'force', False)
     try:
-        compile_file(entry, out_path)
-        print(f"✓ 编译: {entry} → {out_path}")
+        if force or _needs_compile(entry, out_path):
+            compile_file(entry, out_path)
+            print(f"✓ 编译: {entry} → {out_path}")
+        else:
+            print(f"⏭ 跳过(未变化): {entry}")
     except (LexerError, ParseError) as e:
         print(f"编译错误: {e}")
         sys.exit(1)
@@ -215,11 +225,11 @@ def cmd_build(args):
             print(f"编译错误: {e}")
         sys.exit(1)
 
-    _build_local_modules(entry, out_dir, args)
+    _build_local_modules(entry, out_dir, args, force)
     print(f"\n编译完成!运行: python3 {out_path}")
 
-def _build_local_modules(entry, out_dir, args):
-    """扫描并编译 import 的本地模块"""
+def _build_local_modules(entry, out_dir, args, force=False):
+    """扫描并编译 import 的本地模块(带缓存)"""
     import re
     with open(entry, 'r', encoding='utf-8') as f:
         source = f.read()
@@ -235,11 +245,82 @@ def _build_local_modules(entry, out_dir, args):
             if os.path.exists(full):
                 out = os.path.join(out_dir, mod.replace('.', '_') + '.py')
                 try:
-                    compile_file(full, out)
-                    print(f"✓ 编译模块: {mod} → {out}")
+                    if force or _needs_compile(full, out):
+                        compile_file(full, out)
+                        print(f"✓ 编译模块: {mod} → {out}")
+                    else:
+                        print(f"⏭ 跳过模块(未变化): {mod}")
                 except Exception as e:
                     print(f"  ⚠ 模块 {mod} 编译失败: {e}")
                 break
+
+def cmd_watch(args):
+    """监听文件变化,自动运行(开发模式热重载)"""
+    import time
+    entry = getattr(args, 'file', None)
+    if entry is None:
+        if os.path.exists('aurora.toml'):
+            cfg = parse_toml('aurora.toml')
+            entry = (cfg.get('build') or {}).get('entry')
+        if not entry:
+            for cand in ('src/main.aur', 'main.aur'):
+                if os.path.exists(cand):
+                    entry = cand
+                    break
+    if not entry or not os.path.exists(entry):
+        print("错误: 未找到入口文件")
+        sys.exit(1)
+
+    interval = getattr(args, 'interval', 0.5)
+    print(f"👁  Aurora Watch — 监听 {entry} 及 src/ 目录")
+    print(f"   间隔 {interval}s,Ctrl+C 退出")
+    print("   首次运行...")
+
+    def collect_files():
+        files = {os.path.abspath(entry)}
+        for root, dirs, fnames in os.walk('src'):
+            for fn in fnames:
+                if fn.endswith('.aur'):
+                    files.add(os.path.abspath(os.path.join(root, fn)))
+        return files
+
+    def get_mtimes(files):
+        return {f: os.path.getmtime(f) for f in files if os.path.exists(f)}
+
+    def run_entry():
+        print(f"\n{'─'*50}")
+        print(f"▶ 运行 {entry} ({time.strftime('%H:%M:%S')})")
+        print('─'*50)
+        try:
+            source = open(entry, 'r', encoding='utf-8').read()
+            lexer = Lexer(source)
+            tokens = lexer.tokenize()
+            parser = Parser(tokens)
+            program = parser.parse()
+            interp = Interpreter()
+            interp.run(program, file_path=os.path.abspath(entry))
+        except (LexerError, ParseError) as e:
+            print(f"编译错误: {e}")
+        except Exception as e:
+            print(f"运行错误: {e}")
+
+    run_entry()
+    last_mtimes = get_mtimes(collect_files())
+
+    try:
+        while True:
+            time.sleep(interval)
+            files = collect_files()
+            current = get_mtimes(files)
+            changed = [f for f in current if f not in last_mtimes or current[f] != last_mtimes.get(f)]
+            removed = [f for f in last_mtimes if f not in current]
+            if changed or removed:
+                for f in changed:
+                    print(f"\n📝 变化: {os.path.relpath(f)}")
+                run_entry()
+                last_mtimes = current
+    except KeyboardInterrupt:
+        print("\n\n👋 Watch 已退出")
 
 def _collect_test_fns(source: str) -> list:
     """收集源码中顶层 test_* 函数名"""
@@ -528,8 +609,15 @@ def main():
     p_build = subparsers.add_parser('build', help='AOT 编译为 Python 源码')
     p_build.add_argument('file', nargs='?', default=None, help='入口 .aur 文件(默认读 aurora.toml)')
     p_build.add_argument('-o', '--out', default='dist', help='输出目录(默认 dist)')
+    p_build.add_argument('-f', '--force', action='store_true', help='强制重新编译(忽略缓存)')
     p_build.add_argument('-v', '--verbose', action='store_true', help='显示详细错误')
     p_build.set_defaults(func=cmd_build)
+
+    # watch
+    p_watch = subparsers.add_parser('watch', help='监听文件变化,自动运行(开发模式)')
+    p_watch.add_argument('file', nargs='?', default=None, help='入口 .aur 文件(默认读 aurora.toml)')
+    p_watch.add_argument('-i', '--interval', type=float, default=0.5, help='检查间隔秒数(默认 0.5)')
+    p_watch.set_defaults(func=cmd_watch)
 
     args = parser.parse_args()
     

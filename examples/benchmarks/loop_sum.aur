@@ -1,0 +1,16 @@
+// 基准测试:循环累加
+import std.time
+
+fn main() {
+    let N = 1000000
+    let start = std.time.now()
+    var sum = 0
+    for i in range(N) {
+        sum = sum + i
+    }
+    let elapsed = std.time.now() - start
+    println("0..N 累加 N=" + str(N) + " sum=" + str(sum))
+    println("耗时: " + str(elapsed) + "ms")
+}
+
+main()
