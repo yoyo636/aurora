@@ -10,473 +10,501 @@
   body {
     background: #000;
     color: #fff;
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-family: "MiSans", "Noto Sans SC", -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
   }
 
   /* ===== 导航栏 ===== */
   nav {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(0,0,0,0.4);
+    backdrop-filter: blur(16.75px);
+    -webkit-backdrop-filter: blur(16.75px);
+  }
+  .nav-inner {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 20px 48px;
-    background: rgba(0,0,0,0.8);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+    height: 72px; padding: 0 80px; max-width: 1440px; margin: 0 auto;
   }
   .nav-logo {
     display: flex; align-items: center; gap: 10px;
-    font-size: 20px; font-weight: 700; letter-spacing: -0.5px;
+    font-size: 22px; font-weight: 600; letter-spacing: -0.3px;
     text-decoration: none; color: #fff;
   }
-  .nav-logo .moon {
-    width: 28px; height: 28px; border-radius: 50%;
-    background: #fff; position: relative; overflow: hidden;
+  .nav-logo .moon-mark {
+    width: 32px; height: 32px; position: relative;
+    border-radius: 50%; background: #fff;
+    box-shadow: 0 0 12px rgba(255,255,255,0.3);
   }
-  .nav-logo .moon::after {
+  .nav-logo .moon-mark::after {
     content: ''; position: absolute;
-    width: 24px; height: 24px; border-radius: 50%;
+    width: 26px; height: 26px; border-radius: 50%;
     background: #000; top: -3px; right: -5px;
   }
-  .nav-links { display: flex; gap: 36px; align-items: center; }
-  .nav-links a {
-    color: rgba(255,255,255,0.6); text-decoration: none;
-    font-size: 14px; font-weight: 400; transition: color 0.2s;
+  .nav-menu {
+    display: flex; align-items: center; gap: 24px;
+    position: absolute; left: 50%; transform: translateX(-50%);
   }
-  .nav-links a:hover { color: #fff; }
-  .nav-cta {
-    padding: 8px 20px; border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 20px; color: #fff !important; font-size: 13px !important;
-    transition: all 0.2s;
+  .nav-menu a {
+    padding: 4px 8px; border-radius: 8px;
+    font-size: 16px; line-height: 24px;
+    color: rgba(255,255,255,0.56); font-weight: 380;
+    text-decoration: none; transition: color 0.2s;
   }
-  .nav-cta:hover { background: #fff; color: #000 !important; }
+  .nav-menu a:hover { color: rgba(255,255,255,0.84); }
+  .nav-hamburger {
+    display: none; width: 40px; height: 40px;
+    align-items: center; justify-content: center;
+    background: none; border: none; cursor: pointer;
+    color: #fff; font-size: 24px;
+  }
 
-  /* ===== Hero 区域 ===== */
+  /* ===== Hero ===== */
   .hero {
-    position: relative; min-height: 100vh;
+    position: relative; min-height: calc(100vh - 72px);
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    overflow: hidden;
+    overflow: hidden; padding: 40px 20px;
   }
 
-  /* 背景滚动文字 */
-  .scroll-bg {
-    position: absolute; top: 50%; left: 0; right: 0;
-    transform: translateY(-50%);
-    white-space: nowrap; overflow: hidden;
-    pointer-events: none;
+  /* 背景模糊文字 */
+  .hero-bg-text {
+    position: absolute; top: 38%; left: 50%;
+    transform: translate(-50%, -50%);
+    white-space: nowrap; pointer-events: none;
+    user-select: none;
   }
-  .scroll-text {
+  .hero-bg-text span {
+    font-size: 120px; font-weight: 700;
+    letter-spacing: -2px;
+    color: rgba(183,183,183,0.35);
+    filter: blur(6px);
     display: inline-block;
-    font-size: 180px; font-weight: 900;
-    letter-spacing: -4px;
-    color: transparent;
-    -webkit-text-stroke: 1px rgba(255,255,255,0.06);
-    animation: scrollLeft 40s linear infinite;
-    padding-right: 60px;
+    padding: 0 20px;
   }
-  @keyframes scrollLeft {
-    0% { transform: translateX(0); }
-    100% { transform: translateX(-50%); }
+  .hero-bg-text span:nth-child(2) {
+    color: rgba(183,183,183,0.2);
+    filter: blur(8px);
+  }
+  .hero-bg-text span:nth-child(3) {
+    color: rgba(183,183,183,0.15);
+    filter: blur(10px);
   }
 
   /* 月牙图形 */
-  .moon-container {
-    position: relative; width: 320px; height: 320px;
+  .moon-wrap {
+    position: relative; width: 340px; height: 340px;
     display: flex; align-items: center; justify-content: center;
-    margin-bottom: 40px;
+    margin-bottom: 48px; z-index: 2;
   }
-  .moon-glow {
-    position: absolute; width: 400px; height: 400px;
+  .moon-glow-outer {
+    position: absolute; width: 420px; height: 420px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 40%, transparent 70%);
-    animation: pulse 4s ease-in-out infinite;
+    background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 40%, transparent 65%);
   }
-  @keyframes pulse {
-    0%, 100% { transform: scale(1); opacity: 0.8; }
-    50% { transform: scale(1.08); opacity: 1; }
+  .moon-ring {
+    position: absolute; width: 280px; height: 280px;
+    border-radius: 50%;
+    box-shadow: 0 0 40px rgba(255,255,255,0.12), 0 0 80px rgba(255,255,255,0.06), inset 0 0 30px rgba(255,255,255,0.03);
   }
   .moon-body {
     position: relative; width: 200px; height: 200px;
-    border-radius: 50%; background: #f0f0f0;
-    box-shadow: 0 0 60px rgba(255,255,255,0.15), 0 0 120px rgba(255,255,255,0.05);
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #f5f5f5 0%, #d0d0d0 60%, #a0a0a0 100%);
+    box-shadow: 0 0 50px rgba(255,255,255,0.2), 0 0 100px rgba(255,255,255,0.08);
   }
   .moon-body::after {
     content: ''; position: absolute;
-    width: 180px; height: 180px; border-radius: 50%;
-    background: #000; top: -20px; right: -30px;
-  }
-  .moon-ring {
-    position: absolute; width: 240px; height: 240px;
-    border-radius: 50%; border: 1px solid rgba(255,255,255,0.08);
-  }
-  .moon-ring-2 {
-    position: absolute; width: 300px; height: 300px;
-    border-radius: 50%; border: 1px solid rgba(255,255,255,0.04);
+    width: 185px; height: 185px; border-radius: 50%;
+    background: #000;
+    top: -22px; right: -32px;
+    box-shadow: inset -10px 0 20px rgba(255,255,255,0.05);
   }
 
-  .hero-title {
-    font-size: 72px; font-weight: 800;
-    letter-spacing: -2px; margin-bottom: 16px;
-    background: linear-gradient(180deg, #fff 0%, #888 100%);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
   .hero-slogan {
-    font-size: 20px; color: rgba(255,255,255,0.5);
-    font-weight: 300; letter-spacing: 1px;
-    margin-bottom: 48px;
+    font-size: 24px; font-weight: 380;
+    color: rgba(255,255,255,0.6);
+    letter-spacing: 0.5px;
+    margin-bottom: 40px; z-index: 2;
+    text-align: center;
   }
-  .hero-actions { display: flex; gap: 16px; }
-  .btn {
-    padding: 14px 32px; border-radius: 30px;
-    font-size: 15px; font-weight: 500;
+
+  .hero-buttons {
+    display: flex; gap: 16px; z-index: 2;
+  }
+  .btn-outline {
+    padding: 12px 28px; border-radius: 24px;
+    font-size: 15px; font-weight: 400;
+    color: #fff; background: transparent;
+    border: 1px solid rgba(255,255,255,0.3);
     text-decoration: none; cursor: pointer;
-    transition: all 0.25s; border: none;
+    transition: all 0.25s;
   }
-  .btn-primary { background: #fff; color: #000; }
-  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(255,255,255,0.2); }
-  .btn-ghost { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.2); }
-  .btn-ghost:hover { border-color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.05); }
+  .btn-outline:hover {
+    border-color: rgba(255,255,255,0.6);
+    background: rgba(255,255,255,0.05);
+  }
+  .btn-solid {
+    padding: 12px 28px; border-radius: 24px;
+    font-size: 15px; font-weight: 500;
+    color: #000; background: #fff;
+    border: 1px solid #fff;
+    text-decoration: none; cursor: pointer;
+    transition: all 0.25s;
+  }
+  .btn-solid:hover {
+    background: #e0e0e0; border-color: #e0e0e0;
+  }
 
-  .scroll-hint {
-    position: absolute; bottom: 40px; left: 50%;
-    transform: translateX(-50%);
-    color: rgba(255,255,255,0.3); font-size: 12px;
-    letter-spacing: 2px; animation: bounce 2s infinite;
-  }
-  @keyframes bounce {
-    0%, 100% { transform: translateX(-50%) translateY(0); }
-    50% { transform: translateX(-50%) translateY(8px); }
-  }
-
-  /* ===== 通用 section ===== */
-  section { padding: 120px 48px; max-width: 1200px; margin: 0 auto; }
+  /* ===== Section 通用 ===== */
+  section { padding: 120px 80px; max-width: 1440px; margin: 0 auto; }
   .section-label {
-    font-size: 13px; color: rgba(255,255,255,0.4);
-    letter-spacing: 3px; text-transform: uppercase;
-    margin-bottom: 16px;
+    font-size: 14px; color: rgba(255,255,255,0.4);
+    letter-spacing: 2px; margin-bottom: 16px;
+    font-weight: 380;
   }
   .section-title {
-    font-size: 42px; font-weight: 700;
-    letter-spacing: -1px; margin-bottom: 20px;
-    line-height: 1.2;
+    font-size: 40px; font-weight: 600;
+    letter-spacing: -0.5px; margin-bottom: 20px;
+    line-height: 1.3;
   }
   .section-desc {
     font-size: 17px; color: rgba(255,255,255,0.5);
-    line-height: 1.7; max-width: 640px;
+    line-height: 1.7; max-width: 600px; font-weight: 380;
   }
 
   /* ===== 特性网格 ===== */
-  .features-grid {
+  .features {
     display: grid; grid-template-columns: repeat(3, 1fr);
-    gap: 1px; background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.06);
+    gap: 0; margin-top: 64px;
+    border: 1px solid rgba(255,255,255,0.08);
     border-radius: 16px; overflow: hidden;
-    margin-top: 60px;
   }
-  .feature-card {
-    background: #000; padding: 40px 32px;
+  .feature {
+    padding: 36px 28px;
+    border-right: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
     transition: background 0.3s;
   }
-  .feature-card:hover { background: #0a0a0a; }
+  .feature:nth-child(3n) { border-right: none; }
+  .feature:nth-child(n+4) { border-bottom: none; }
+  .feature:hover { background: rgba(255,255,255,0.02); }
   .feature-icon {
-    width: 40px; height: 40px; border-radius: 10px;
+    width: 36px; height: 36px; border-radius: 8px;
     background: rgba(255,255,255,0.06);
     display: flex; align-items: center; justify-content: center;
-    font-size: 18px; margin-bottom: 20px;
+    font-size: 16px; margin-bottom: 16px;
   }
   .feature-name {
-    font-size: 17px; font-weight: 600; margin-bottom: 10px;
+    font-size: 16px; font-weight: 500; margin-bottom: 8px;
   }
-  .feature-desc {
+  .feature-text {
     font-size: 14px; color: rgba(255,255,255,0.45);
-    line-height: 1.6;
+    line-height: 1.6; font-weight: 380;
   }
 
   /* ===== 代码示例 ===== */
-  .code-section { background: #000; }
-  .code-wrapper {
+  .code-box {
     margin-top: 48px; border-radius: 16px;
     border: 1px solid rgba(255,255,255,0.08);
-    overflow: hidden; background: #050505;
+    background: #050505; overflow: hidden;
   }
-  .code-header {
+  .code-bar {
     display: flex; align-items: center; gap: 8px;
-    padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding: 14px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
   }
   .code-dot { width: 12px; height: 12px; border-radius: 50%; }
   .code-dot:nth-child(1) { background: #ff5f57; }
   .code-dot:nth-child(2) { background: #febc2e; }
   .code-dot:nth-child(3) { background: #28c840; }
-  .code-filename {
+  .code-file {
     margin-left: 12px; font-size: 13px;
-    color: rgba(255,255,255,0.4); font-family: "SF Mono", monospace;
+    color: rgba(255,255,255,0.35);
+    font-family: "SF Mono", "Fira Code", monospace;
   }
-  .code-body {
-    padding: 28px 32px; font-family: "SF Mono", "Fira Code", monospace;
-    font-size: 14px; line-height: 1.8; overflow-x: auto;
+  .code-content {
+    padding: 28px 32px;
+    font-family: "SF Mono", "Fira Code", "Menlo", monospace;
+    font-size: 14px; line-height: 1.9; overflow-x: auto;
   }
-  .code-body .kw { color: #fff; font-weight: 600; }
-  .code-body .fn { color: #74c0fc; }
-  .code-body .str { color: #a8d8ea; }
-  .code-body .num { color: #da77f2; }
-  .code-body .cm { color: #444; font-style: italic; }
-  .code-body .op { color: #888; }
+  .code-content .kw { color: #fff; font-weight: 500; }
+  .code-content .fn { color: #7dd3fc; }
+  .code-content .str { color: #a5f3fc; }
+  .code-content .num { color: #e9d5ff; }
+  .code-content .cm { color: rgba(255,255,255,0.25); font-style: italic; }
+  .code-content .op { color: rgba(255,255,255,0.5); }
 
   /* ===== 效率对比 ===== */
-  .compare-grid {
+  .compare {
     display: grid; grid-template-columns: 1fr 1fr;
     gap: 24px; margin-top: 48px;
   }
-  .compare-card {
+  .compare-col {
     border-radius: 16px; padding: 32px;
     border: 1px solid rgba(255,255,255,0.08);
   }
-  .compare-card.python { background: #050505; opacity: 0.7; }
-  .compare-card.aurora { background: #0a0a0a; border-color: rgba(255,255,255,0.2); }
-  .compare-label {
-    font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
-    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+  .compare-col.python { opacity: 0.5; }
+  .compare-col.aurora { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.02); }
+  .compare-head {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 20px;
   }
-  .compare-card.python .compare-label { color: rgba(255,255,255,0.3); }
-  .compare-card.aurora .compare-label { color: #fff; }
+  .compare-badge {
+    font-size: 11px; padding: 3px 10px; border-radius: 10px;
+    letter-spacing: 1px; font-weight: 500;
+  }
+  .python .compare-badge { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
+  .aurora .compare-badge { background: #fff; color: #000; }
+  .compare-name { font-size: 15px; font-weight: 500; }
   .compare-steps {
-    font-size: 13px; color: rgba(255,255,255,0.5);
-    font-family: "SF Mono", monospace; line-height: 2;
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 13px; line-height: 2.1;
+    color: rgba(255,255,255,0.5);
   }
-  .compare-steps .step-num {
-    display: inline-block; width: 24px; color: rgba(255,255,255,0.25);
-  }
+  .compare-steps .n { color: rgba(255,255,255,0.2); display: inline-block; width: 22px; }
 
-  /* ===== 下载区域 ===== */
-  .download-section { text-align: center; }
+  /* ===== 下载 ===== */
+  .download { text-align: center; }
   .download-card {
     display: inline-block; margin-top: 48px;
-    padding: 48px 64px; border-radius: 20px;
+    padding: 48px 72px; border-radius: 20px;
     border: 1px solid rgba(255,255,255,0.1);
-    background: linear-gradient(180deg, #0a0a0a 0%, #000 100%);
+    background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 100%);
   }
-  .download-version {
+  .download-ver {
     font-size: 13px; color: rgba(255,255,255,0.4);
-    letter-spacing: 2px; margin-bottom: 12px;
+    letter-spacing: 2px; margin-bottom: 16px;
   }
-  .download-size {
-    font-size: 14px; color: rgba(255,255,255,0.3); margin-top: 16px;
+  .download-meta {
+    font-size: 13px; color: rgba(255,255,255,0.3);
+    margin-top: 20px;
   }
 
   /* ===== Footer ===== */
   footer {
     border-top: 1px solid rgba(255,255,255,0.06);
-    padding: 48px; text-align: center;
+    padding: 48px 80px;
   }
-  .footer-links {
-    display: flex; justify-content: center; gap: 32px;
-    margin-bottom: 20px;
+  .footer-inner {
+    max-width: 1440px; margin: 0 auto;
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 20px;
   }
+  .footer-links { display: flex; gap: 28px; }
   .footer-links a {
     color: rgba(255,255,255,0.4); text-decoration: none;
-    font-size: 13px; transition: color 0.2s;
+    font-size: 14px; font-weight: 380; transition: color 0.2s;
   }
-  .footer-links a:hover { color: #fff; }
+  .footer-links a:hover { color: rgba(255,255,255,0.8); }
   .footer-copy {
-    font-size: 12px; color: rgba(255,255,255,0.2);
+    font-size: 13px; color: rgba(255,255,255,0.25); font-weight: 380;
   }
 
   /* ===== 响应式 ===== */
-  @media (max-width: 768px) {
-    nav { padding: 16px 20px; }
-    .nav-links { gap: 16px; }
-    .nav-links a:not(.nav-cta) { display: none; }
-    .hero-title { font-size: 42px; }
-    .hero-slogan { font-size: 16px; }
-    .moon-container { width: 220px; height: 220px; }
+  @media (max-width: 999px) {
+    .nav-inner { padding: 0 48px; }
+    .nav-menu { display: none; }
+    .nav-hamburger { display: flex; }
+    section { padding: 80px 48px; }
+    .features { grid-template-columns: 1fr; }
+    .feature { border-right: none !important; border-bottom: 1px solid rgba(255,255,255,0.08) !important; }
+    .feature:last-child { border-bottom: none !important; }
+    .compare { grid-template-columns: 1fr; }
+    .hero-bg-text span { font-size: 60px; }
+    .moon-wrap { width: 240px; height: 240px; }
     .moon-body { width: 140px; height: 140px; }
-    .moon-body::after { width: 126px; height: 126px; }
-    .moon-glow { width: 280px; height: 280px; }
-    .scroll-text { font-size: 80px; }
-    section { padding: 80px 20px; }
+    .moon-body::after { width: 130px; height: 130px; }
+    .moon-ring { width: 200px; height: 200px; }
+    .moon-glow-outer { width: 300px; height: 300px; }
+    .hero-slogan { font-size: 18px; }
     .section-title { font-size: 28px; }
-    .features-grid { grid-template-columns: 1fr; }
-    .compare-grid { grid-template-columns: 1fr; }
+    footer { padding: 40px 48px; }
+  }
+  @media (max-width: 600px) {
+    .nav-inner { padding: 0 20px; }
+    section { padding: 60px 20px; }
     .download-card { padding: 32px 24px; }
+    .hero-buttons { flex-direction: column; width: 100%; max-width: 280px; }
+    .btn-outline, .btn-solid { text-align: center; }
   }
 </style>
 </head>
 <body>
 
-<!-- ===== 导航栏 ===== -->
+<!-- ===== 导航 ===== -->
 <nav>
-  <a href="#" class="nav-logo">
-    <div class="moon"></div>
-    Aurora
-  </a>
-  <div class="nav-links">
-    <a href="#features">特性</a>
-    <a href="#code">示例</a>
-    <a href="#efficiency">效率</a>
-    <a href="#docs">文档</a>
-    <a href="#download" class="nav-cta">下载</a>
+  <div class="nav-inner">
+    <a href="#" class="nav-logo">
+      <div class="moon-mark"></div>
+      Aurora
+    </a>
+    <div class="nav-menu">
+      <a href="#features">特性</a>
+      <a href="#code">示例</a>
+      <a href="#efficiency">效率</a>
+      <a href="https://github.com/yoyo636/aurora" target="_blank">GitHub</a>
+      <a href="#download">下载</a>
+    </div>
+    <button class="nav-hamburger">☰</button>
   </div>
 </nav>
 
 <!-- ===== Hero ===== -->
-<section class="hero" style="max-width:none;padding:0;">
-  <div class="scroll-bg">
-    <span class="scroll-text">AURORA · AURORA · AURORA · AURORA · AURORA · AURORA · AURORA · AURORA · </span>
-    <span class="scroll-text">AURORA · AURORA · AURORA · AURORA · AURORA · AURORA · AURORA · AURORA · </span>
+<div class="hero">
+  <div class="hero-bg-text">
+    <span>AURORA</span><span>AURORA</span><span>AURORA</span>
   </div>
 
-  <div class="moon-container">
-    <div class="moon-ring-2"></div>
+  <div class="moon-wrap">
+    <div class="moon-glow-outer"></div>
     <div class="moon-ring"></div>
-    <div class="moon-glow"></div>
     <div class="moon-body"></div>
   </div>
 
-  <h1 class="hero-title">Aurora</h1>
   <p class="hero-slogan">寻求将代码转化为智能的最优解</p>
 
-  <div class="hero-actions">
-    <a href="#download" class="btn btn-primary">下载安装器</a>
-    <a href="#code" class="btn btn-ghost">查看示例</a>
+  <div class="hero-buttons">
+    <a href="#download" class="btn-solid">下载安装器</a>
+    <a href="#code" class="btn-outline">查看示例</a>
   </div>
-
-  <div class="scroll-hint">SCROLL</div>
-</section>
+</div>
 
 <!-- ===== 特性 ===== -->
 <section id="features">
-  <div class="section-label">Features</div>
+  <div class="section-label">FEATURES</div>
   <h2 class="section-title">为高效编程而生</h2>
-  <p class="section-desc">融合 Rust 的安全、Python 的简洁、Go 的并发、TypeScript 的类型系统。100+ 全局快捷函数,让 Python 需要十步的操作,Aurora 只需三四步。</p>
+  <p class="section-desc">融合 Rust 的安全、Python 的简洁、Go 的并发。100+ 全局快捷函数,让复杂操作化繁为简。</p>
 
-  <div class="features-grid">
-    <div class="feature-card">
+  <div class="features">
+    <div class="feature">
       <div class="feature-icon">⚡</div>
       <div class="feature-name">极致效率</div>
-      <div class="feature-desc">100+ 全局函数,read/write/get/json/shell/unique/avg 一行搞定。AOT 编译 + 缓存,只重编变化文件。</div>
+      <div class="feature-text">100+ 全局函数,read/write/get/json/shell/unique/avg 一行搞定。AOT 编译 + 缓存。</div>
     </div>
-    <div class="feature-card">
+    <div class="feature">
       <div class="feature-icon">🌐</div>
       <div class="feature-name">全栈能力</div>
-      <div class="feature-desc">HTML 前端 + Web 后端 + AI Agent,一个文件搞定。内置 HTTP 服务器、模板渲染、OpenAI 兼容客户端。</div>
+      <div class="feature-text">HTML 前端 + Web 后端 + AI Agent,一个文件搞定。内置 HTTP 服务器与 OpenAI 客户端。</div>
     </div>
-    <div class="feature-card">
+    <div class="feature">
       <div class="feature-icon">🔗</div>
       <div class="feature-name">生态互通</div>
-      <div class="feature-desc">Rust/C++ FFI 桥接、Python 互操作、JSON/HTML/CSV/XML 解析、VEX 集成、HTTP 客户端。</div>
+      <div class="feature-text">Rust/C++ FFI 桥接、Python 互操作、JSON/HTML/CSV/XML、VEX 集成、HTTP 客户端。</div>
     </div>
-    <div class="feature-card">
+    <div class="feature">
       <div class="feature-icon">🛡</div>
       <div class="feature-name">类型安全</div>
-      <div class="feature-desc">let/var 不可变与可变绑定、type/enum/trait/impl、match 模式匹配、Result + ? 错误处理。</div>
+      <div class="feature-text">let/var 不可变与可变绑定、type/enum/trait、match 模式匹配、Result + ? 错误处理。</div>
     </div>
-    <div class="feature-card">
+    <div class="feature">
       <div class="feature-icon">📦</div>
       <div class="feature-name">工程化</div>
-      <div class="feature-desc">aurora new/test/build/watch 全套工具链。多文件模块系统、src/ 分层结构、161 项全量测试。</div>
+      <div class="feature-text">aurora new/test/build/watch 全套工具链。多文件模块、src/ 分层、161 项全量测试。</div>
     </div>
-    <div class="feature-card">
+    <div class="feature">
       <div class="feature-icon">🤖</div>
       <div class="feature-name">AI 原生</div>
-      <div class="feature-desc">内置 std.ai Agent 框架,OpenAI 兼容协议。AI_GUIDE + AI_SYSTEM_PROMPT 让任何 AI 学会 Aurora。</div>
+      <div class="feature-text">内置 std.ai Agent 框架。AI_GUIDE + AI_SYSTEM_PROMPT 让任何 AI 学会 Aurora。</div>
     </div>
   </div>
 </section>
 
 <!-- ===== 代码示例 ===== -->
-<section id="code" class="code-section">
-  <div class="section-label">Example</div>
+<section id="code">
+  <div class="section-label">EXAMPLE</div>
   <h2 class="section-title">简洁,而不简单</h2>
   <p class="section-desc">表达式导向设计,if/match/loop/块都有值,函数最后一个表达式即返回值。</p>
 
-  <div class="code-wrapper">
-    <div class="code-header">
+  <div class="code-box">
+    <div class="code-bar">
       <div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div>
-      <span class="code-filename">main.aur</span>
+      <span class="code-file">main.aur</span>
     </div>
-    <div class="code-body">
-<span class="cm">// 读取 JSON 配置 → 处理 → 写入结果</span>
-<span class="kw">let</span> config = <span class="fn">json</span>(<span class="fn">read</span>(<span class="str">"config.json"</span>))
-<span class="kw">let</span> users = config[<span class="str">"users"</span>]
-
-<span class="cm">// 一行完成:提取字段、去重、计算平均值</span>
-<span class="kw">let</span> names = <span class="fn">unique</span>(<span class="fn">pluck</span>(users, <span class="str">"name"</span>))
-<span class="kw">let</span> avg_age = <span class="fn">avg</span>(<span class="fn">pluck</span>(users, <span class="str">"age"</span>))
+    <div class="code-content">
+<span class="cm">// 读取 JSON → 处理 → 写入结果(4 步搞定)</span>
+<span class="kw">let</span> data = <span class="fn">json</span>(<span class="fn">read</span>(<span class="str">"config.json"</span>))
+<span class="kw">let</span> names = <span class="fn">unique</span>(<span class="fn">pluck</span>(data[<span class="str">"users"</span>], <span class="str">"name"</span>))
+<span class="kw">let</span> avg_age = <span class="fn">avg</span>(<span class="fn">pluck</span>(data[<span class="str">"users"</span>], <span class="str">"age"</span>))
+<span class="fn">write</span>(<span class="str">"result.json"</span>, <span class="fn">to_json</span>({names: names, avg_age: avg_age}))
 
 <span class="cm">// 管道操作:数据流式处理</span>
-<span class="kw">let</span> result = users
+<span class="kw">let</span> total = data[<span class="str">"users"</span>]
   |&gt; <span class="fn">filter</span>(<span class="kw">fn</span>(u) u[<span class="str">"active"</span>])
   |&gt; <span class="fn">map</span>(<span class="kw">fn</span>(u) u[<span class="str">"score"</span>] * <span class="num">2</span>)
   |&gt; <span class="fn">sum</span>()
 
-<span class="cm">// 一行写入结果</span>
-<span class="fn">write</span>(<span class="str">"result.json"</span>, <span class="fn">to_json</span>({names: names, avg_age: avg_age, total: result}))
-<span class="fn">println</span>(<span class="str">"处理完成: {len(names)} 个用户, 平均年龄 {avg_age}"</span>)
+<span class="fn">println</span>(<span class="str">"完成: {len(names)} 用户, 平均 {avg_age} 岁, 总分 {total}"</span>)
     </div>
   </div>
 </section>
 
 <!-- ===== 效率对比 ===== -->
 <section id="efficiency">
-  <div class="section-label">Efficiency</div>
-  <h2 class="section-title">Python 十步,Aurora 三四步</h2>
-  <p class="section-desc">同样的任务,更少的代码。全局快捷函数覆盖文件、网络、JSON、字符串、列表、数学等常见操作。</p>
+  <div class="section-label">EFFICIENCY</div>
+  <h2 class="section-title">Python 十步,Aurora 四步</h2>
+  <p class="section-desc">同样的任务,更少的代码。全局快捷函数覆盖文件、网络、JSON、字符串、列表、数学。</p>
 
-  <div class="compare-grid">
-    <div class="compare-card python">
-      <div class="compare-label">Python — 10 步</div>
+  <div class="compare">
+    <div class="compare-col python">
+      <div class="compare-head">
+        <span class="compare-badge">PYTHON</span>
+        <span class="compare-name">10 步</span>
+      </div>
       <div class="compare-steps">
-<div><span class="step-num">1</span> import json, urllib.request</div>
-<div><span class="step-num">2</span> req = urllib.request.Request(url, headers={...})</div>
-<div><span class="step-num">3</span> resp = urllib.request.urlopen(req)</div>
-<div><span class="step-num">4</span> data = json.loads(resp.read().decode())</div>
-<div><span class="step-num">5</span> names = [u["name"] for u in data["users"]]</div>
-<div><span class="step-num">6</span> unique_names = list(dict.fromkeys(names))</div>
-<div><span class="step-num">7</span> ages = [u["age"] for u in data["users"]]</div>
-<div><span class="step-num">8</span> avg_age = sum(ages) / len(ages)</div>
-<div><span class="step-num">9</span> with open("out.json", "w") as f: json.dump(..., f)</div>
-<div><span class="step-num">10</span> print(f"完成: {len(names)}")</div>
+<div><span class="n">1</span> import json, urllib.request</div>
+<div><span class="n">2</span> req = urllib.request.Request(url, headers={...})</div>
+<div><span class="n">3</span> resp = urllib.request.urlopen(req)</div>
+<div><span class="n">4</span> data = json.loads(resp.read().decode())</div>
+<div><span class="n">5</span> names = [u["name"] for u in data["users"]]</div>
+<div><span class="n">6</span> unique = list(dict.fromkeys(names))</div>
+<div><span class="n">7</span> ages = [u["age"] for u in data["users"]]</div>
+<div><span class="n">8</span> avg = sum(ages) / len(ages)</div>
+<div><span class="n">9</span> with open("out.json","w") as f: json.dump(...,f)</div>
+<div><span class="n">10</span> print(f"完成: {len(names)}")</div>
       </div>
     </div>
-    <div class="compare-card aurora">
-      <div class="compare-label">◡ Aurora — 4 步</div>
+    <div class="compare-col aurora">
+      <div class="compare-head">
+        <span class="compare-badge">AURORA</span>
+        <span class="compare-name">4 步</span>
+      </div>
       <div class="compare-steps">
-<div><span class="step-num">1</span> data = json(get(url))</div>
-<div><span class="step-num">2</span> names = unique(pluck(data["users"], "name"))</div>
-<div><span class="step-num">3</span> avg_age = avg(pluck(data["users"], "age"))</div>
-<div><span class="step-num">4</span> write("out.json", to_json({names, avg_age}))</div>
-<div style="margin-top:16px;color:rgba(255,255,255,0.3);">println("完成: {len(names)}")</div>
+<div><span class="n">1</span> data = json(get(url))</div>
+<div><span class="n">2</span> names = unique(pluck(data["users"], "name"))</div>
+<div><span class="n">3</span> avg = avg(pluck(data["users"], "age"))</div>
+<div><span class="n">4</span> write("out.json", to_json({names, avg}))</div>
+<div style="margin-top:12px;color:rgba(255,255,255,0.3);">println("完成: {len(names)}")</div>
       </div>
     </div>
   </div>
 </section>
 
 <!-- ===== 下载 ===== -->
-<section id="download" class="download-section">
-  <div class="section-label">Download</div>
+<section id="download" class="download">
+  <div class="section-label">DOWNLOAD</div>
   <h2 class="section-title">开始使用 Aurora</h2>
-  <p class="section-desc" style="margin:0 auto;">macOS 一键安装器,自动配置语言运行时、VSCode 插件、Aurora Dark 主题、环境变量、AI 文档。</p>
+  <p class="section-desc" style="margin:0 auto;">macOS 一键安装器,自动配置运行时、VSCode 插件、Aurora Dark 主题、环境变量与 AI 文档。</p>
 
   <div class="download-card">
-    <div class="download-version">v1.4.0 · macOS</div>
-    <a href="#" class="btn btn-primary" style="display:inline-block;margin-top:8px;">下载 .pkg 安装器</a>
-    <div class="download-size">128 KB · 零第三方依赖 · Python 3.8+</div>
+    <div class="download-ver">v1.4.0 · macOS</div>
+    <a href="#" class="btn-solid" style="display:inline-block;">下载 .pkg 安装器</a>
+    <div class="download-meta">128 KB · 零第三方依赖 · Python 3.8+</div>
   </div>
 </section>
 
 <!-- ===== Footer ===== -->
 <footer>
-  <div class="footer-links">
-    <a href="https://github.com/yoyo636/aurora" target="_blank">GitHub</a>
-    <a href="#features">特性</a>
-    <a href="#code">示例</a>
-    <a href="#efficiency">效率</a>
-    <a href="#download">下载</a>
+  <div class="footer-inner">
+    <div class="footer-links">
+      <a href="#features">特性</a>
+      <a href="#code">示例</a>
+      <a href="#efficiency">效率</a>
+      <a href="https://github.com/yoyo636/aurora" target="_blank">GitHub</a>
+      <a href="#download">下载</a>
+    </div>
+    <div class="footer-copy">◡ Aurora v1.4.0 · 寻求将代码转化为智能的最优解</div>
   </div>
-  <div class="footer-copy">◡ Aurora v1.4.0 · 寻求将代码转化为智能的最优解</div>
 </footer>
 
 </body>
