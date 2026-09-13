@@ -1,0 +1,136 @@
+{
+  "name": "aurora-ide",
+  "displayName": "Aurora Language",
+  "description": "Aurora 编程语言支持:语法高亮、一键运行、静态检查与行内诊断",
+  "version": "0.4.0",
+  "publisher": "aurora",
+  "license": "MIT",
+  "icon": "icons/aurora.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "aurora",
+    "language",
+    "programming"
+  ],
+  "activationEvents": [
+    "onLanguage:aurora",
+    "onCommand:aurora.run",
+    "onCommand:aurora.check",
+    "onCommand:aurora.runSelection"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "aurora",
+        "aliases": [
+          "Aurora",
+          "aurora"
+        ],
+        "extensions": [
+          ".aur"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "aurora",
+        "scopeName": "source.aurora",
+        "path": "./syntaxes/aurora.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "aurora.run",
+        "title": "Aurora: 运行当前文件",
+        "icon": "$(play)"
+      },
+      {
+        "command": "aurora.check",
+        "title": "Aurora: 静态检查当前文件",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "aurora.runSelection",
+        "title": "Aurora: 运行选中代码"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "aurora.run",
+        "key": "cmd+alt+r",
+        "mac": "cmd+alt+r",
+        "when": "editorLangId == aurora && editorTextFocus"
+      },
+      {
+        "command": "aurora.run",
+        "key": "ctrl+alt+r",
+        "when": "editorLangId == aurora && editorTextFocus && !isMac"
+      },
+      {
+        "command": "aurora.check",
+        "key": "cmd+alt+k",
+        "mac": "cmd+alt+k",
+        "when": "editorLangId == aurora && editorTextFocus"
+      },
+      {
+        "command": "aurora.check",
+        "key": "ctrl+alt+k",
+        "when": "editorLangId == aurora && editorTextFocus && !isMac"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "aurora.run",
+          "when": "editorLangId == aurora",
+          "group": "navigation@1"
+        },
+        {
+          "command": "aurora.check",
+          "when": "editorLangId == aurora",
+          "group": "navigation@2"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "aurora.run",
+          "when": "editorLangId == aurora",
+          "group": "aurora@1"
+        },
+        {
+          "command": "aurora.runSelection",
+          "when": "editorLangId == aurora && editorHasSelection",
+          "group": "aurora@2"
+        },
+        {
+          "command": "aurora.check",
+          "when": "editorLangId == aurora",
+          "group": "aurora@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Aurora",
+      "properties": {
+        "aurora.auroraDir": {
+          "type": "string",
+          "default": "/Users/wuyuanduo/aurora",
+          "description": "Aurora 语言项目根目录(含 aurora-run 与 ide/)"
+        },
+        "aurora.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "用于执行 Aurora 的 Python 解释器(默认 python3)"
+        }
+      }
+    }
+  }
+}

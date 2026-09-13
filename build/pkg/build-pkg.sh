@@ -44,16 +44,27 @@ cp "$PROJECT_ROOT/README.md" "$PAYLOAD/usr/local/lib/aurora/" 2>/dev/null || tru
 cp "$PROJECT_ROOT/CHANGELOG.md" "$PAYLOAD/usr/local/lib/aurora/" 2>/dev/null || true
 cp "$PROJECT_ROOT/docs/SPEC.md" "$PAYLOAD/usr/local/lib/aurora/docs/" 2>/dev/null || true
 cp "$PROJECT_ROOT/docs/AI_GUIDE.md" "$PAYLOAD/usr/local/lib/aurora/docs/" 2>/dev/null || true
+cp "$PROJECT_ROOT/docs/AI_SYSTEM_PROMPT.md" "$PAYLOAD/usr/local/lib/aurora/docs/" 2>/dev/null || true
+cp "$PROJECT_ROOT/docs/VERSIONING.md" "$PAYLOAD/usr/local/lib/aurora/docs/" 2>/dev/null || true
+
+# 复制 VSCode 插件
+mkdir -p "$PAYLOAD/usr/local/lib/aurora/vscode-extension"
+cp "$PROJECT_ROOT"/vscode-aurora/*.vsix "$PAYLOAD/usr/local/lib/aurora/vscode-extension/" 2>/dev/null || true
+cp "$PROJECT_ROOT/vscode-aurora/package.json" "$PAYLOAD/usr/local/lib/aurora/vscode-extension/" 2>/dev/null || true
 
 # 复制示例
 mkdir -p "$PAYLOAD/usr/local/lib/aurora/examples"
 cp -r "$PROJECT_ROOT/examples/benchmarks" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
+cp -r "$PROJECT_ROOT/examples/largeapp" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
+cp -r "$PROJECT_ROOT/examples/fullstack" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
 
 # 3. 设置权限
 echo "[3/5] 设置权限..."
 chmod +x "$PAYLOAD/usr/local/bin/aurora"
 chmod +x "$SCRIPTS/postinstall"
 chmod -R a+rX "$PAYLOAD/usr/local/lib/aurora"
+# 清除 macOS 扩展属性(否则 pkgbuild 会跳过带 com.apple.provenance 的文件)
+xattr -cr "$PAYLOAD" 2>/dev/null || true
 
 # 4. 构建核心包
 echo "[4/5] 构建核心包..."

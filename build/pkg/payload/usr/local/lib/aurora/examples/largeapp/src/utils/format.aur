@@ -1,0 +1,35 @@
+# 格式化工具 — 纯函数,无副作用,易于测试
+
+import models.task
+
+fn format_header(title) {
+    let line = "=============================="
+    return line + "\n  " + title + "\n" + line
+}
+
+fn format_task_list(tasks) {
+    if tasks.len() == 0 {
+        return "(无任务)"
+    }
+    let lines = []
+    for t in tasks {
+        lines.push(models.task.to_string(t))
+    }
+    return lines.join("\n")
+}
+
+fn format_stats(tasks) {
+    let total = tasks.len()
+    var done = 0
+    for t in tasks {
+        if t["done"] { done = done + 1 }
+    }
+    let pending = total - done
+    return "总计: " + str(total) + " | 已完成: " + str(done) + " | 待办: " + str(pending)
+}
+
+fn priority_label(p) {
+    if p == "high" { return "高" }
+    if p == "medium" { return "中" }
+    return "低"
+}

@@ -12,7 +12,6 @@ from aurora.parser import Parser, ParseError
 from aurora.type_checker import TypeChecker
 from aurora.ownership import OwnershipChecker
 from aurora.interpreter import Interpreter
-from aurora.codegen import CodeGenerator, compile_file
 from aurora.stdlib import AuroraError
 from aurora.repl import REPL
 from aurora import __version__

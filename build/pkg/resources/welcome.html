@@ -43,7 +43,16 @@ h1 { font-size: 28px; font-weight: 700; color: #6c5ce7; margin-bottom: 8px; }
 </div>
 
 <p style="margin-top: 24px; font-size: 13px; color: #636e72;">
-本安装器将把 Aurora 安装到 <code>/usr/local/lib/aurora/</code>,并在 <code>/usr/local/bin/</code> 创建全局命令。需要管理员权限。
+本安装器将自动完成以下配置:
 </p>
+<ul style="font-size: 13px; color: #636e72; line-height: 1.8; padding-left: 20px;">
+<li>✓ Aurora 语言运行时安装到 <code>/usr/local/lib/aurora/</code></li>
+<li>✓ 全局命令 <code>aurora</code> 注册到 <code>/usr/local/bin/</code></li>
+<li>✓ 环境变量自动配置(<code>/etc/paths.d/aurora</code>)</li>
+<li>✓ VSCode 插件自动安装(语法高亮、一键运行)</li>
+<li>✓ AI 开发文档(AI_GUIDE.md + AI_SYSTEM_PROMPT.md)</li>
+<li>✓ 示例项目与性能基准测试</li>
+</ul>
+<p style="font-size: 12px; color: #b2bec3; margin-top: 12px;">需要管理员权限 · 零第三方依赖 · Python 3.8+</p>
 </body>
 </html>

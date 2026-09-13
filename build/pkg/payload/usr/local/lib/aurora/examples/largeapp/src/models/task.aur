@@ -1,0 +1,28 @@
+# 任务模型 — 定义 Task 数据结构与辅助方法
+# 大型项目中,模型层只负责数据定义,不包含业务逻辑
+
+fn new_task(id, title, priority) {
+    return {
+        "id": id,
+        "title": title,
+        "priority": priority,
+        "done": false,
+    }
+}
+
+fn toggle(task) {
+    task["done"] = not task["done"]
+    return task
+}
+
+fn priority_order(priority) {
+    if priority == "high" { return 3 }
+    if priority == "medium" { return 2 }
+    return 1
+}
+
+fn to_string(task) {
+    let status = if task["done"] { "[x]" } else { "[ ]" }
+    let p = "[" + task["priority"] + "]"
+    return status + " " + p + " #" + str(task["id"]) + " " + task["title"]
+}
