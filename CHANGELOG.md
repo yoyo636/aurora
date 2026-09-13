@@ -2,6 +2,49 @@
 
 本项目遵循语义化版本,详见 `docs/VERSIONING.md`。
 
+## [1.5.0] - 2026-09-14
+
+原生编译器版本。Aurora 从解释器语言升级为可编译为原生机器码的高性能语言。
+
+### 原生编译器
+- **Aurora → C → 机器码编译管线**:新增 `codegen.py` 代码生成器,将 AST 转换为 C 代码,再由 gcc/clang 编译为原生可执行文件
+- **运行时库** `runtime/aurora_rt.h/c`:通用值类型 AuValue(标签联合,支持 nil/int/float/bool/string/array/map)、AuString(带长度 UTF-8)、AuArray(动态数组)、AuMap(开放寻址哈希表)、算术/比较/逻辑运算、内置函数(println/len/range/read_line/file_io/shell/env/time)、数学函数(sqrt/sin/cos/log/exp/floor/ceil/round/min/max/gcd/lcm/is_prime/factorial/fibonacci)、JSON 解析与序列化、内存管理
+- **`aurora build-native` 命令**:编译 .aur 文件为原生可执行文件;支持 `-O0/-O1/-O2/-O3/-Os` 优化级别;`--cc` 指定编译器(cc/clang/gcc);`--keep-c` 保留生成的 C 源码;`-v` 显示详细编译输出
+- **性能提升**:递归斐波那契 fib(35) 原生编译 144ms vs Python 解释器 707ms,快约 4.9 倍
+
+### 支持的语法特性
+- 变量声明(let/var/const)、函数定义(fn)、递归调用
+- 算术运算(+ - * / % **)、比较运算(== != < <= > >=)、逻辑运算(&& || !)
+- if/elif/else 条件语句、for 循环(支持 range 和数组迭代)、while 循环
+- break/continue、return(提前退出)
+- 数组字面量 [1, 2, 3]、Map 字面量 {"key": value}
+- 索引访问 arr[0]、map["key"]
+- 字符串插值 "x = {x}"、原始字符串 r'...'
+- 内置函数:println/print/len/range/now_ms/sleep_ms/json_parse/json_stringify 等
+- 数学函数:sqrt/abs/sin/cos/tan/log/exp/floor/ceil/round/min/max/gcd/lcm/is_prime/factorial/fibonacci
+
+### 示例
+- `examples/native/hello.aur`:Hello World + 字符串插值
+- `examples/native/fibonacci.aur`:递归斐波那契 + 数组 + 循环求和
+- `examples/native/map_json.aur`:Map 操作 + JSON 解析与序列化
+- `examples/native/benchmark.aur`:性能基准测试
+
+### 变更
+- 版本 1.4.0 → 1.5.0
+
+## [1.4.0] - 2026-09-13
+
+效率大增强 + Moonshot 主题版本。
+
+### 效率增强
+- **100+ 全局快捷函数**:文件/网络/JSON/Shell/列表/字符串/系统/数学/函数式/字典/编码/格式/正则/随机/工具/验证/颜色/临时文件等全局函数,无需 import 直接使用
+- **Moonshot 暗黑极简主题**:REPL banner 黑色背景+白色月牙◡+极简边框+ANSI 颜色;CLI `--version` 输出 `◡ Aurora v1.4.0`
+- **VSCode Aurora Dark 主题**:纯黑 #000 + 白色高亮,插件版本升至 0.5.0
+- **安装器界面暗黑化**:白色月牙光晕背景图(纯 Python zlib 生成 PNG,无 PIL 依赖)
+
+### 变更
+- 版本 1.3.0 → 1.4.0;全局函数 `color` 改名为 `colorize`(避免与命名参数冲突)
+
 ## [1.3.0] - 2026-09-13
 
 高效版本。全面提升执行性能、编译效率和开发体验。

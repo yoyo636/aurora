@@ -1,0 +1,28 @@
+fn fib(n) {
+    if n < 2 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn main() {
+    println("斐波那契数列:")
+    for i in 0..10 {
+        println("fib({i}) = {fib(i)}")
+    }
+    
+    println("")
+    println("数组测试:")
+    let arr = [1, 2, 3, 4, 5]
+    println("数组: {arr}")
+    println("长度: {len(arr)}")
+    println("第三个元素: {arr[2]}")
+    
+    println("")
+    println("循环求和:")
+    var sum = 0
+    for i in 1..100 {
+        sum = sum + i
+    }
+    println("1 到 100 的和 = {sum}")
+}

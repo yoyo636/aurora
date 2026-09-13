@@ -1,0 +1,21 @@
+fn main() {
+    println("=== Map 测试 ===")
+    let user = {"name": "Aurora", "version": 1.4, "native": true}
+    println("用户: {user}")
+    println("名称: {user[\"name\"]}")
+    println("版本: {user[\"version\"]}")
+    
+    println("")
+    println("=== JSON 测试 ===")
+    let json_str = r'{"name": "Aurora", "version": 1.4, "features": ["native", "fast", "simple"]}'
+    let parsed = json_parse(json_str)
+    println("解析后的对象: {parsed}")
+    println("名称: {parsed[\"name\"]}")
+    println("特性列表: {parsed[\"features\"]}")
+    
+    println("")
+    println("=== JSON 序列化 ===")
+    let data = {"title": "测试", "count": 42, "items": [1, 2, 3]}
+    let json_out = json_stringify(data)
+    println("序列化: {json_out}")
+}
