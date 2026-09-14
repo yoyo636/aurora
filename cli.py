@@ -16,6 +16,16 @@ from aurora.stdlib import AuroraError
 from aurora.repl import REPL
 from aurora import __version__
 
+# P2/P3 工具链与生态模块（延迟导入以加快启动速度）
+def _register_toolchain(subparsers):
+    """注册 P2 工具链与 P3 生态的 CLI 子命令。"""
+    from aurora import formatter, profiler, debugger, lsp, pkg
+    formatter.register_cli(subparsers)
+    profiler.register_cli(subparsers)
+    debugger.register_cli(subparsers)
+    lsp.register_cli(subparsers)
+    pkg.register_cli(subparsers)
+
 def cmd_run(args):
     """运行 .aur 文件"""
     path = args.file
@@ -265,7 +275,7 @@ def cmd_build_native(args):
     print()
 
     try:
-        from .codegen import compile_to_binary
+        from aurora.codegen import compile_to_binary
         binary_path, compile_output = compile_to_binary(
             entry, out_path,
             optimize=optimize, cc=cc
@@ -274,6 +284,55 @@ def cmd_build_native(args):
             print(compile_output)
 
         # 显示文件大小
+        if os.path.exists(binary_path):
+            size = os.path.getsize(binary_path)
+            if size > 1024 * 1024:
+                size_str = f"{size / 1024 / 1024:.2f} MB"
+            elif size > 1024:
+                size_str = f"{size / 1024:.1f} KB"
+            else:
+                size_str = f"{size} B"
+            print(f"\033[92m✓ 编译成功!\033[0m {binary_path} ({size_str})")
+            print(f"\n运行: ./{binary_path}")
+        else:
+            print(f"\033[92m✓ 编译成功!\033[0m")
+
+    except Exception as e:
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        else:
+            print(f"\033[91m✗ 编译失败:\033[0m {e}")
+        sys.exit(1)
+
+def cmd_build_asm(args):
+    """ARM64 汇编编译命令"""
+    entry = args.file
+    if entry is None:
+        entry = _resolve_project_entry()
+    if not entry or not os.path.exists(entry):
+        print(f"\033[91m✗ 文件不存在:\033[0m {entry}")
+        sys.exit(1)
+
+    out_path = args.out
+    if out_path is None:
+        base = os.path.splitext(os.path.basename(entry))[0]
+        out_path = os.path.join(os.path.dirname(entry) or '.', base)
+
+    verbose = getattr(args, 'verbose', False)
+
+    print(f"\033[97m◡ Aurora ARM64 汇编编译器\033[0m v{__version__}")
+    print(f"  源文件: {entry}")
+    print(f"  输出:   {out_path}")
+    print(f"  后端:   Aurora → ARM64 汇编 → as/ld → 原生可执行文件")
+    print()
+
+    try:
+        from aurora.asmgen import compile_to_asm
+        binary_path, compile_output = compile_to_asm(entry, out_path)
+        if verbose and compile_output:
+            print(compile_output)
+
         if os.path.exists(binary_path):
             size = os.path.getsize(binary_path)
             if size > 1024 * 1024:
@@ -692,11 +751,21 @@ def main():
     p_build_native.add_argument('-v', '--verbose', action='store_true', help='显示详细编译输出')
     p_build_native.set_defaults(func=cmd_build_native)
 
+    # build-asm
+    p_build_asm = subparsers.add_parser('build-asm', help='ARM64 汇编编译(Aurora → 汇编 → 原生可执行文件,不依赖 C 编译器)')
+    p_build_asm.add_argument('file', nargs='?', default=None, help='入口 .aur 文件(默认读 aurora.toml)')
+    p_build_asm.add_argument('-o', '--out', default=None, help='输出可执行文件路径')
+    p_build_asm.add_argument('-v', '--verbose', action='store_true', help='显示详细编译输出')
+    p_build_asm.set_defaults(func=cmd_build_asm)
+
     # watch
     p_watch = subparsers.add_parser('watch', help='监听文件变化,自动运行(开发模式)')
     p_watch.add_argument('file', nargs='?', default=None, help='入口 .aur 文件(默认读 aurora.toml)')
     p_watch.add_argument('-i', '--interval', type=float, default=0.5, help='检查间隔秒数(默认 0.5)')
     p_watch.set_defaults(func=cmd_watch)
+
+    # P2 工具链 + P3 生态命令（fmt/profile/debug/lsp/pkg）
+    _register_toolchain(subparsers)
 
     args = parser.parse_args()
     

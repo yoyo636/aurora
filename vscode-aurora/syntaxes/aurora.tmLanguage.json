@@ -5,6 +5,7 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#strings" },
+    { "include": "#annotations" },
     { "include": "#keywords" },
     { "include": "#builtins" },
     { "include": "#numbers" },
@@ -57,8 +58,28 @@
       "match": "\\b(fn|let|var|const|if|elif|else|for|while|return|type|enum|impl|match|trait|true|false|nil|in|break|continue|import|from|as|spawn|chan|select|default|try|catch|finally|panic|self|std|and|or|not|loop|pub|mut|defer|yield)\\b",
       "name": "keyword.control.aurora"
     },
+    "annotations": {
+      "patterns": [
+        {
+          "begin": "(@perf)\\s*\\(",
+          "beginCaptures": {
+            "1": { "name": "storage.modifier.annotation.aurora" }
+          },
+          "end": "\\)",
+          "patterns": [
+            { "match": "\\b(critical|hot|cold|size|trace)\\b", "name": "variable.parameter.annotation.aurora" },
+            { "match": ",", "name": "punctuation.separator.annotation.aurora" }
+          ],
+          "name": "meta.annotation.aurora"
+        },
+        {
+          "match": "@\\w+",
+          "name": "storage.modifier.annotation.aurora"
+        }
+      ]
+    },
     "builtins": {
-      "match": "\\b(println|print|read_int|read_line|read_float|input|range|len|str|int|float|bool|type|assert|sleep|abs|min|max|sqrt|pow|floor|ceil|round|sin|cos|log|random|push|pop|map|filter|reduce|contains|sort|keys|clone|join|split|upper|lower|trim|exists|panic)\\b",
+      "match": "\\b(println|print|read_int|read_line|read_float|input|range|len|str|int|float|bool|type|assert|sleep|abs|min|max|sqrt|pow|floor|ceil|round|sin|cos|log|random|push|pop|map|filter|reduce|contains|sort|keys|clone|join|split|upper|lower|trim|exists|panic|Result|Ok|Err)\\b",
       "name": "support.function.builtin.aurora"
     },
     "numbers": {
@@ -68,6 +89,7 @@
     "operators": {
       "patterns": [
         { "match": "&&|\\|\\||<<|>>|<=|>=|==|!=|\\+=|-=|\\*=|/=|\\*\\*|->|=>|<-|\\?\\?|\\?\\.|\\|>|\\.\\.", "name": "keyword.operator.aurora" },
+        { "match": "\\?(?![?.])", "name": "keyword.operator.aurora" },
         { "match": "[+\\-*/%<>=!&|^~]", "name": "keyword.operator.aurora" }
       ]
     }

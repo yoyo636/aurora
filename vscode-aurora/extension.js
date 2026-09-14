@@ -145,6 +145,71 @@ function activate(context) {
     })
   );
 
+  // ── v2.0.0 新命令:格式化 / 性能分析 / 调试 / LSP / 包管理 ──
+  // 统一通过集成终端调用 aurora-run 的子命令
+  function termCli(args, name, cwd) {
+    const term = vscode.window.createTerminal({ name: name || "Aurora" });
+    term.show();
+    term.sendText(path.join(auroraDir(), CLI) + " " + args.map(quote).join(" "));
+  }
+
+  async function activeAuroraFile() {
+    const ed = await ensureSaved();
+    if (!ed || ed.document.languageId !== "aurora") {
+      vscode.window.showWarningMessage("请先打开一个 .aur 文件");
+      return null;
+    }
+    return ed;
+  }
+
+  // 格式化:aurora fmt <file>
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.fmt", async () => {
+      const ed = await activeAuroraFile();
+      if (!ed) return;
+      termCli(["fmt", ed.document.fileName], "Aurora 格式化", path.dirname(ed.document.fileName));
+    })
+  );
+
+  // 性能分析:aurora profile <file>
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.profile", async () => {
+      const ed = await activeAuroraFile();
+      if (!ed) return;
+      termCli(["profile", ed.document.fileName], "Aurora 性能分析", path.dirname(ed.document.fileName));
+    })
+  );
+
+  // 调试:aurora debug <file>
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.debug", async () => {
+      const ed = await activeAuroraFile();
+      if (!ed) return;
+      termCli(["debug", ed.document.fileName], "Aurora 调试", path.dirname(ed.document.fileName));
+    })
+  );
+
+  // LSP:aurora lsp --stdio(无需打开文件,在工作区根启动)
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.lsp", async () => {
+      const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+      termCli(["lsp", "--stdio"], "Aurora LSP", folder ? folder.uri.fsPath : auroraDir());
+    })
+  );
+
+  // 包管理:aurora pkg <subcommand>,交互输入子命令
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.pkg", async () => {
+      const pick = await vscode.window.showQuickPick(
+        ["init", "add", "remove", "install", "list", "search", "publish", "outdated"],
+        { placeHolder: "选择 aurora pkg 子命令" }
+      );
+      if (!pick) return;
+      const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+      termCli(["pkg", pick], "Aurora 包管理", folder ? folder.uri.fsPath : auroraDir());
+    })
+  );
+
   // 关闭文档时清除诊断
   context.subscriptions.push(
     vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.delete(doc.uri))

@@ -1,0 +1,10 @@
+fn sum_tail(n: int, acc: int) -> int {
+    if n == 0 {
+        return acc
+    }
+    return sum_tail(n - 1, acc + n)
+}
+fn main() {
+    let result = sum_tail(1000000, 0)
+    println(result)
+}

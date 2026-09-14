@@ -1,14 +1,14 @@
 import zipfile, os
 
 SRC = "/Users/wuyuanduo/aurora/vscode-aurora"
-OUT = "/tmp/aurora-ide-0.3.0.vsix"
+OUT = "/tmp/aurora-ide-2.0.0.vsix"
 
 manifest = """<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Language="zh-cn" Id="aurora-ide" Version="0.3.0" Publisher="aurora"/>
-    <DisplayName>Aurora Language</DisplayName>
-    <Description xml:space="preserve">Aurora 编程语言支持:语法高亮、一键运行、静态检查与行内诊断</Description>
+    <Identity Language="zh-cn" Id="aurora-ide" Version="2.0.0" Publisher="aurora"/>
+    <DisplayName>Aurora Language (v2)</DisplayName>
+    <Description xml:space="preserve">Aurora 编程语言支持 v2.0.0:语法高亮、一键运行、静态检查、行内诊断,内置格式化、性能分析、调试、LSP 与包管理</Description>
     <Tags>aurora,language,programming</Tags>
     <GalleryFlags>Public</GalleryFlags>
   </Metadata>

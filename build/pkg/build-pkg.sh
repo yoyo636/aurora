@@ -1,7 +1,7 @@
 #!/bin/bash
 # Aurora 编程语言 macOS 安装器构建脚本
 # 用法: ./build-pkg.sh
-# 输出: build/Aurora-Installer-v1.3.0.pkg
+# 输出: releases/Aurora-Installer-v2.0.0.pkg
 
 set -e
 
@@ -11,8 +11,8 @@ PKG_DIR="$SCRIPT_DIR"
 PAYLOAD="$PKG_DIR/payload"
 RESOURCES="$PKG_DIR/resources"
 SCRIPTS="$PKG_DIR/scripts"
-BUILD_DIR="$PROJECT_ROOT/build"
-VERSION="1.4.0"
+BUILD_DIR="$PROJECT_ROOT/releases"
+VERSION="2.0.0"
 
 echo "=== Aurora 安装器构建 ==="
 echo "项目根: $PROJECT_ROOT"
@@ -29,8 +29,10 @@ mkdir -p "$PAYLOAD/usr/local/bin"
 echo "[2/5] 复制 Aurora 运行时..."
 CORE_FILES=(
     "__init__.py" "__main__.py" "cli.py" "lexer.py" "parser.py"
-    "ast_nodes.py" "tokens.py" "type_checker.py" "ownership.py"
-    "interpreter.py" "stdlib.py" "codegen.py" "repl.py"
+    "ast_nodes.py" "tokens.py" "type_checker.py" "type_infer.py" "ownership.py"
+    "interpreter.py" "stdlib.py" "codegen.py" "asmgen.py" "repl.py"
+    "formatter.py" "profiler.py" "debugger.py" "lsp.py" "pkg.py"
+    "incremental_cache.py"
 )
 for f in "${CORE_FILES[@]}"; do
     if [ -f "$PROJECT_ROOT/$f" ]; then

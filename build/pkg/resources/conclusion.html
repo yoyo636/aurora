@@ -26,7 +26,7 @@ p strong { color: #fff; font-weight: 500; }
 
 <p><strong>验证安装</strong></p>
 <pre>aurora --version
-# ◡ Aurora v1.4.0</pre>
+# ◡ Aurora v2.0.0</pre>
 
 <p><strong>创建第一个项目</strong></p>
 <pre>aurora new hello
@@ -35,9 +35,11 @@ aurora run</pre>
 
 <p><strong>常用命令</strong></p>
 <pre>aurora run [file]     # 运行 .aur 文件
-aurora build           # AOT 编译为 Python
-aurora watch           # 文件变化自动运行
-aurora test            # 运行测试
+aurora fmt [file]      # 代码格式化
+aurora profile [file]  # 性能分析
+aurora debug [file]    # 源码调试
+aurora lsp             # LSP 语言服务器
+aurora pkg add <dep>   # 包管理
 aurora repl            # 交互式 REPL</pre>
 
 <div class="tip">

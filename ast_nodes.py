@@ -71,6 +71,13 @@ class UnionType(TypeNode):
 
 
 @dataclass
+class ResultType(TypeNode):
+    """Result 类型：Result[ok_type, err_type] / Result<ok_type, err_type>"""
+    ok_type: TypeNode = None
+    err_type: TypeNode = None
+
+
+@dataclass
 class RefType(TypeNode):
     """引用类型，如 &int, &mut [int]"""
     inner: TypeNode = None
@@ -245,6 +252,22 @@ class SelectExpr(Expr):
 class TryExpr(Expr):
     """? 错误传播"""
     expr: Expr = None
+
+
+# ? 操作符节点别名（与 TryExpr 等价，保持命名一致）
+TryOpExpr = TryExpr
+
+
+@dataclass
+class OkExpr(Expr):
+    """Ok(value) — 成功结果"""
+    value: Expr = None
+
+
+@dataclass
+class ErrExpr(Expr):
+    """Err(error) — 错误结果"""
+    error: Expr = None
 
 
 @dataclass
@@ -493,6 +516,25 @@ class FnDef(Stmt):
     body: Block = None
     is_pub: bool = False
     is_test: bool = False
+    annotations: List[dict] = field(default_factory=list)
+
+    # @perf 级别 -> 编译器优化建议
+    _PERF_STRATEGIES = {
+        "critical": {"inline": True, "unroll": 4, "vectorize": True, "reg_pressure": "high"},
+        "hot": {"inline": True, "unroll": 2, "vectorize": False},
+        "cold": {"inline": False, "unroll": 1, "optimize_size": True},
+        "size": {"inline": False, "unroll": 1, "optimize_size": True},
+        "trace": {"trace": True},
+    }
+
+    def get_perf_hints(self) -> dict:
+        """根据 @perf 注解返回编译器优化建议（不实际改 codegen/asmgen）"""
+        for ann in self.annotations:
+            if isinstance(ann, dict):
+                level = ann.get("level")
+                if level in self._PERF_STRATEGIES:
+                    return dict(self._PERF_STRATEGIES[level])
+        return {}
 
 
 @dataclass

@@ -159,6 +159,13 @@ class Lexer:
                 break
         
         value = self.source[start:self.pos]
+        
+        # 宏标识符: 以 ! 结尾(但 != 是不相等运算符)
+        if self.pos < len(self.source) and self.source[self.pos] == '!':
+            if self.pos + 1 >= len(self.source) or self.source[self.pos + 1] != '=':
+                self._advance()
+                value = self.source[start:self.pos]
+        
         token_type = KEYWORDS.get(value, TokenType.IDENTIFIER)
         self.tokens.append(Token(token_type, value, self.line, self.column))
     
@@ -223,6 +230,7 @@ class Lexer:
             ';': TokenType.SEMICOLON,
             '.': TokenType.DOT,
             '|': TokenType.PIPE,
+            '@': TokenType.AT,
         }
         
         if char in single_char_map:

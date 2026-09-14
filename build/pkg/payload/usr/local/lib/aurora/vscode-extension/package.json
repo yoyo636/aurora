@@ -1,8 +1,8 @@
 {
   "name": "aurora-ide",
-  "displayName": "Aurora Language",
-  "description": "Aurora 编程语言支持:语法高亮、一键运行、静态检查与行内诊断",
-  "version": "0.5.0",
+  "displayName": "Aurora Language (v2)",
+  "description": "Aurora 编程语言支持 v2.0.0:语法高亮、一键运行、静态检查、行内诊断,内置格式化、性能分析、调试、LSP 与包管理",
+  "version": "2.0.0",
   "publisher": "aurora",
   "license": "MIT",
   "icon": "icons/aurora.png",
@@ -22,7 +22,12 @@
     "onLanguage:aurora",
     "onCommand:aurora.run",
     "onCommand:aurora.check",
-    "onCommand:aurora.runSelection"
+    "onCommand:aurora.runSelection",
+    "onCommand:aurora.fmt",
+    "onCommand:aurora.profile",
+    "onCommand:aurora.debug",
+    "onCommand:aurora.lsp",
+    "onCommand:aurora.pkg"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -67,6 +72,31 @@
       {
         "command": "aurora.runSelection",
         "title": "Aurora: 运行选中代码"
+      },
+      {
+        "command": "aurora.fmt",
+        "title": "Aurora: 格式化当前文件",
+        "icon": "$(wand)"
+      },
+      {
+        "command": "aurora.profile",
+        "title": "Aurora: 性能分析当前文件",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "aurora.debug",
+        "title": "Aurora: 调试当前文件",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "aurora.lsp",
+        "title": "Aurora: 启动 LSP 语言服务器",
+        "icon": "$(server)"
+      },
+      {
+        "command": "aurora.pkg",
+        "title": "Aurora: 包管理 (aurora pkg)",
+        "icon": "$(package)"
       }
     ],
     "keybindings": [
@@ -104,6 +134,16 @@
           "command": "aurora.check",
           "when": "editorLangId == aurora",
           "group": "navigation@2"
+        },
+        {
+          "command": "aurora.fmt",
+          "when": "editorLangId == aurora",
+          "group": "navigation@3"
+        },
+        {
+          "command": "aurora.profile",
+          "when": "editorLangId == aurora",
+          "group": "navigation@4"
         }
       ],
       "editor/context": [
@@ -121,6 +161,26 @@
           "command": "aurora.check",
           "when": "editorLangId == aurora",
           "group": "aurora@3"
+        },
+        {
+          "command": "aurora.fmt",
+          "when": "editorLangId == aurora",
+          "group": "aurora@4"
+        },
+        {
+          "command": "aurora.profile",
+          "when": "editorLangId == aurora",
+          "group": "aurora@5"
+        },
+        {
+          "command": "aurora.debug",
+          "when": "editorLangId == aurora",
+          "group": "aurora@6"
+        },
+        {
+          "command": "aurora.pkg",
+          "when": "editorLangId == aurora",
+          "group": "aurora@7"
         }
       ]
     },

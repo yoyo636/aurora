@@ -69,11 +69,16 @@ class Parser:
         return Program(statements=stmts)
 
     def _parse_top_level(self) -> Optional[Stmt]:
+        # @perf(level) 等函数级注解（仅作用于紧随其后的 fn）
+        annotations = self._parse_annotations()
+
         pub = bool(self._match(TokenType.PUB))
 
         tok = self._current()
         if tok.type == TokenType.FN:
-            return self._parse_fn_def(is_pub=pub)
+            fn = self._parse_fn_def(is_pub=pub)
+            fn.annotations = annotations
+            return fn
         if tok.type == TokenType.TYPE:
             return self._parse_type_def(is_pub=pub)
         if tok.type == TokenType.ENUM:
@@ -95,6 +100,29 @@ class Parser:
         return self._parse_statement()
 
     # ── function definition ─────────────────────────────
+
+    def _parse_annotations(self) -> List[dict]:
+        """解析前导函数注解：@perf(level)，可多个"""
+        annotations = []
+        while self._at(TokenType.AT):
+            self._advance()  # @
+            if self._match(TokenType.PERF):
+                self._expect(TokenType.LPAREN)
+                level = self._expect(TokenType.IDENTIFIER).value
+                self._expect(TokenType.RPAREN)
+                annotations.append({"level": level})
+            else:
+                # 未知 @注解：保守忽略，避免破坏现有代码
+                self._match(TokenType.LPAREN)
+                depth = 1
+                while depth and not self._at(TokenType.EOF):
+                    if self._match(TokenType.LPAREN):
+                        depth += 1
+                    elif self._match(TokenType.RPAREN):
+                        depth -= 1
+                    else:
+                        self._advance()
+        return annotations
 
     def _parse_fn_def(self, is_pub=False, require_body=True) -> FnDef:
         tok = self._expect(TokenType.FN)
@@ -585,6 +613,15 @@ class Parser:
                         break
                 self._expect(TokenType.GT)
                 return GenericType(base=name, type_args=args)
+            # Result[T, E]（方括号写法，与 <T, E> 等价）
+            if name == 'Result' and self._match(TokenType.LBRACKET):
+                args = []
+                while not self._at(TokenType.RBRACKET):
+                    args.append(self._parse_type())
+                    if not self._match(TokenType.COMMA):
+                        break
+                self._expect(TokenType.RBRACKET)
+                return GenericType(base='Result', type_args=args)
             return NamedType(name=name)
 
         raise ParseError(f"无法解析类型: {tok.value!r}", tok)
@@ -837,6 +874,16 @@ class Parser:
 
         # 标识符
         if tok.type == TokenType.IDENTIFIER:
+            # Ok(expr) / Err(expr) 特殊形式（仍兼容裸标识符 Ok 作为值）
+            if tok.value in ('Ok', 'Err') and self._peek(1).type == TokenType.LPAREN:
+                kind = tok.value
+                self._advance()  # Ok/Err
+                self._expect(TokenType.LPAREN)
+                arg = self._parse_expr()
+                self._expect(TokenType.RPAREN)
+                if kind == 'Ok':
+                    return OkExpr(value=arg, line=tok.line, column=tok.column)
+                return ErrExpr(error=arg, line=tok.line, column=tok.column)
             self._advance()
             return Identifier(name=tok.value, line=tok.line, column=tok.column)
 

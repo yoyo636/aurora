@@ -64,7 +64,7 @@ class TestLexerBasics(unittest.TestCase):
 
     def test_unknown_char_raises(self):
         with self.assertRaises(LexerError):
-            toks('@')
+            toks('~')
 
     def test_position(self):
         ts = toks('let x = 1\nlet y = 2')

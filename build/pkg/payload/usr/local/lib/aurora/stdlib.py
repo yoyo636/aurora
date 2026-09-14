@@ -2215,3 +2215,344 @@ BUILTIN_GLOBALS = {
     # ── 性能 ──
     'benchmark': _benchmark,
 }
+
+
+# ════════════════════════════════════════════════════════════
+# P3 扩充:正则 / 日期时间 / 加密 / 文件系统增强 / 网络增强
+# (以下均为新代码,不改动上方已有实现)
+# ════════════════════════════════════════════════════════════
+
+import re as _re
+import shutil as _shutil
+import hashlib as _hashlib
+import hmac as _hmac_mod
+import base64 as _base64_mod
+import uuid as _uuid_mod
+import secrets as _secrets_mod
+import socket as _socket_mod
+from datetime import datetime as _dt_datetime, timedelta as _dt_timedelta
+
+
+class AuroraRegex:
+    """正则表达式模块(基于 Python re)。"""
+
+    @staticmethod
+    def match(pattern, text):
+        """从头匹配;返回 {'match': str, 'start': int, 'end': int} 或 None。"""
+        m = _re.match(pattern, text)
+        if not m:
+            return None
+        return {'match': m.group(0), 'start': m.start(), 'end': m.end(),
+                'groups': list(m.groups())}
+
+    @staticmethod
+    def search(pattern, text):
+        """搜索第一个匹配;返回匹配信息或 None。"""
+        m = _re.search(pattern, text)
+        if not m:
+            return None
+        return {'match': m.group(0), 'start': m.start(), 'end': m.end(),
+                'groups': list(m.groups())}
+
+    @staticmethod
+    def find_all(pattern, text):
+        """返回所有匹配文本的列表。"""
+        return _re.findall(pattern, text)
+
+    @staticmethod
+    def replace(pattern, replacement, text):
+        """替换所有匹配。"""
+        return _re.sub(pattern, replacement, text)
+
+    @staticmethod
+    def split(pattern, text):
+        """按正则分割。"""
+        return _re.split(pattern, text)
+
+
+class AuroraDateTime:
+    """日期时间模块(基于 Python datetime)。"""
+
+    @staticmethod
+    def now():
+        """当前本地时间。"""
+        return _dt_datetime.now()
+
+    @staticmethod
+    def timestamp():
+        """当前 Unix 时间戳(秒)。"""
+        return int(_dt_datetime.now().timestamp())
+
+    @staticmethod
+    def format(dt, fmt="%Y-%m-%d %H:%M:%S"):
+        """格式化时间对象。"""
+        return dt.strftime(fmt)
+
+    @staticmethod
+    def parse(s, fmt="%Y-%m-%d %H:%M:%S"):
+        """按格式解析时间字符串。"""
+        try:
+            return _dt_datetime.strptime(s, fmt)
+        except Exception as e:
+            raise AuroraError("DateTimeError", str(e))
+
+    @staticmethod
+    def add_days(dt, n):
+        """日期加减 n 天。"""
+        return dt + _dt_timedelta(days=n)
+
+    @staticmethod
+    def diff(d1, d2):
+        """两个日期相差天数(d1 - d2)。"""
+        return (d1 - d2).days
+
+    @staticmethod
+    def today():
+        """今天的日期(YYYY-MM-DD 字符串)。"""
+        return _dt_datetime.now().strftime("%Y-%m-%d")
+
+
+class AuroraCrypto:
+    """加密 / 哈希 / 编码模块。"""
+
+    @staticmethod
+    def _bytes(data):
+        if isinstance(data, bytes):
+            return data
+        return str(data).encode('utf-8')
+
+    @staticmethod
+    def md5(data):
+        return _hashlib.md5(AuroraCrypto._bytes(data)).hexdigest()
+
+    @staticmethod
+    def sha1(data):
+        return _hashlib.sha1(AuroraCrypto._bytes(data)).hexdigest()
+
+    @staticmethod
+    def sha256(data):
+        return _hashlib.sha256(AuroraCrypto._bytes(data)).hexdigest()
+
+    @staticmethod
+    def sha512(data):
+        return _hashlib.sha512(AuroraCrypto._bytes(data)).hexdigest()
+
+    @staticmethod
+    def hmac(key, data, algorithm='sha256'):
+        algo = getattr(_hashlib, algorithm, _hashlib.sha256)
+        return _hmac_mod.new(AuroraCrypto._bytes(key),
+                             AuroraCrypto._bytes(data), algo).hexdigest()
+
+    @staticmethod
+    def base64_encode(data):
+        return _base64_mod.b64encode(AuroraCrypto._bytes(data)).decode('ascii')
+
+    @staticmethod
+    def base64_decode(data):
+        return _base64_mod.b64decode(AuroraCrypto._bytes(data)).decode('utf-8')
+
+    @staticmethod
+    def random_hex(length=16):
+        """生成 n 个十六进制字符(实际 ceil(length/2) 字节)。"""
+        nbytes = max(1, (length + 1) // 2)
+        return _secrets_mod.token_hex(nbytes)[:length]
+
+    @staticmethod
+    def uuid():
+        """UUID v4 字符串。"""
+        return str(_uuid_mod.uuid4())
+
+
+class AuroraFileSystem:
+    """文件系统增强模块(补充 AuroraIO 未覆盖的操作)。"""
+
+    @staticmethod
+    def exists(path):
+        return os.path.exists(path)
+
+    @staticmethod
+    def is_file(path):
+        return os.path.isfile(path)
+
+    @staticmethod
+    def is_dir(path):
+        return os.path.isdir(path)
+
+    @staticmethod
+    def mkdir(path, recursive=True):
+        try:
+            if recursive:
+                os.makedirs(path, exist_ok=True)
+            else:
+                os.mkdir(path)
+            return True
+        except Exception as e:
+            raise AuroraError("FSError", str(e))
+
+    @staticmethod
+    def remove(path):
+        try:
+            os.remove(path)
+            return True
+        except Exception as e:
+            raise AuroraError("FSError", str(e))
+
+    @staticmethod
+    def rmdir(path, recursive=False):
+        try:
+            if recursive:
+                _shutil.rmtree(path)
+            else:
+                os.rmdir(path)
+            return True
+        except Exception as e:
+            raise AuroraError("FSError", str(e))
+
+    @staticmethod
+    def list_dir(path='.'):
+        try:
+            return sorted(os.listdir(path))
+        except Exception as e:
+            raise AuroraError("FSError", str(e))
+
+    @staticmethod
+    def copy(src, dst):
+        try:
+            _shutil.copy2(src, dst)
+            return dst
+        except Exception as e:
+            raise AuroraError("FSError", str(e))
+
+    @staticmethod
+    def move(src, dst):
+        try:
+            _shutil.move(src, dst)
+            return dst
+        except Exception as e:
+            raise AuroraError("FSError", str(e))
+
+    @staticmethod
+    def file_size(path):
+        try:
+            return os.path.getsize(path)
+        except Exception as e:
+            raise AuroraError("FSError", str(e))
+
+    @staticmethod
+    def extension(path):
+        return os.path.splitext(path)[1]
+
+    @staticmethod
+    def basename(path):
+        return os.path.basename(path)
+
+    @staticmethod
+    def dirname(path):
+        return os.path.dirname(path)
+
+    @staticmethod
+    def join_path(*parts):
+        return os.path.join(*parts)
+
+    @staticmethod
+    def absolute_path(path):
+        return os.path.abspath(path)
+
+
+class AuroraNet:
+    """网络增强模块(HTTP 动词 / 下载 / URL / TCP socket)。"""
+
+    _DEFAULT_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+    @staticmethod
+    def _request(url, method='GET', data=None, json_body=None,
+                 headers=None, timeout=30):
+        hdrs = {'User-Agent': AuroraNet._DEFAULT_UA}
+        if headers:
+            hdrs.update(headers)
+        body = None
+        if json_body is not None:
+            body = json.dumps(json_body).encode('utf-8')
+            hdrs.setdefault('Content-Type', 'application/json')
+        elif data is not None:
+            body = data.encode('utf-8') if isinstance(data, str) else data
+        try:
+            req = urllib.request.Request(url, data=body, headers=hdrs, method=method)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read().decode('utf-8', errors='replace')
+        except Exception as e:
+            raise AuroraError("NetError", str(e))
+
+    @staticmethod
+    def get(url, headers=None, timeout=30):
+        return AuroraNet._request(url, 'GET', headers=headers, timeout=timeout)
+
+    @staticmethod
+    def post(url, data=None, json=None, headers=None, timeout=30):
+        return AuroraNet._request(url, 'POST', data=data, json_body=json,
+                                  headers=headers, timeout=timeout)
+
+    @staticmethod
+    def put(url, data=None, headers=None, timeout=30):
+        return AuroraNet._request(url, 'PUT', data=data, headers=headers, timeout=timeout)
+
+    @staticmethod
+    def delete(url, headers=None, timeout=30):
+        return AuroraNet._request(url, 'DELETE', headers=headers, timeout=timeout)
+
+    @staticmethod
+    def download(url, path):
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': AuroraNet._DEFAULT_UA})
+            with urllib.request.urlopen(req, timeout=60) as r, open(path, 'wb') as f:
+                f.write(r.read())
+            return path
+        except Exception as e:
+            raise AuroraError("NetError", str(e))
+
+    @staticmethod
+    def url_parse(url):
+        p = urllib.parse.urlparse(url)
+        return {'scheme': p.scheme, 'netloc': p.netloc, 'path': p.path,
+                'params': p.params, 'query': p.query, 'fragment': p.fragment,
+                'hostname': p.hostname, 'port': p.port}
+
+    @staticmethod
+    def url_encode(params):
+        return urllib.parse.urlencode(params or {})
+
+    # ── TCP socket(薄包装;连接对象用 dict 持有底层 socket)──
+
+    @staticmethod
+    def socket_connect(host, port):
+        try:
+            s = _socket_mod.create_connection((host, int(port)), timeout=30)
+            return {'_sock': s}
+        except Exception as e:
+            raise AuroraError("NetError", str(e))
+
+    @staticmethod
+    def socket_send(conn, data):
+        s = conn['_sock']
+        payload = data.encode('utf-8') if isinstance(data, str) else data
+        try:
+            return s.sendall(payload) or len(payload)
+        except Exception as e:
+            raise AuroraError("NetError", str(e))
+
+    @staticmethod
+    def socket_recv(conn, size=4096):
+        s = conn['_sock']
+        try:
+            return s.recv(size).decode('utf-8', errors='replace')
+        except Exception as e:
+            raise AuroraError("NetError", str(e))
+
+    @staticmethod
+    def socket_close(conn):
+        try:
+            conn['_sock'].close()
+            return True
+        except Exception as e:
+            raise AuroraError("NetError", str(e))

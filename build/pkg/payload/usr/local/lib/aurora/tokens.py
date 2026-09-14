@@ -49,6 +49,7 @@ class TokenType(Enum):
     DEFER = auto()
     YIELD = auto()
     AS = auto()        # as (import 别名)
+    PERF = auto()      # @perf 性能注解
     
     # 运算符
     PLUS = auto()      # +
@@ -116,6 +117,7 @@ class TokenType(Enum):
     DEDENT = auto()
     EOF = auto()
     COMMENT = auto()
+    AT = auto()        # @ (性能注解前缀)
 
 
 @dataclass
@@ -162,6 +164,7 @@ KEYWORDS = {
     'defer': TokenType.DEFER,
     'yield': TokenType.YIELD,
     'as': TokenType.AS,
+    'perf': TokenType.PERF,
     'true': TokenType.BOOLEAN,
     'false': TokenType.BOOLEAN,
     'nil': TokenType.NIL,

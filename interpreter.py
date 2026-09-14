@@ -28,6 +28,12 @@ class ReturnSignal(Exception):
         self.value = value
 
 
+class ResultPropagateSignal(Exception):
+    """? 操作符：遇到 Err 时从当前函数返回该 AuroraResult（Rust 风格错误传播）"""
+    def __init__(self, result):
+        self.result = result
+
+
 # ── 环境 ────────────────────────────────────────────────
 
 class Environment:
@@ -85,6 +91,10 @@ class Interpreter:
         self._module_cache: Dict[str, dict] = {}   # 绝对路径 -> 模块 dict
         self._file_stack: List[str] = []            # 当前执行的文件栈(循环导入检测)
         self._project_root: Optional[str] = None    # 项目根(含 aurora.toml 的目录)
+        # Aurora 创新特性：@perf(trace) 调用统计
+        self._perf_trace: Dict[str, dict] = {}
+        # 标记：当前是否处于 `?` 操作数求值中（期间禁止自动解包 Result 返回值）
+        self._no_unwrap: bool = False
         self._load_builtins()
 
     # ── 加载内建 ──────────────────────────────────────
@@ -92,6 +102,28 @@ class Interpreter:
     def _load_builtins(self):
         for name, val in BUILTIN_GLOBALS.items():
             self.global_env.define(name, val)
+
+    def _get_cache(self):
+        """惰性创建函数级增量编译缓存（进程内 + 磁盘持久化）"""
+        if getattr(self, "_inc_cache", None) is None:
+            from .incremental_cache import IncrementalCompilerCache
+            self._inc_cache = IncrementalCompilerCache()
+        return self._inc_cache
+
+    def _register_function_cache(self, stmt: FnDef):
+        """函数定义时计算内容哈希并接入增量编译缓存（未修改则命中）"""
+        try:
+            cache = self._get_cache()
+            cached = cache.get(stmt)
+            if cached is None:
+                # 未命中：登记占位编译产物（树遍历解释器中即函数 AST 本身）
+                from .incremental_cache import CompiledFunction
+                cache.put(stmt, CompiledFunction(
+                    name=stmt.name, func_hash=cache.function_hash(stmt),
+                    machine_code="<interpreted>"))
+        except Exception:
+            # 缓存失败不应影响正常解释执行（保守降级）
+            pass
 
     # ── 公共 API ──────────────────────────────────────
 
@@ -104,6 +136,9 @@ class Interpreter:
                 self._project_root = self._find_project_root(file_path)
         try:
             return self._exec_stmts(program.statements, self.global_env)
+        except ResultPropagateSignal as s:
+            # 顶层使用 `?` 遇到 Err：自动 panic（可被 try/catch 捕获）
+            raise AuroraError("ResultError", str(s.result._err))
         finally:
             if file_path:
                 self._file_stack.pop()
@@ -253,6 +288,8 @@ class Interpreter:
             return self._exec_match(stmt, env)
 
         if isinstance(stmt, FnDef):
+            # 函数级增量编译缓存：计算内容哈希并尝试复用编译产物
+            self._register_function_cache(stmt)
             env.define(stmt.name, self._make_function(stmt, env))
             return None
 
@@ -683,14 +720,24 @@ class Interpreter:
             if callable(fn):
                 try:
                     if named and getattr(fn, '_aurora', False):
-                        return fn(*args, **named)
-                    if named:
-                        return fn(*args, **named)
-                    return fn(*args)
+                        result = fn(*args, **named)
+                    elif named:
+                        result = fn(*args, **named)
+                    else:
+                        result = fn(*args)
                 except AuroraError:
                     raise
                 except TypeError as e:
                     raise AuroraError("TypeError", str(e))
+                # Result 互操作：声明返回 Result[T,E] 的函数，调用点自动解包
+                # （在 `?` 操作数求值期间不自动解包，交由 ? 处理 Err 传播）
+                if (not self._no_unwrap
+                        and getattr(fn, '_aurora_result_return', False)
+                        and isinstance(result, AuroraResult)):
+                    if result.is_err():
+                        raise AuroraError("Panic", str(result._err))
+                    return result._ok
+                return result
             raise AuroraError("TypeError", f"'{expr.callee}' 不可调用")
 
         if isinstance(expr, MethodCall):
@@ -823,10 +870,23 @@ class Interpreter:
                 return val
             raise AuroraError("TypeError", "'<-' 只能用于 channel")
 
+        if isinstance(expr, OkExpr):
+            return AuroraResult.Ok(self._eval(expr.value, env))
+
+        if isinstance(expr, ErrExpr):
+            return AuroraResult.Err(self._eval(expr.error, env))
+
         if isinstance(expr, TryExpr):
-            val = self._eval(expr.expr, env)
+            # `expr?`：操作数求值期间禁止调用点自动解包，以便拿到原始 AuroraResult
+            prev = self._no_unwrap
+            self._no_unwrap = True
+            try:
+                val = self._eval(expr.expr, env)
+            finally:
+                self._no_unwrap = prev
             if isinstance(val, AuroraResult) and val.is_err():
-                raise AuroraError("ResultError", str(val._err))
+                # Err：从当前函数返回该 Err（由函数包装层捕获）
+                raise ResultPropagateSignal(val)
             if isinstance(val, AuroraResult):
                 return val.unwrap()
             return val
@@ -1032,18 +1092,44 @@ class Interpreter:
                             "TypeError",
                             f"函数 '{fn_def.name}' 缺少必要参数 '{p.name}'")
 
-            result = self._exec_stmts(fn_def.body.statements, fn_env)
+            # @perf(trace)：自动记录调用次数与耗时
+            trace_enabled = fn_def.get_perf_hints().get("trace", False)
+            if trace_enabled:
+                import time as _t
+                _t0 = _t.perf_counter()
+
+            try:
+                result = self._exec_stmts(fn_def.body.statements, fn_env)
+            except ResultPropagateSignal as s:
+                # `?` 遇到 Err：直接从当前函数返回该 Err（传播错误）
+                self._run_defers(fn_env)
+                return s.result
+
             self._run_defers(fn_env)
             yields = getattr(fn_env, "_yield_values", None)
             if yields:
                 return yields
             if isinstance(result, ReturnSignal):
-                return result.value
-            return result
+                retval = result.value
+            else:
+                retval = result
+
+            if trace_enabled:
+                stat = self._perf_trace.setdefault(
+                    fn_def.name, {"calls": 0, "total_time_ms": 0.0})
+                stat["calls"] += 1
+                stat["total_time_ms"] += (_t.perf_counter() - _t0) * 1000.0
+            return retval
+
+        # 返回类型为 Result[T, E]（泛型两参）的函数：调用点自动解包
+        rt = fn_def.return_type
+        returns_result = (isinstance(rt, GenericType) and rt.base == 'Result'
+                           and len(rt.type_args) == 2)
 
         aurora_fn.__name__ = fn_def.name
         aurora_fn._ast = fn_def
         aurora_fn._aurora = True
+        aurora_fn._aurora_result_return = returns_result
         return aurora_fn
 
     def _make_lambda(self, expr: LambdaExpr, closure_env: Environment):

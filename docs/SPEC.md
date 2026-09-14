@@ -1,7 +1,7 @@
-# Aurora 语言规范 v1.0.0
+# Aurora 语言规范 v2.0.0
 
-> 状态: **Stable(稳定)** — 自 v1.0.0 起,本规范描述的语言行为受语义化版本约束,破坏性变更须进入下一主版本。
-> 实现: 纯 Python 解释器(零第三方依赖),位于 `aurora/` 包;CLI 入口 `aurora`。
+> 状态: **Stable(稳定)** — 自 v2.0.0 起,本规范描述的语言行为受语义化版本约束,破坏性变更须进入下一主版本。
+> 实现: ARM64 原生汇编后端 + 解释器双模式,位于 `aurora/` 包;CLI 入口 `aurora`。
 
 ---
 
@@ -113,6 +113,37 @@ type T { f }                     # 类型
 enum E { A, B }                  # 枚举
 ```
 
+### 4.1 @perf 性能注解(v2.0.0)
+
+函数级自适应性能注解,放在函数声明前一行:
+
+```python
+@perf(critical)
+fn hot_path(a, b) { a * b + loop_sum(10000) }
+
+@perf(hot)
+fn frequent(x) { ... }
+
+@perf(cold)
+fn error_handler(msg) { ... }
+
+@perf(size)
+fn utility() { ... }
+
+@perf(trace)
+fn monitored() { ... }
+```
+
+| level | 编译器策略 |
+| --- | --- |
+| `critical` | 内联 + 循环展开4次 + 向量化提示 + 寄存器全分配 |
+| `hot` | 内联 + 循环展开2次 |
+| `cold` | 不优化,最小化体积 |
+| `size` | 优化代码大小 |
+| `trace` | 自动插入性能追踪(计时/调用计数) |
+
+未标注 `@perf` 的函数采用默认优化策略。
+
 ## 5. 语句与控制流
 
 ```python
@@ -185,6 +216,40 @@ panic("消息")            # 主动终止
 
 错误消息统一格式:`L<行>:C<列>: [<类别>] <描述>`,类别含 `AuroraError TypeError NameError ValueError KeyError IndexError MathError AssertError TimeoutError JsonError PythonError FFIError ProcError HttpError VexError ...`。
 
+### 8.1 Result 类型与互操作(v2.0.0)
+
+**Result 类型标注**:函数可声明返回 `Result[T, E]`:
+
+```python
+fn divide(a: int, b: int) -> Result[int, str] {
+    if b == 0 { return Err("除数为零") }
+    return Ok(a / b)
+}
+```
+
+**构造**:`Ok(value)` 包装成功值,`Err(error)` 包装错误。
+
+**`?` 操作符**:仅在返回 `Result` 的函数体中可用。作用于 `Result` 值时,若为 `Ok(v)` 自动解包为 `v`;若为 `Err(e)`,自动 `return Err(e)` 传播:
+
+```python
+fn safe_divide(a, b) -> Result[int, str] {
+    let r = divide(a, b)?    # b==0 时自动 return Err("除数为零")
+    Ok(r * 2)
+}
+```
+
+**自动解包规则**:声明 `-> Result[T, E]` 的函数,其返回值在调用处自动解包为裸值 `T`(或在 `Err` 时传播);未声明 `-> Result` 的旧式 `Result` 返回保持兼容,需手动 `.unwrap()`。
+
+**try/catch 与 Result 互操作**:`try/catch` 可捕获 `?` 操作符传播的 `Err` 异常,`catch` 绑定到异常对象:
+
+```python
+try {
+    divide(10, 0)
+} catch e {
+    println("捕获到: " + str(e))   # Err 传播的错误
+}
+```
+
 ## 9. 静态检查
 
 ```bash
@@ -196,13 +261,18 @@ aurora check main.aur
 
 ```
 aurora repl            交互式 REPL
-aurora run [file]     运行 .aur 或读 aurora.toml 入口
+aurora run [file]     运行 .aur 或读 aurora.toml 入口(自动选择解释器/ARM64 后端)
 aurora eval 'code'    执行一行
 aurora check file     类型/所有权静态检查
 aurora new name       创建项目(脚手架 + 清单)
 aurora test [path]    测试运行器(*_test.aur / *_tests.aur 整体运行;test_* 函数逐项运行)
 aurora tokens file    词法分析
 aurora ast file       AST 结构
+aurora fmt file       代码格式化(v2.0.0)
+aurora profile file   性能分析(v2.0.0)
+aurora debug file     调试器(v2.0.0)
+aurora lsp            LSP 语言服务器(v2.0.0)
+aurora pkg install X  包管理器(v2.0.0)
 aurora --version      版本
 ```
 
@@ -229,17 +299,23 @@ entry = "main.aur"
 
 - 语义化版本 `MAJOR.MINOR.PATCH`;
 - **Stable** 特性:本规范第 2–11 章描述的全部语法与标准库;
+- v2.0.0 新增稳定内容:ARM64 原生汇编后端、@perf 性能注解、Result[T,E]/`?` 互操作、函数级增量编译缓存、P2 工具链(fmt/profile/debug/lsp)、P3 包管理器与标准库扩充;
 - 破坏性变更(如 `let` 语义)仅允许在 MAJOR 版本发布;
 - 详细策略见 `VERSIONING.md`,历史见 `CHANGELOG.md`。
 
 ## 13. 已知限制(roadmap)
 
-以下特性不属于 v1.0.0 稳定承诺,计划在未来主版本演进:
-- 编译后端(LLVM/JIT)与 AOT 产物;
+以下特性已在 v2.0.0 纳入稳定承诺:
+- ✅ ARM64 原生汇编后端(asmgen.py),不依赖 C 编译器;
+- ✅ 包管理器 `aurora pkg` 与依赖解析;
+- ✅ @perf 自适应性能注解(五级);
+- ✅ Result[T,E] 类型标注、`?` 操作符、自动解包、try/catch 互操作;
+- ✅ 函数级增量编译缓存(AST 哈希 + 磁盘持久化 + 调用图依赖跟踪)。
+
+以下特性仍属 roadmap,计划在未来主版本演进:
 - 泛型单态化、trait 约束求解;
 - 定宽整数 `i32`/`u64` 等显式类型;
-- 所有权/借用作为强制的编译期语义;
-- 包管理器与依赖解析、注册表。
+- 所有权/借用作为强制的编译期语义。
 
 ## 14. 生态示例
 

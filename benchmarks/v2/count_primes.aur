@@ -1,0 +1,22 @@
+fn count_primes(n: int) -> int {
+    let count = 0
+    for i in 2..n {
+        let is_prime = true
+        let j = 2
+        while j * j <= i {
+            if i % j == 0 {
+                is_prime = false
+                break
+            }
+            j = j + 1
+        }
+        if is_prime {
+            count = count + 1
+        }
+    }
+    return count
+}
+fn main() {
+    let result = count_primes(100000)
+    println(result)
+}
