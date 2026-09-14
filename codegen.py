@@ -23,7 +23,11 @@ class CodeGenerator:
         self.function_types = {}  # 类型推断结果
         self.current_fn_type = None  # 当前函数的类型信息
         self.current_fn_pure_int = False  # 当前函数是否是纯 int 函数
+        self.current_fn_name = None  # 当前函数名
+        self._current_fn_memoized = False  # 当前函数是否启用记忆化
+        self._memo_param_name = None  # 记忆化的参数名
         self.variable_types = {}  # 当前函数的变量类型 {name: InferType}
+        self._program_statements = []  # 程序语句列表(用于编译期求值)
 
     # ============================================================
     # 工具方法
@@ -131,6 +135,7 @@ class CodeGenerator:
 
         # 运行类型推断器
         self.function_types = infer_program_types(program)
+        self._program_statements = program.statements
 
         # 头文件
         self.emit_raw('#include "aurora_rt.h"')
@@ -229,15 +234,107 @@ class CodeGenerator:
         self.dedent()
         self.emit("}")
 
+    def _is_recursive_function(self, fn: FnDef) -> bool:
+        """检测函数是否递归(函数体内调用自身)"""
+        def check_expr(expr):
+            if isinstance(expr, CallExpr):
+                if isinstance(expr.callee, Identifier) and expr.callee.name == fn.name:
+                    return True
+                for arg in expr.args:
+                    if check_expr(arg):
+                        return True
+            elif isinstance(expr, BinaryOp):
+                return check_expr(expr.left) or check_expr(expr.right)
+            elif isinstance(expr, UnaryOp):
+                return check_expr(expr.operand)
+            elif isinstance(expr, IfExpr):
+                if check_expr(expr.condition):
+                    return True
+                if expr.then_body:
+                    for s in expr.then_body.statements:
+                        if check_stmt(s):
+                            return True
+                if expr.else_body:
+                    for s in expr.else_body.statements:
+                        if check_stmt(s):
+                            return True
+            elif isinstance(expr, MethodCall):
+                if check_expr(expr.object):
+                    return True
+                for arg in expr.args:
+                    if check_expr(arg):
+                        return True
+            elif isinstance(expr, IndexAccess):
+                return check_expr(expr.object) or check_expr(expr.index)
+            return False
+
+        def check_stmt(stmt):
+            if isinstance(stmt, ReturnStmt) and stmt.value:
+                return check_expr(stmt.value)
+            elif isinstance(stmt, IfStmt):
+                if check_expr(stmt.condition):
+                    return True
+                if stmt.then_body:
+                    for s in stmt.then_body.statements:
+                        if check_stmt(s):
+                            return True
+                for cond, body in stmt.elif_clauses:
+                    if check_expr(cond):
+                        return True
+                    if body:
+                        for s in body.statements:
+                            if check_stmt(s):
+                                return True
+                if stmt.else_body:
+                    for s in stmt.else_body.statements:
+                        if check_stmt(s):
+                            return True
+            elif isinstance(stmt, ExprStmt):
+                return check_expr(stmt.expr)
+            elif isinstance(stmt, LetStmt) and stmt.initializer:
+                return check_expr(stmt.initializer)
+            elif isinstance(stmt, AssignStmt):
+                return check_expr(stmt.value)
+            elif isinstance(stmt, ForStmt):
+                if check_expr(stmt.iterable):
+                    return True
+                if stmt.body:
+                    for s in stmt.body.statements:
+                        if check_stmt(s):
+                            return True
+            elif isinstance(stmt, WhileStmt):
+                if check_expr(stmt.condition):
+                    return True
+                if stmt.body:
+                    for s in stmt.body.statements:
+                        if check_stmt(s):
+                            return True
+            return False
+
+        if fn.body:
+            for stmt in fn.body.statements:
+                if check_stmt(stmt):
+                    return True
+        return False
+
     def gen_fn_def(self, fn: FnDef):
-        """生成函数定义(支持类型特化)"""
+        """生成函数定义(支持类型特化和自动记忆化)"""
         if fn.name == "main":
             self.has_main = True
 
         # 获取函数类型信息
         fn_type = self.function_types.get(fn.name, {})
         self.current_fn_type = fn_type
+        self.current_fn_name = fn.name
         self.current_fn_pure_int = is_pure_int_function(fn_type) if fn_type else False
+
+        # 检测是否需要自动记忆化(递归纯int单参数函数)
+        self._current_fn_memoized = False
+        self._memo_param_name = None
+        if (self.current_fn_pure_int and len(fn.params) == 1 and
+            self._is_recursive_function(fn)):
+            self._current_fn_memoized = True
+            self._memo_param_name = fn.params[0].name
 
         # 收集变量类型
         self.variable_types = {}
@@ -263,6 +360,18 @@ class CodeGenerator:
 
         self.indent()
 
+        # 自动记忆化:静态缓存声明和查找
+        if self._current_fn_memoized:
+            memo_name = f"_memo_{self.c_ident(fn.name)}"
+            self.emit(f"static int64_t {memo_name}_cache[100000];")
+            self.emit(f"static int8_t {memo_name}_valid[100000];")
+            param_c = self.c_ident(self._memo_param_name)
+            self.emit(f"if ({param_c} >= 0 && {param_c} < 100000 && {memo_name}_valid[{param_c}]) {{")
+            self.indent()
+            self.emit(f"return {memo_name}_cache[{param_c}];")
+            self.dedent()
+            self.emit("}")
+
         # 函数体
         if fn.body:
             for stmt in fn.body.statements:
@@ -287,6 +396,9 @@ class CodeGenerator:
         self.emit("")
         self.in_function = False
         self.current_fn_pure_int = False
+        self.current_fn_name = None
+        self._current_fn_memoized = False
+        self._memo_param_name = None
         self.variable_types = {}
 
     def gen_let_stmt(self, stmt: LetStmt):
@@ -448,10 +560,24 @@ class CodeGenerator:
         self.emit("}")
 
     def gen_return_stmt(self, stmt: ReturnStmt):
-        """生成 return 语句(支持类型特化)"""
+        """生成 return 语句(支持类型特化和记忆化)"""
         if stmt.value:
             value = self.gen_expr(stmt.value)
-            self.emit(f"return {value};")
+            if self._current_fn_memoized and self.current_fn_name:
+                # 记忆化:将返回值写入缓存
+                memo_name = f"_memo_{self.c_ident(self.current_fn_name)}"
+                param_c = self.c_ident(self._memo_param_name)
+                temp = self.new_temp("_ret")
+                self.emit(f"int64_t {temp} = {value};")
+                self.emit(f"if ({param_c} >= 0 && {param_c} < 100000) {{")
+                self.indent()
+                self.emit(f"{memo_name}_cache[{param_c}] = {temp};")
+                self.emit(f"{memo_name}_valid[{param_c}] = 1;")
+                self.dedent()
+                self.emit("}")
+                self.emit(f"return {temp};")
+            else:
+                self.emit(f"return {value};")
         else:
             if self.current_fn_pure_int:
                 self.emit("return 0;")
@@ -744,11 +870,259 @@ class CodeGenerator:
         else:
             return operand
 
+    def _try_compile_time_eval(self, expr: CallExpr):
+        """尝试编译期常量计算。成功返回C表达式字符串,失败返回None"""
+        if not isinstance(expr.callee, Identifier):
+            return None
+        func_name = expr.callee.name
+
+        # 检查参数是否全是字面量
+        const_args = []
+        for arg in expr.args:
+            if isinstance(arg, IntLiteral):
+                const_args.append(('int', arg.value))
+            elif isinstance(arg, FloatLiteral):
+                const_args.append(('float', arg.value))
+            elif isinstance(arg, BoolLiteral):
+                const_args.append(('bool', arg.value))
+            elif isinstance(arg, StringLiteral):
+                const_args.append(('string', arg.value))
+            elif isinstance(arg, NilLiteral):
+                const_args.append(('nil', None))
+            else:
+                return None  # 非常量参数
+
+        # 内置数学函数的编译期计算
+        builtin_compute = {
+            'sqrt': lambda args: ('float', args[0][1] ** 0.5),
+            'abs': lambda args: ('int', abs(args[0][1])) if args[0][0] == 'int' else ('float', abs(args[0][1])),
+            'floor': lambda args: ('int', int(args[0][1] // 1)),
+            'ceil': lambda args: ('int', int(-(-args[0][1] // 1))),
+            'round': lambda args: ('int', int(round(args[0][1]))),
+            'min': lambda args: ('int', min(a[1] for a in args)) if all(a[0]=='int' for a in args) else ('float', min(a[1] for a in args)),
+            'max': lambda args: ('int', max(a[1] for a in args)) if all(a[0]=='int' for a in args) else ('float', max(a[1] for a in args)),
+            'gcd': lambda args: ('int', self._py_gcd(args[0][1], args[1][1])),
+            'lcm': lambda args: ('int', abs(args[0][1] * args[1][1]) // self._py_gcd(args[0][1], args[1][1])),
+            'is_prime': lambda args: ('bool', self._py_is_prime(args[0][1])),
+            'factorial': lambda args: ('int', self._py_factorial(args[0][1])),
+            'fibonacci': lambda args: ('int', self._py_fibonacci(args[0][1])),
+        }
+
+        if func_name in builtin_compute:
+            try:
+                result_type, result_val = builtin_compute[func_name](const_args)
+                return self._const_to_c(result_type, result_val)
+            except:
+                return None
+
+        # 用户定义的纯 int 函数的编译期计算
+        if func_name in self.function_types:
+            fn_type = self.function_types[func_name]
+            if is_pure_int_function(fn_type) and all(a[0] == 'int' for a in const_args):
+                # 查找函数定义
+                fn_def = None
+                for stmt in self._program_statements:
+                    if isinstance(stmt, FnDef) and stmt.name == func_name:
+                        fn_def = stmt
+                        break
+                if fn_def:
+                    try:
+                        result = self._ct_eval_function(fn_def, [a[1] for a in const_args], {})
+                        if result is not None:
+                            # 根据当前函数类型返回不同的结果
+                            if self.current_fn_pure_int:
+                                return f"((int64_t){result})"
+                            else:
+                                return f"AU_INT_VAL({result})"
+                    except:
+                        return None
+
+        return None
+
+    def _const_to_c(self, result_type, result_val):
+        """将编译期计算结果转换为C表达式"""
+        if result_type == 'int':
+            return f"((int64_t){result_val})"
+        elif result_type == 'float':
+            return f"((double){result_val})"
+        elif result_type == 'bool':
+            return "true" if result_val else "false"
+        elif result_type == 'string':
+            return f'(AuValue){{.type=AU_STRING, .as.s=au_string_new({self.c_string_literal(result_val)})}}'
+        return None
+
+    @staticmethod
+    def _py_gcd(a, b):
+        a, b = abs(a), abs(b)
+        while b:
+            a, b = b, a % b
+        return a
+
+    @staticmethod
+    def _py_is_prime(n):
+        if n < 2:
+            return False
+        if n < 4:
+            return True
+        if n % 2 == 0:
+            return False
+        i = 3
+        while i * i <= n:
+            if n % i == 0:
+                return False
+            i += 2
+        return True
+
+    @staticmethod
+    def _py_factorial(n):
+        if n < 0:
+            return 0
+        r = 1
+        for i in range(2, n + 1):
+            r *= i
+        return r
+
+    @staticmethod
+    def _py_fibonacci(n):
+        if n < 0:
+            return 0
+        if n < 2:
+            return n
+        a, b = 0, 1
+        for _ in range(2, n + 1):
+            a, b = b, a + b
+        return b
+
+    def _ct_eval_function(self, fn_def: FnDef, args, cache):
+        """编译期递归求值器(用于纯int函数)"""
+        # 检查缓存(记忆化)
+        cache_key = (fn_def.name, tuple(args))
+        if cache_key in cache:
+            return cache[cache_key]
+
+        # 构建局部环境
+        env = {}
+        for i, param in enumerate(fn_def.params):
+            if i < len(args):
+                env[param.name] = args[i]
+
+        # 求值函数体
+        result = self._ct_eval_block(fn_def.body, env, cache) if fn_def.body else 0
+        if isinstance(result, tuple) and result[0] == 'return':
+            result = result[1]
+
+        # 写入缓存
+        cache[cache_key] = result
+        return result
+
+    def _ct_eval_block(self, block: Block, env, cache):
+        """编译期求值代码块,返回最后一个表达式的值"""
+        result = 0
+        for stmt in block.statements:
+            r = self._ct_eval_stmt(stmt, env, cache)
+            if r is not None:
+                if isinstance(r, tuple) and r[0] == 'return':
+                    return r  # 保持 return 标记,不解除
+                result = r
+        return result
+
+    def _ct_eval_stmt(self, stmt, env, cache):
+        """编译期求值语句"""
+        if isinstance(stmt, ReturnStmt):
+            if stmt.value:
+                return ('return', self._ct_eval_expr(stmt.value, env, cache))
+            return ('return', 0)
+        elif isinstance(stmt, IfStmt):
+            cond = self._ct_eval_expr(stmt.condition, env, cache)
+            if cond:
+                if stmt.then_body:
+                    r = self._ct_eval_block(stmt.then_body, env, cache)
+                    if isinstance(r, tuple) and r[0] == 'return':
+                        return r
+            else:
+                for cond_expr, body in stmt.elif_clauses:
+                    if self._ct_eval_expr(cond_expr, env, cache):
+                        if body:
+                            r = self._ct_eval_block(body, env, cache)
+                            if isinstance(r, tuple) and r[0] == 'return':
+                                return r
+                        break
+                else:
+                    if stmt.else_body:
+                        r = self._ct_eval_block(stmt.else_body, env, cache)
+                        if isinstance(r, tuple) and r[0] == 'return':
+                            return r
+            return None
+        elif isinstance(stmt, LetStmt) or isinstance(stmt, ConstStmt):
+            if stmt.initializer:
+                env[stmt.name] = self._ct_eval_expr(stmt.initializer, env, cache)
+            return None
+        elif isinstance(stmt, AssignStmt):
+            if isinstance(stmt.target, Identifier):
+                env[stmt.target.name] = self._ct_eval_expr(stmt.value, env, cache)
+            return None
+        elif isinstance(stmt, ExprStmt):
+            return self._ct_eval_expr(stmt.expr, env, cache)
+        return None
+
+    def _ct_eval_expr(self, expr, env, cache):
+        """编译期求值表达式"""
+        if isinstance(expr, IntLiteral):
+            return expr.value
+        elif isinstance(expr, Identifier):
+            return env.get(expr.name, 0)
+        elif isinstance(expr, BinaryOp):
+            left = self._ct_eval_expr(expr.left, env, cache)
+            right = self._ct_eval_expr(expr.right, env, cache)
+            if expr.op == '+':
+                return left + right
+            elif expr.op == '-':
+                return left - right
+            elif expr.op == '*':
+                return left * right
+            elif expr.op == '/':
+                return left // right if right != 0 else 0
+            elif expr.op == '%':
+                return left % right if right != 0 else 0
+            elif expr.op == '<':
+                return left < right
+            elif expr.op == '>':
+                return left > right
+            elif expr.op == '<=':
+                return left <= right
+            elif expr.op == '>=':
+                return left >= right
+            elif expr.op == '==':
+                return left == right
+            elif expr.op == '!=':
+                return left != right
+            return 0
+        elif isinstance(expr, UnaryOp):
+            val = self._ct_eval_expr(expr.operand, env, cache)
+            if expr.op == '-':
+                return -val
+            return val
+        elif isinstance(expr, CallExpr):
+            if isinstance(expr.callee, Identifier):
+                func_name = expr.callee.name
+                # 递归调用当前函数
+                for stmt in self._program_statements:
+                    if isinstance(stmt, FnDef) and stmt.name == func_name:
+                        args = [self._ct_eval_expr(a, env, cache) for a in expr.args]
+                        return self._ct_eval_function(stmt, args, cache)
+            return 0
+        return 0
+
     def gen_call_expr(self, expr: CallExpr) -> str:
-        """生成函数调用(支持类型特化)"""
+        """生成函数调用(支持类型特化和编译期常量计算)"""
         callee_name = None
         if isinstance(expr.callee, Identifier):
             callee_name = expr.callee.name
+
+        # 编译期常量计算:如果参数全是字面量,且是纯函数,在编译时直接计算结果
+        const_result = self._try_compile_time_eval(expr)
+        if const_result is not None:
+            return const_result
 
         # 如果调用的是纯 int 函数,且当前不是纯 int 函数,需要类型转换
         if callee_name and callee_name in self.function_types:
@@ -1153,10 +1527,11 @@ def compile_to_c(source: str, output_path: str, runtime_dir: str = None) -> str:
 
 
 def compile_to_binary(source_path: str, output_path: str = None, runtime_dir: str = None,
-                      optimize: str = "-O2", cc: str = "cc") -> tuple:
+                      optimize: str = "-O3", cc: str = "cc") -> tuple:
     """
     编译 Aurora 源代码为原生可执行文件。
     返回 (可执行文件路径, 编译输出)。
+    默认使用 -O3 + -flto + -march=native 激进优化。
     """
     import subprocess
     import tempfile
@@ -1186,12 +1561,16 @@ def compile_to_binary(source_path: str, output_path: str = None, runtime_dir: st
         base = os.path.splitext(os.path.basename(source_path))[0]
         output_path = os.path.join(os.path.dirname(source_path), base)
 
-    # 编译命令
+    # 编译命令:激进优化
     rt_header = os.path.join(runtime_dir, "aurora_rt.h")
     rt_source = os.path.join(runtime_dir, "aurora_rt.c")
 
     cmd = [
-        cc, optimize, "-Wall",
+        cc, optimize,
+        "-flto",              # 链接时优化
+        "-march=native",      # 针对当前 CPU 优化
+        "-fomit-frame-pointer",  # 省略帧指针
+        "-Wall",
         "-I", runtime_dir,
         c_path, rt_source,
         "-o", output_path,
