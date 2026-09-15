@@ -1,0 +1,75 @@
+// ============================================================
+// Aurora v3.0.0 AI 示例 4:数据处理流水线
+// 展示 AuroraData 处理学生成绩数据的完整流程:
+//   构造 -> 清洗 -> 转换 -> 分组统计 -> 划分数据集 -> DataLoader 迭代
+// ============================================================
+
+import std.data
+
+// --- 1. 创建 DataFrame:学生成绩 ---
+// 故意留一行有缺失值,演示清洗
+let df = data.DataFrame([
+    {"name": "Alice", "subject": "math",    "score": 92, "grade": "A"},
+    {"name": "Bob",   "subject": "math",    "score": 78, "grade": "B"},
+    {"name": "Carol", "subject": "math",    "score": nil, "grade": nil},
+    {"name": "Dave",  "subject": "english", "score": 85, "grade": "B"},
+    {"name": "Eve",   "subject": "english", "score": 95, "grade": "A"},
+    {"name": "Frank", "subject": "english", "score": 60, "grade": "C"}
+], columns: ["name", "subject", "score", "grade"])
+
+print("原始数据(" + len(df) + " 行):")
+print(df)
+print("---")
+
+// --- 2. 数据清洗 ---
+// 2a. 用各科平均分填充缺失的 score
+let score_mean = df["score"].mean()
+print("score 列均值=" + score_mean)
+let df_filled = df.fillna(value: score_mean, cols: ["score"])
+print("填充缺失值后:")
+print(df_filled)
+print("---")
+
+// 2b. 删除 grade 仍缺失的行
+let df_clean = df_filled.dropna(subset: ["grade"])
+print("删除 grade 缺失行后(" + len(df_clean) + " 行):")
+print(df_clean)
+print("---")
+
+// --- 3. 数据转换 ---
+// 3a. 标准化 score 列(z-score)
+let df_norm = df_clean.standardize(cols: ["score"])
+print("标准化 score 后:")
+print(df_norm)
+print("---")
+
+// 3b. 对 grade 列做 one-hot
+let df_oh = df_norm.one_hot(col: "grade", prefix: "g")
+print("grade one-hot 后:")
+print(df_oh)
+print("---")
+
+// --- 4. 分组统计:按 subject 求平均成绩 ---
+let avg_by_subject = df_clean.groupby("subject").mean()
+print("各科平均成绩:")
+print(avg_by_subject)
+print("---")
+
+// --- 5. 划分训练/测试集 ---
+let split = df_clean.train_test_split(test_size: 0.3, seed: 42)
+let train = split[0]
+let test  = split[1]
+print("训练集 " + len(train) + " 行,测试集 " + len(test) + " 行")
+print("---")
+
+// --- 6. 构造 Dataset 与 DataLoader ---
+let features = train.select(["score"]).values
+let labels   = train["grade"]
+let ds = data.Dataset(features, labels: labels)
+print("Dataset 大小:" + len(ds))
+
+let loader = data.DataLoader(ds, batch_size: 2, shuffle: true, seed: 42)
+print("每个 batch 输出:")
+for batch in loader {
+    print("  features=" + batch["features"] + "  labels=" + batch["labels"])
+}

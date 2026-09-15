@@ -1,0 +1,11 @@
+[project]
+name = "aurora-mini-browser"
+version = "1.0.0"
+description = "Aurora v3.1.0 简单浏览器示例（地址栏 + WebView + 导航）"
+author = "Aurora Team"
+
+[build]
+entry = "mini_browser.aur"
+
+[dependencies]
+# "webview" = "^0.1.0"

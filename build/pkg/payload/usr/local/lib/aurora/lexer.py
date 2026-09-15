@@ -27,7 +27,16 @@ class Lexer:
                 break
                 
             char = self.source[self.pos]
-            
+
+            # 属性前缀 #[...]：v3.1.0 条件编译/属性语法
+            if char == '#' and self.pos + 1 < len(self.source) \
+                    and self.source[self.pos + 1] == '[':
+                self.tokens.append(Token(TokenType.POUND, '#', self.line, self.column))
+                self._advance()
+                self.tokens.append(Token(TokenType.LBRACKET, '[', self.line, self.column))
+                self._advance()
+                continue
+
             # 注释
             if char == '#':
                 self._skip_comment()
@@ -173,6 +182,15 @@ class Lexer:
         """读取运算符和分隔符"""
         char = self.source[self.pos]
         next_char = self.source[self.pos + 1] if self.pos + 1 < len(self.source) else ''
+        next_next_char = self.source[self.pos + 2] if self.pos + 2 < len(self.source) else ''
+
+        # 三字符运算符
+        if char == '.' and next_char == '.' and next_next_char == '.':
+            self.tokens.append(Token(TokenType.VARIADIC, '...', self.line, self.column))
+            self._advance()
+            self._advance()
+            self._advance()
+            return
         
         # 双字符运算符
         two_char = char + next_char

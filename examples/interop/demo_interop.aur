@@ -1,0 +1,62 @@
+# demo_interop.aur — 统一多语言互操作层
+# 一个 API 调用所有支持的语言
+import std.interop
+import std.json
+
+println("=== 统一多语言互操作层 ===")
+
+# 1. 列出所有支持的语言
+println("\n--- 支持的语言 ---")
+let langs = std.interop.languages()
+println("支持 " + str(langs.len()) + " 种语言:")
+for lang in langs {
+    println("  - " + lang)
+}
+
+# 2. 查看各语言桥状态
+println("\n--- 语言桥状态 ---")
+let status = std.interop.status()
+for lang in langs {
+    println("  " + lang + ": " + str(status[lang]))
+}
+
+# 3. 统一求值:不同语言同一 API
+println("\n--- interop.eval ---")
+# Python(直连)
+println("python: 1 + 2 * 3 = " + str(std.interop.eval("python", "1 + 2 * 3")))
+# JavaScript(Node.js 子进程)
+if std.interop.status()["js"] {
+    println("js: 1 + 2 * 3 = " + str(std.interop.eval("js", "1 + 2 * 3")))
+    println("js: [1,2,3].reduce((a,b)=>a+b) = " + str(std.interop.eval("js", "[1,2,3].reduce((a,b)=>a+b)")))
+}
+# Java(jshell 子进程)
+if std.interop.status()["java"] {
+    println("java: 1 + 2 * 3 = " + str(std.interop.eval("java", "1 + 2 * 3")))
+}
+
+# 4. 统一调用
+println("\n--- interop.call ---")
+# Python 函数调用
+println("python call: math.sqrt(81) = " + str(std.interop.call("python", "__import__('math').sqrt(81)")))
+# JS 全局函数
+if std.interop.status()["js"] {
+    println("js call: parseInt('42') = " + str(std.interop.call("js", "parseInt", "42")))
+    println("js call: Math.max(3, 7, 2) = " + str(std.interop.call("js", "Math.max", 3, 7, 2)))
+}
+
+# 5. 统一导入
+println("\n--- interop.import ---")
+let py_math = std.interop.import("python", "math")
+println("python import math: sqrt(144) = " + str(py_math.sqrt(144)))
+if std.interop.status()["js"] {
+    let js_os = std.interop.import("js", "os")
+    println("js import os: platform = " + str(js_os["platform"]))
+}
+
+# 6. FFI 语言(C/Rust/Go/C++)通过共享库调用
+println("\n--- FFI 语言(C/Rust/Go/C++) ---")
+println("用法: interop.call('rust', 'libmath.dylib:add', 3, 4, arg_types=['i32','i32'], ret_type='i32')")
+println("用法: interop.call('c', 'libc.dylib:abs', -42, arg_types=['i32'], ret_type='i32')")
+println("这些语言通过 C ABI 共享库桥接,需要先编译出 .dylib/.so/.dll")
+
+println("\n=== 互操作层演示完成 ===")

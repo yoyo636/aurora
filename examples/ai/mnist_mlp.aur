@@ -1,0 +1,94 @@
+// ============================================================
+// Aurora v3.0.0 AI 示例 2:MNIST 手写数字识别(2 层 MLP)
+// 展示 AuroraNN 构建、训练、保存神经网络的完整流程
+//
+// 注意:这里用 Tensor.randn 生成随机模拟数据来演示训练循环。
+//       实际使用 MNIST 时,把 load_data() 替换为
+//       data.DataFrame.read_csv("mnist.csv") 即可,其它代码不变。
+// ============================================================
+
+import std.tensor
+import std.autograd
+import std.nn
+
+// --- 1. 构建模型:784 -> 128 -> 64 -> 10 ---
+let model = nn.Sequential(
+    nn.Linear(784, 128),
+    nn.ReLU(),
+    nn.Linear(128, 64),
+    nn.ReLU(),
+    nn.Linear(64, 10)
+)
+
+// --- 2. 损失函数与优化器 ---
+let loss_fn = nn.CrossEntropyLoss()
+let opt = autograd.Adam(model.parameters(), lr: 0.001)
+
+// --- 3. 模拟数据 ---
+// 实际使用时替换为:
+//   let df = data.DataFrame.read_csv("mnist_train.csv")
+//   let X = tensor.Tensor(df["pixels"].tolist())
+//   let y = df["label"].tolist()
+// 这里用随机张量模拟 batch:
+let batch_size = 32
+let num_batches = 20
+
+// 构造一组模拟 batch(随机像素 + 随机标签 0-9)
+var all_x = tensor.Tensor.randn([batch_size * num_batches, 784])
+var all_y = []
+for i in 0..batch_size * num_batches - 1 {
+    all_y.push(i % 10)            // 简单循环分配标签 0..9
+}
+
+// --- 4. 训练循环 ---
+let epochs = 5
+for epoch in 1..epochs {
+    var total_loss = 0.0
+    var correct = 0
+    var total = 0
+
+    for b in 0..num_batches - 1 {
+        // 取出一个 batch
+        let start = b * batch_size
+        let end = start + batch_size
+        let xb = autograd.Variable(all_x[start:end])
+        let yb = all_y[start:end]
+
+        // 前向
+        let logits = model(xb)
+        let loss = loss_fn(logits, yb)
+
+        // 反向 + 更新
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+
+        // 统计
+        total_loss = total_loss + loss.item()
+        // 预测类别 = logits 每行最大值的下标
+        let pred = logits.data.max(axis: 1)
+        for i in 0..batch_size - 1 {
+            if pred.tolist()[i] == yb[i] {
+                correct = correct + 1
+            }
+        }
+        total = total + batch_size
+    }
+
+    let acc = correct * 100.0 / total
+    print("epoch " + epoch + "  avg_loss=" + total_loss / num_batches
+          + "  acc=" + acc + "%")
+}
+
+// --- 5. 保存模型 ---
+let saved = model.save("mnist_model.aur")
+print("模型已保存到 " + saved)
+
+// --- 6. 演示加载 ---
+// let model2 = nn.Sequential(
+//     nn.Linear(784, 128), nn.ReLU(),
+//     nn.Linear(128, 64),  nn.ReLU(),
+//     nn.Linear(64, 10)
+// )
+// model2.load("mnist_model.aur")
+// print(model2(autograd.Variable(tensor.Tensor.randn([1, 784]))).tolist())

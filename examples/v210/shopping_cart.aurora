@@ -1,0 +1,131 @@
+# Aurora v2.1.0 综合示例 — 电商购物车
+# 展示泛型、模式匹配、解构、推导式、管道、可选类型、struct 的组合使用
+
+# === 数据模型 ===
+struct Product {
+    id: int
+    name: str
+    price: float
+    category: str = "general"
+    tags: [] = []
+}
+
+enum Discount {
+    Percent(rate: float)
+    Fixed(amount: float)
+    BuyOneGetOne()
+    NoDiscount()
+}
+
+struct CartItem {
+    product: Product
+    quantity: int = 1
+}
+
+struct User {
+    name: str
+    email: str?
+    premium: bool = false
+}
+
+# === 泛型函数 ===
+fn total_price<T>(items, price_fn) {
+    var total = 0.0
+    for item in items {
+        total = total + price_fn(item)
+    }
+    total
+}
+
+# === 模式匹配计算折扣 ===
+fn apply_discount(price, discount) {
+    match discount {
+        Percent(rate) => price * (1.0 - rate),
+        Fixed(amount) => price - amount,
+        BuyOneGetOne() => price * 0.5,
+        NoDiscount() => price
+    }
+}
+
+# === 管道 + 推导式 + lambda ===
+fn expensive_names(items, threshold) {
+    items
+        |> filter_items(fn item => item.product.price > threshold)
+        |> extract_names()
+}
+
+fn filter_items(pred, items) {
+    [item for item in items if pred(item)]
+}
+
+fn extract_names(items) {
+    [item.product.name for item in items]
+}
+
+# === 可选类型 + 空安全 ===
+fn get_email(user) {
+    user?.email ?? "no-email@example.com"
+}
+
+# === 解构 + 元组 ===
+fn summarize_cart(items) {
+    var total_qty = 0
+    var total_cost = 0.0
+    for item in items {
+        let (q, p) = (item.quantity, item.product.price)
+        total_qty = total_qty + q
+        total_cost = total_cost + q * p
+    }
+    (total_qty, total_cost)
+}
+
+# === 主程序 ===
+fn main() {
+    # 创建商品
+    let products = [
+        Product { id: 1, name: "Laptop", price: 999.0, category: "electronics" },
+        Product { id: 2, name: "Mouse", price: 29.0, category: "electronics" },
+        Product { id: 3, name: "Book", price: 15.0, category: "books" },
+        Product { id: 4, name: "Freebie", price: 0.0 }
+    ]
+
+    # 购物车
+    let cart = [
+        CartItem { product: products[0], quantity: 1 },
+        CartItem { product: products[1], quantity: 2 },
+        CartItem { product: products[2], quantity: 3 }
+    ]
+
+    # 解构返回值
+    let (qty, cost) = summarize_cart(cart)
+    println("数量: " + qty)       # 6
+    println("总价: " + cost)      # 1102.0
+
+    # 管道 + 推导式
+    let expensive = expensive_names(cart, 50.0)
+    println("高价商品: " + expensive)  # ["Laptop"]
+
+    # 模式匹配折扣
+    let discounted = apply_discount(100.0, Discount.Percent(rate: 0.2))
+    println("折扣后: " + discounted)   # 80.0
+
+    # 可选类型
+    let user1 = User { name: "Alice", email: "alice@example.com" }
+    let user2 = User { name: "Bob", email: nil }
+    println(get_email(user1))  # alice@example.com
+    println(get_email(user2))  # no-email@example.com
+
+    # 列表推导式
+    let names = [p.name for p in products if p.price > 10.0]
+    println("价格>10的商品: " + names)  # ["Laptop", "Mouse", "Book"]
+
+    # 可变参数
+    fn print_all(...items) {
+        for item in items {
+            println(item)
+        }
+    }
+    print_all("Aurora", "v2.1.0", "rocks!")
+}
+
+main()

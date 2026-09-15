@@ -32,6 +32,7 @@ class TokenType(Enum):
     CONTINUE = auto()
     MATCH = auto()
     TYPE = auto()
+    STRUCT = auto()    # struct (type 别名)
     ENUM = auto()
     TRAIT = auto()
     IMPL = auto()
@@ -48,6 +49,11 @@ class TokenType(Enum):
     ASSERT = auto()
     DEFER = auto()
     YIELD = auto()
+    # ── v3.1.0 语言级增强 ──
+    EXTERN = auto()    # extern "C" { ... } 外部函数声明
+    UNSAFE = auto()    # unsafe { ... } / unsafe fn
+    ASYNC = auto()     # async fn
+    AWAIT = auto()     # await expr
     AS = auto()        # as (import 别名)
     PERF = auto()      # @perf 性能注解
     
@@ -90,6 +96,7 @@ class TokenType(Enum):
     CHANNEL_SEND = auto()  # <-
     PIPE_OP = auto()   # |> (管道)
     RANGE = auto()     # .. (区间)
+    VARIADIC = auto()  # ... (可变参数)
     
     # 引用
     AMP = auto()       # &
@@ -118,6 +125,7 @@ class TokenType(Enum):
     EOF = auto()
     COMMENT = auto()
     AT = auto()        # @ (性能注解前缀)
+    POUND = auto()     # # (属性前缀 #[...])
 
 
 @dataclass
@@ -147,6 +155,7 @@ KEYWORDS = {
     'continue': TokenType.CONTINUE,
     'match': TokenType.MATCH,
     'type': TokenType.TYPE,
+    'struct': TokenType.STRUCT,
     'enum': TokenType.ENUM,
     'trait': TokenType.TRAIT,
     'impl': TokenType.IMPL,
@@ -163,6 +172,10 @@ KEYWORDS = {
     'assert': TokenType.ASSERT,
     'defer': TokenType.DEFER,
     'yield': TokenType.YIELD,
+    'extern': TokenType.EXTERN,
+    'unsafe': TokenType.UNSAFE,
+    'async': TokenType.ASYNC,
+    'await': TokenType.AWAIT,
     'as': TokenType.AS,
     'perf': TokenType.PERF,
     'true': TokenType.BOOLEAN,

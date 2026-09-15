@@ -25,6 +25,9 @@ def _register_toolchain(subparsers):
     debugger.register_cli(subparsers)
     lsp.register_cli(subparsers)
     pkg.register_cli(subparsers)
+    # v3.0.0 AI 引擎：ai train/infer、serve、kernel [install]
+    from aurora.ai import kernel as _aurora_kernel
+    _aurora_kernel.register_cli(subparsers)
 
 def cmd_run(args):
     """运行 .aur 文件"""
@@ -57,6 +60,109 @@ def cmd_run(args):
 def cmd_eval(args):
     """执行一行代码"""
     _compile_and_run(args.code, args)
+
+def cmd_interop(args):
+    """多语言互操作工具:列出语言桥 / 测试连接"""
+    from aurora.stdlib import AuroraInterop, AuroraJS, AuroraJava
+    if args.test or args.lang:
+        langs = [args.lang] if args.lang else AuroraInterop.languages()
+        for lang in langs:
+            try:
+                if lang == 'python':
+                    result = AuroraInterop.eval('python', '1 + 1')
+                    status = 'OK' if result == 2 else 'FAIL'
+                elif lang == 'js':
+                    if not AuroraJS.available():
+                        status = 'SKIP (node not found)'
+                    else:
+                        result = AuroraJS.eval('1 + 1')
+                        status = 'OK' if result == 2 else 'FAIL'
+                elif lang == 'java':
+                    if not AuroraJava.available():
+                        status = 'SKIP (java not found)'
+                    else:
+                        result = AuroraJava.eval('1 + 1')
+                        status = 'OK' if result == 2 else 'FAIL'
+                elif lang in ('c', 'cpp', 'rust', 'go'):
+                    status = 'FFI (requires shared library)'
+                else:
+                    status = 'UNKNOWN'
+            except Exception as e:
+                status = f'ERROR: {e}'
+            print(f'  {lang:10s} {status}')
+    else:
+        status = AuroraInterop.status()
+        print('Aurora 多语言互操作层 — 可用语言桥:')
+        print(f'{"语言":10s} {"调用方式":20s} {"状态"}')
+        print('-' * 50)
+        methods = {
+            'python': '直连 (AuroraPython)',
+            'js': 'Node.js 子进程',
+            'java': 'java/jshell 子进程',
+            'c': 'FFI (C ABI)',
+            'cpp': 'FFI (C ABI)',
+            'rust': 'FFI (C ABI)',
+            'go': 'FFI (cgo C ABI)',
+        }
+        for lang in AuroraInterop.languages():
+            st = status.get(lang, 'unknown')
+            print(f'{lang:10s} {methods.get(lang, ""):20s} {st}')
+
+def cmd_gen_bindings(args):
+    """为 Rust/C++/Go 生成 FFI 绑定模板"""
+    from aurora.stdlib import AuroraFFI
+    import json
+    lang = args.lang.lower()
+    if lang not in ('rust', 'cpp', 'go'):
+        print(f'错误: 不支持的语言 {lang},可用 rust / cpp / go')
+        sys.exit(1)
+    if args.functions:
+        try:
+            functions = json.loads(args.functions)
+        except json.JSONDecodeError as e:
+            print(f'错误: 函数签名 JSON 解析失败: {e}')
+            sys.exit(1)
+    else:
+        functions = [
+            {"name": "add", "args": ["i32", "i32"], "ret": "i32"},
+            {"name": "multiply", "args": ["f64", "f64"], "ret": "f64"},
+            {"name": "greet", "args": ["str"], "ret": "str"},
+        ]
+    code = AuroraFFI.gen_bindings(lang, functions)
+    if args.output:
+        with open(args.output, 'w', encoding='utf-8') as f:
+            f.write(code)
+        print(f'绑定代码已写入: {args.output}')
+    else:
+        print(code)
+
+def cmd_wasm(args):
+    """WASM 操作:列出导出函数 / 调用导出函数"""
+    from aurora.stdlib import AuroraWASM
+    import json
+    if not AuroraWASM.available():
+        print('错误: Node.js 不可用,WASM 功能需要 Node.js 环境')
+        sys.exit(1)
+    path = args.file
+    if not os.path.exists(path):
+        print(f'错误: 文件不存在 {path}')
+        sys.exit(1)
+    if args.call:
+        try:
+            wasm_args = json.loads(args.args) if args.args else []
+        except json.JSONDecodeError:
+            print('错误: --args 必须是 JSON 数组')
+            sys.exit(1)
+        module = AuroraWASM.load(path)
+        result = AuroraWASM.call(module, args.call, *wasm_args)
+        print(f'{args.call}({", ".join(map(str, wasm_args))}) = {result}')
+    else:
+        info = AuroraWASM.load(path)
+        exports = info.get('exports', {})
+        print(f'WASM 模块: {path}')
+        print(f'导出函数 ({len(exports)} 个):')
+        for name, typ in exports.items():
+            print(f'  {name}: {typ}')
 
 def parse_toml(path: str) -> dict:
     """解析 TOML 子集([section] 与 key = value)"""
@@ -763,6 +869,29 @@ def main():
     p_watch.add_argument('file', nargs='?', default=None, help='入口 .aur 文件(默认读 aurora.toml)')
     p_watch.add_argument('-i', '--interval', type=float, default=0.5, help='检查间隔秒数(默认 0.5)')
     p_watch.set_defaults(func=cmd_watch)
+
+    # interop
+    p_interop = subparsers.add_parser('interop', help='多语言互操作工具（列出语言桥/测试连接）')
+    p_interop.add_argument('--list', action='store_true', help='列出所有可用语言桥')
+    p_interop.add_argument('--test', action='store_true', help='测试所有语言桥连接')
+    p_interop.add_argument('--lang', type=str, default=None, help='仅测试指定语言')
+    p_interop.set_defaults(func=cmd_interop)
+
+    # gen-bindings
+    p_gen = subparsers.add_parser('gen-bindings', help='为 Rust/C++/Go 生成 FFI 绑定模板')
+    p_gen.add_argument('lang', help='目标语言: rust / cpp / go')
+    p_gen.add_argument('-f', '--functions', type=str, default=None, help='函数签名 JSON 数组')
+    p_gen.add_argument('-o', '--output', type=str, default=None, help='输出文件路径')
+    p_gen.add_argument('--lib', type=str, default='aurora_ffi', help='库名')
+    p_gen.set_defaults(func=cmd_gen_bindings)
+
+    # wasm
+    p_wasm = subparsers.add_parser('wasm', help='WebAssembly 操作（列出导出/调用函数）')
+    p_wasm.add_argument('file', help='.wasm 文件路径')
+    p_wasm.add_argument('--exports', action='store_true', help='列出导出函数（默认）')
+    p_wasm.add_argument('--call', type=str, default=None, help='调用指定导出函数')
+    p_wasm.add_argument('--args', type=str, default=None, help='调用参数 JSON 数组')
+    p_wasm.set_defaults(func=cmd_wasm)
 
     # P2 工具链 + P3 生态命令（fmt/profile/debug/lsp/pkg）
     _register_toolchain(subparsers)

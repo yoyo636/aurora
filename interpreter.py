@@ -34,6 +34,152 @@ class ResultPropagateSignal(Exception):
         self.result = result
 
 
+# ── v3.1.0 — unsafe / async / extern / cfg 运行时支持 ──────
+
+class Memory:
+    """模拟堆内存：用整数地址表示指针，供 unsafe 块内原始指针读写。"""
+
+    def __init__(self):
+        self._cells: Dict[int, Any] = {}
+        self._next: int = 0x1000
+
+    def allocate(self, value=None) -> int:
+        addr = self._next
+        self._next += 8
+        self._cells[addr] = value
+        return addr
+
+    def write(self, addr: int, value):
+        self._cells[int(addr)] = value
+
+    def read(self, addr: int):
+        a = int(addr)
+        if a not in self._cells:
+            raise AuroraError("NullPointerError",
+                              f"对未分配地址 0x{a:x} 解引用")
+        return self._cells[a]
+
+
+class Coroutine:
+    """async fn 返回的协程对象（简化模型：包裹一个惰性执行体）。"""
+
+    def __init__(self, name: str, thunk):
+        self._name = name
+        self._thunk = thunk
+        self._done = False
+        self._result = None
+
+    def run(self):
+        if self._done:
+            return self._result
+        self._result = self._thunk()
+        self._done = True
+        return self._result
+
+    def __repr__(self):
+        return f"<Coroutine {self._name}{' (done)' if self._done else ''}>"
+
+
+class AuroraEventLoop:
+    """简化事件循环：run / gather / sleep。"""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def run(self, coro: Coroutine):
+        return coro.run()
+
+    def gather(self, *coros):
+        return [c.run() for c in coros]
+
+    def sleep(self, seconds: float):
+        import time as _t
+        _t.sleep(max(0.0, float(seconds)))
+        return None
+
+
+class InterpCfgEvaluator:
+    """解释器内的 #[cfg(...)] 条件编译评估器。
+
+    上下文来自 sys.platform / platform.machine() 与环境变量 AURORA_FEATURES。
+    支持 target_os / target_arch / feature 谓词与 not/and/or 逻辑组合。
+    """
+
+    def __init__(self, context: Optional[Dict[str, Any]] = None):
+        import platform
+        ctx = dict(context or {})
+        ctx.setdefault('target_os', platform.system().lower())
+        ctx.setdefault('target_arch', platform.machine().lower())
+        feat_env = os.environ.get('AURORA_FEATURES', '')
+        features = set(ctx.get('features', set()))
+        features.update(f.strip() for f in feat_env.split(',') if f.strip())
+        ctx['features'] = features
+        self.context = ctx
+
+    def evaluate_attributes(self, attributes) -> bool:
+        """给定 Attribute 列表；所有 cfg 属性都必须满足才放行。"""
+        for attr in (attributes or []):
+            if getattr(attr, 'name', '') != 'cfg':
+                continue
+            if not self.evaluate(attr.raw):
+                return False
+        return True
+
+    def evaluate(self, expr: str) -> bool:
+        import re as _re
+        expr = (expr or '').strip()
+        if not expr:
+            return True
+        tokens = _re.findall(r'\(|\)|[A-Za-z_][A-Za-z0-9_]*|"[^"]*"|=|,', expr)
+        tokens = [t for t in tokens if t.strip()]
+
+        def _os_match(ctx_os, literal):
+            # darwin / macos 视为同一系统
+            aliases = {('darwin', 'macos'), ('macos', 'darwin')}
+            return ctx_os == literal or (ctx_os, literal) in aliases
+
+        def parse(i):
+            tok = tokens[i]
+            if tok == 'not':
+                assert tokens[i + 1] == '('
+                v, j = parse(i + 2)
+                assert tokens[j] == ')'
+                return (not v), j + 1
+            if tok in ('and', 'or'):
+                assert tokens[i + 1] == '('
+                op = tok
+                j = i + 2
+                vals = []
+                while tokens[j] != ')':
+                    v, j = parse(j)
+                    vals.append(v)
+                    if tokens[j] == ',':
+                        j += 1
+                acc = vals[0]
+                for v in vals[1:]:
+                    acc = (acc and v) if op == 'and' else (acc or v)
+                return acc, j + 1
+            if tok == '(':
+                v, j = parse(i + 1)
+                assert tokens[j] == ')'
+                return v, j + 1
+            # 谓词: name = "value"
+            assert tokens[i + 1] == '=', f"cfg 谓词需要 = \"...\": {tok}"
+            literal = tokens[i + 2].strip('"')
+            if tok == 'feature':
+                return (literal in self.context.get('features', set())), i + 3
+            if tok == 'target_os':
+                return _os_match(self.context.get(tok), literal), i + 3
+            return (self.context.get(tok) == literal), i + 3
+
+        try:
+            val, j = parse(0)
+        except (AssertionError, IndexError):
+            # 无法解析的 cfg 表达式保守放行（与构建引擎严格报错区分）
+            return True
+        return bool(val)
+
+
 # ── 环境 ────────────────────────────────────────────────
 
 class Environment:
@@ -95,7 +241,16 @@ class Interpreter:
         self._perf_trace: Dict[str, dict] = {}
         # 标记：当前是否处于 `?` 操作数求值中（期间禁止自动解包 Result 返回值）
         self._no_unwrap: bool = False
+        # ── v3.1.0 运行时状态 ──
+        self._unsafe_depth: int = 0                 # unsafe 块嵌套深度
+        self._memory = Memory()                      # 模拟堆（原始指针）
+        self._cfg = InterpCfgEvaluator()             # #[cfg(...)] 评估器
+        self.export_table: Dict[str, bool] = {}     # 符号名 -> 是否 pub（模块导出表）
+        self.extern_registry: Dict[str, Any] = {}   # extern 函数名 -> 可调用对象/占位
+        self.event_loop = AuroraEventLoop()
         self._load_builtins()
+        # v3.1.0: 暴露内置单例
+        self.global_env.define('event_loop', self.event_loop)
 
     # ── 加载内建 ──────────────────────────────────────
 
@@ -181,13 +336,46 @@ class Interpreter:
         return result
 
     def _exec_stmt(self, stmt: Stmt, env: Environment) -> Any:
+        # ── v3.1.0: #[cfg(...)] 条件编译守卫 ──
+        _attrs = getattr(stmt, 'attributes', None)
+        if _attrs and not self._cfg.evaluate_attributes(_attrs):
+            return None
+
+        # ── v3.1.0: unsafe 块 / extern 块 ──
+        if isinstance(stmt, UnsafeBlock):
+            self._unsafe_depth += 1
+            try:
+                child = env.child()
+                return self._exec_stmts(stmt.body.statements, child)
+            finally:
+                self._unsafe_depth -= 1
+
+        if isinstance(stmt, ExternBlock):
+            for decl in stmt.declarations:
+                placeholder = self._make_extern_placeholder(decl)
+                self.extern_registry[decl.name] = placeholder
+                # 同时定义到当前环境,使调用点可解析到占位函数
+                env.define(decl.name, placeholder)
+            return None
+
         if isinstance(stmt, LetStmt):
             val = self._eval(stmt.initializer, env) if stmt.initializer else None
             env.define(stmt.name, val, mutable=stmt.mutable)
+            self.export_table[stmt.name] = getattr(stmt, 'is_pub', False)
             return val
 
         if isinstance(stmt, DestructureLet):
             val = self._eval(stmt.initializer, env)
+            # 嵌套模式解构：let (x, (y, z)) = (1, (2, 3))
+            if stmt.pattern is not None and isinstance(val, (tuple, list)):
+                bindings = self._match_pattern(stmt.pattern, val)
+                if bindings is None:
+                    raise AuroraError(
+                        "ValueError",
+                        f"解构模式与值不匹配: 期望 {type(val).__name__} 结构")
+                for name, v in bindings.items():
+                    env.define(name, v, mutable=stmt.mutable)
+                return val
             if isinstance(val, (tuple, list)):
                 if len(val) < len(stmt.names):
                     raise AuroraError(
@@ -210,10 +398,23 @@ class Interpreter:
         if isinstance(stmt, ConstStmt):
             val = self._eval(stmt.initializer, env)
             env.define(stmt.name, val)
+            self.export_table[stmt.name] = getattr(stmt, 'is_pub', False)
             return val
 
         if isinstance(stmt, AssignStmt):
             val = self._eval(stmt.value, env)
+            if isinstance(stmt.target, DerefExpr):
+                # v3.1.0: *ptr = value —— 原始指针写（需在 unsafe 上下文中）
+                addr = self._eval(stmt.target.inner, env)
+                if not isinstance(addr, int):
+                    raise AuroraError(
+                        "TypeError", "指针赋值的右值必须是地址（整数）")
+                if self._unsafe_depth <= 0:
+                    raise AuroraError(
+                        "UnsafeError",
+                        "在 safe 上下文中通过指针写内存，需 unsafe 块")
+                self._memory.write(addr, val)
+                return val
             if isinstance(stmt.target, Identifier):
                 if stmt.op != "=":
                     cur = env.get(stmt.target.name)
@@ -229,6 +430,30 @@ class Interpreter:
                 obj = self._eval(stmt.target.object, env)
                 idx = self._eval(stmt.target.index, env)
                 obj[idx] = val
+            elif isinstance(stmt.target, TupleLiteral):
+                # 元组交换赋值：a, b = b, a
+                rhs_vals = list(val) if isinstance(val, (tuple, list)) else [val]
+                targets = stmt.target.elements
+                if len(rhs_vals) != len(targets):
+                    raise AuroraError(
+                        "ValueError",
+                        f"元组赋值需要 {len(targets)} 个值,实际 {len(rhs_vals)} 个")
+                for tgt, v in zip(targets, rhs_vals):
+                    if isinstance(tgt, Identifier):
+                        env.set(tgt.name, v)
+                    elif isinstance(tgt, MemberAccess):
+                        obj = self._eval(tgt.object, env)
+                        if isinstance(obj, dict):
+                            obj[tgt.member] = v
+                        else:
+                            setattr(obj, tgt.member, v)
+                    elif isinstance(tgt, IndexAccess):
+                        obj = self._eval(tgt.object, env)
+                        idx = self._eval(tgt.index, env)
+                        obj[idx] = v
+                    else:
+                        raise AuroraError(
+                            "SyntaxError", "元组赋值的目标必须是标识符/字段/索引")
             return val
 
         if isinstance(stmt, ReturnStmt):
@@ -290,7 +515,9 @@ class Interpreter:
         if isinstance(stmt, FnDef):
             # 函数级增量编译缓存：计算内容哈希并尝试复用编译产物
             self._register_function_cache(stmt)
-            env.define(stmt.name, self._make_function(stmt, env))
+            fn_val = self._make_function(stmt, env)
+            self.export_table[stmt.name] = getattr(stmt, 'is_pub', False)
+            env.define(stmt.name, fn_val)
             return None
 
         if isinstance(stmt, TypeDef):
@@ -572,11 +799,14 @@ class Interpreter:
         finally:
             self._file_stack.pop()
 
-        # 收集模块级定义(函数、变量、类型等)作为导出
+        # 收集模块级定义作为导出（v3.1.0: 仅 pub 符号；下划线开头仍为私有）
         module = {}
         for name, value in mod_env.bindings.items():
             if name.startswith('_'):
                 continue  # 下划线开头为模块私有
+            # 模块导出表：只包含 pub 符号（无记录的符号默认私有）
+            if not self.export_table.get(name, False):
+                continue
             module[name] = value
 
         self._module_cache[abs_path] = module
@@ -661,6 +891,60 @@ class Interpreter:
 
         if isinstance(expr, TupleLiteral):
             return tuple(self._eval(e, env) for e in expr.elements)
+
+        if isinstance(expr, TupleIndex):
+            # 元组索引：tup.0 → 第 0 个元素
+            obj = self._eval(expr.object, env)
+            try:
+                return obj[expr.index]
+            except (IndexError, KeyError, TypeError):
+                raise AuroraError("IndexError", f"元组索引越界: .{expr.index}")
+
+        if isinstance(expr, ForcedUnwrap):
+            # 强制解包：a!（a 为 nil 时 panic）
+            val = self._eval(expr.operand, env)
+            if val is None:
+                raise AuroraError("ValueError", "强制解包 nil 值")
+            return val
+
+        if isinstance(expr, StructLiteral):
+            # 结构体字面量：User { name: "Alice", age: 30 }
+            ctor = env.get(expr.type_name)
+            if not callable(ctor):
+                raise AuroraError("NameError", f"未定义的类型 '{expr.type_name}'")
+            named = {fname: self._eval(fval, env) for fname, fval in expr.fields}
+            try:
+                return ctor(**named)
+            except AuroraError:
+                raise
+            except TypeError as e:
+                raise AuroraError("TypeError", str(e))
+
+        if isinstance(expr, ListComp):
+            # 列表推导式：[x * 2 for x in arr if x > 0]
+            results = []
+            self._run_comprehension(
+                expr.generators, expr.conditions, env,
+                lambda e: results.append(self._eval(expr.expr, e)))
+            return results
+
+        if isinstance(expr, SetComp):
+            # 集合推导式：{x % 3 for x in arr}
+            results = set()
+            self._run_comprehension(
+                expr.generators, expr.conditions, env,
+                lambda e: results.add(self._eval(expr.expr, e)))
+            return results
+
+        if isinstance(expr, MapComp):
+            # Map 推导式：{k: v for k, v in pairs}
+            results = {}
+            self._run_comprehension(
+                expr.generators, expr.conditions, env,
+                lambda e: results.__setitem__(
+                    self._eval(expr.key_expr, e),
+                    self._eval(expr.value_expr, e)))
+            return results
 
         if isinstance(expr, BinaryOp):
             left = self._eval(expr.left, env)
@@ -891,12 +1175,30 @@ class Interpreter:
                 return val.unwrap()
             return val
 
+        if isinstance(expr, AwaitExpr):
+            # v3.1.0: await coro —— 驱动协程完成并取结果
+            value = self._eval(expr.expression, env)
+            if isinstance(value, Coroutine):
+                return value.run()
+            return value
+
         if isinstance(expr, RefExpr):
+            inner = self._eval(expr.inner, env)
+            # v3.1.0: unsafe 块内对整数值取地址 → 模拟堆地址
+            if self._unsafe_depth > 0 and isinstance(inner, int):
+                return self._memory.allocate(inner)
             # Python 没有真正的引用语义，这里简化处理
-            return self._eval(expr.inner, env)
+            return inner
 
         if isinstance(expr, DerefExpr):
             val = self._eval(expr.inner, env)
+            # v3.1.0: 整数视为原始指针地址，解引用需在 unsafe 上下文中
+            if isinstance(val, int):
+                if self._unsafe_depth <= 0:
+                    raise AuroraError(
+                        "UnsafeError",
+                        "在 safe 上下文中对原始指针解引用，需 unsafe 块或 unsafe fn")
+                return self._memory.read(val)
             return val
 
         if isinstance(expr, StringInterpolation):
@@ -945,6 +1247,23 @@ class Interpreter:
         if isinstance(val, (list, dict, tuple)):
             return len(val) > 0
         return bool(val)
+
+    def _run_comprehension(self, generators: List[CompFor],
+                           conditions: List[Expr],
+                           env: Environment, leaf_cb) -> None:
+        """递归执行推导式：嵌套 for 循环 + 末端 if 过滤，每个命中调用 leaf_cb(子环境)"""
+        if not generators:
+            for cond in conditions:
+                if not self._truthy(self._eval(cond, env)):
+                    return
+            leaf_cb(env)
+            return
+        gen = generators[0]
+        iterable = self._eval(gen.iterable, env)
+        for item in iterable:
+            child = env.child()
+            child.define(gen.target, item)
+            self._run_comprehension(generators[1:], conditions, child, leaf_cb)
 
     def _interpolate_string(self, s: str, env: Environment) -> str:
         """字符串插值：将 {expr} 求值替换
@@ -1060,15 +1379,26 @@ class Interpreter:
                 fn_env.define('self', args[0])
                 args = args[1:]
 
-            # 绑定位置参数
-            for i, arg in enumerate(args):
-                if i < len(fn_def.params):
-                    fn_env.define(fn_def.params[i].name, arg)
-                else:
-                    raise AuroraError(
-                        "TypeError",
-                        f"函数 '{fn_def.name}' 收到 {len(args)} 个位置参数，"
-                        f"但最多接受 {len(fn_def.params)} 个")
+            # 绑定位置参数（支持可变参数 ...nums 收集多余位置参数为 list）
+            variadic_idx = next(
+                (i for i, p in enumerate(fn_def.params) if p.variadic), None)
+            if variadic_idx is not None:
+                fixed_params = fn_def.params[:variadic_idx]
+                variadic_p = fn_def.params[variadic_idx]
+                n_fixed = len(fixed_params)
+                for i in range(min(len(args), n_fixed)):
+                    fn_env.define(fixed_params[i].name, args[i])
+                # 多余位置参数收集为 list 传入可变参数
+                fn_env.define(variadic_p.name, list(args[n_fixed:]))
+            else:
+                for i, arg in enumerate(args):
+                    if i < len(fn_def.params):
+                        fn_env.define(fn_def.params[i].name, arg)
+                    else:
+                        raise AuroraError(
+                            "TypeError",
+                            f"函数 '{fn_def.name}' 收到 {len(args)} 个位置参数，"
+                            f"但最多接受 {len(fn_def.params)} 个")
 
             # 绑定命名参数
             for name, val in kwargs.items():
@@ -1104,6 +1434,10 @@ class Interpreter:
                 # `?` 遇到 Err：直接从当前函数返回该 Err（传播错误）
                 self._run_defers(fn_env)
                 return s.result
+            except AuroraError:
+                # v3.1.0: panic / 异常时也执行 defer（LIFO），再向外传播
+                self._run_defers(fn_env)
+                raise
 
             self._run_defers(fn_env)
             yields = getattr(fn_env, "_yield_values", None)
@@ -1130,7 +1464,57 @@ class Interpreter:
         aurora_fn._ast = fn_def
         aurora_fn._aurora = True
         aurora_fn._aurora_result_return = returns_result
+
+        # ── v3.1.0: unsafe fn —— safe 上下文调用时报错 ──
+        if fn_def.is_unsafe:
+            unsafe_target = aurora_fn
+
+            def guarded_unsafe(*a, **kw):
+                if self._unsafe_depth <= 0:
+                    raise AuroraError(
+                        "UnsafeError",
+                        f"调用 unsafe 函数 '{fn_def.name}' 需要 unsafe 块")
+                return unsafe_target(*a, **kw)
+            guarded_unsafe.__name__ = fn_def.name
+            guarded_unsafe._aurora = True
+            aurora_fn = guarded_unsafe
+
+        # ── v3.1.0: async fn —— 调用返回 Coroutine ──
+        if fn_def.is_async:
+            async_target = aurora_fn
+
+            def coro_factory(*a, **kw):
+                captured_args = a
+                captured_kw = kw
+
+                def thunk():
+                    return async_target(*captured_args, **captured_kw)
+                return Coroutine(fn_def.name, thunk)
+            coro_factory.__name__ = fn_def.name
+            coro_factory._aurora = True
+            coro_factory._aurora_async = True
+            aurora_fn = coro_factory
+
         return aurora_fn
+
+    def _make_extern_placeholder(self, decl):
+        """为 extern 声明生成调用占位：调用时尝试 ctypes 解析真实符号。"""
+        def placeholder(*args, **kwargs):
+            try:
+                import ctypes
+                lib = ctypes.CDLL(None)
+                if hasattr(lib, decl.name):
+                    return getattr(lib, decl.name)(*args)
+            except Exception:
+                pass
+            raise AuroraError(
+                "ExternError",
+                f"extern function '{decl.name}' not found")
+        placeholder.__name__ = decl.name
+        placeholder._aurora = True
+        placeholder._extern = True
+        placeholder._extern_decl = decl
+        return placeholder
 
     def _make_lambda(self, expr: LambdaExpr, closure_env: Environment):
         def aurora_lambda(*args, **kwargs):
@@ -1355,9 +1739,61 @@ class Interpreter:
                 return {}
             if isinstance(pat_val, BoolLiteral) and value == pat_val.value:
                 return {}
+            if isinstance(pat_val, NilLiteral) and value is None:
+                return {}
+            if isinstance(pat_val, FloatLiteral) and value == pat_val.value:
+                return {}
             return None
         if isinstance(pattern, BindPattern):
             return {pattern.name: value}
+        if isinstance(pattern, TuplePattern):
+            # 元组/列表模式：(a, b, c) / [a, b, c]
+            if not isinstance(value, (tuple, list)):
+                return None
+            if len(value) != len(pattern.elements):
+                return None
+            bindings = {}
+            for sub_pat, item in zip(pattern.elements, value):
+                sub_bindings = self._match_pattern(sub_pat, item)
+                if sub_bindings is None:
+                    return None
+                bindings.update(sub_bindings)
+            return bindings
+        if isinstance(pattern, StructPattern):
+            # 结构体模式：Point { x, y } / User { name: n, age: a }
+            bindings = {}
+            if isinstance(value, AuroraEnumVariant):
+                # 枚举结构体变体：字段在 _fields 中
+                if value._name != pattern.name:
+                    return None
+                for fname, sub in pattern.fields:
+                    if fname not in value._fields:
+                        return None
+                    field_val = value._fields[fname]
+                    if sub is None:
+                        bindings[fname] = field_val
+                    else:
+                        sub_bindings = self._match_pattern(sub, field_val)
+                        if sub_bindings is None:
+                            return None
+                        bindings.update(sub_bindings)
+                return bindings
+            if isinstance(value, dict) and '_type' in value:
+                if value['_type'] != pattern.name:
+                    return None
+                for fname, sub in pattern.fields:
+                    if fname not in value:
+                        return None
+                    field_val = value[fname]
+                    if sub is None:
+                        bindings[fname] = field_val
+                    else:
+                        sub_bindings = self._match_pattern(sub, field_val)
+                        if sub_bindings is None:
+                            return None
+                        bindings.update(sub_bindings)
+                return bindings
+            return None
         if isinstance(pattern, ConstructorPattern):
             # 枚举变体（AuroraEnumVariant）
             if isinstance(value, AuroraEnumVariant):

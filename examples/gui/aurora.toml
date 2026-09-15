@@ -1,0 +1,12 @@
+[project]
+name = "aurora-calculator"
+version = "1.0.0"
+description = "Aurora v3.1.0 GUI 示例 — 原生计算器"
+author = "Aurora Team"
+
+[build]
+entry = "calculator.aur"
+
+[dependencies]
+# AuroraUI — 内置声明式 UI 框架
+# "aurora-ui" = "*"

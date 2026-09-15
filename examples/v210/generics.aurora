@@ -1,0 +1,51 @@
+# Aurora v2.1.0 泛型系统示例
+# 支持函数泛型、结构体泛型、枚举泛型，运行时类型擦除
+
+# === 函数泛型 ===
+fn map<T, U>(arr, f) {
+    var result = []
+    for x in arr {
+        result.append(f(x))
+    }
+    result
+}
+
+fn identity<T>(x: T) -> T {
+    x
+}
+
+# === 结构体泛型 ===
+struct Pair<T> {
+    first: T
+    second: T
+}
+
+# === 枚举泛型 ===
+enum Option<T> {
+    Some(value: T)
+    None()
+}
+
+# === 使用示例 ===
+fn main() {
+    # 函数泛型
+    let doubled = map([1, 2, 3], fn x => x * 2)
+    println(doubled)  # [2, 4, 6]
+
+    let id = identity(42)
+    println(id)  # 42
+
+    # 结构体泛型
+    let p = Pair { first: 10, second: 20 }
+    println(p.first + p.second)  # 30
+
+    # 枚举泛型
+    let v = Option.Some(value: 42)
+    let r = match v {
+        Some(x) => x,
+        None() => 0
+    }
+    println(r)  # 42
+}
+
+main()

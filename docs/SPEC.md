@@ -1,7 +1,7 @@
-# Aurora 语言规范 v2.0.0
+# Aurora 语言规范 v3.1.0
 
 > 状态: **Stable(稳定)** — 自 v2.0.0 起,本规范描述的语言行为受语义化版本约束,破坏性变更须进入下一主版本。
-> 实现: ARM64 原生汇编后端 + 解释器双模式,位于 `aurora/` 包;CLI 入口 `aurora`。
+> 实现: ARM64 原生汇编后端 + 解释器双模式 + AI 原生引擎 + 全平台企业级引擎,位于 `aurora/` 包;CLI 入口 `aurora`。
 
 ---
 
@@ -50,7 +50,7 @@ let name = "aurora"
 标识符: `[A-Za-z_][A-Za-z0-9_]*`。
 
 关键字:
-`fn let var const if elif else for while return type enum impl match trait true false nil in break continue import from as spawn chan select default try catch finally panic self std and or not loop pub mut defer yield`
+`fn let var const if elif else for while return type enum impl match trait true false nil in break continue import from as spawn chan select default try catch finally panic self std and or not loop pub mut defer yield async await unsafe extern`
 
 ### 2.5 运算符
 
@@ -192,6 +192,47 @@ import std.math as m              # m.sqrt(16)
 from std.json import parse        # parse(...)
 ```
 
+### 6.1 模块化系统增强(v3.1.0)
+
+**`pub` 关键字**:导出模块内的函数、类型、常量为公开接口,供其他模块导入使用。未标注 `pub` 的成员仅模块内可见。
+
+```python
+// math_utils.aur
+pub fn add(a: int, b: int) -> int { a + b }
+pub const PI = 3.14159
+fn internal_helper(x) { ... }     // 私有,外部不可导入
+```
+
+```python
+// main.aur
+import math_utils
+math_utils.add(1, 2)              // 可用
+// math_utils.internal_helper()   // 编译错误:私有成员
+```
+
+**模块解析**:编译器按以下顺序搜索模块:当前目录 → `src/` → 项目根目录;支持嵌套目录 `import services.task_service`。
+
+**循环依赖检测**:编译器在构建依赖图时自动检测循环 import,检测到时报告具体循环路径并终止编译。
+
+**工作区 Monorepo**:`aurora workspace` 管理多项目工作区,`aurora deps` 解析跨项目依赖图。
+
+### 6.2 条件编译(v3.1.0)
+
+`#[cfg(...)]` 属性按目标平台 / 配置条件编译代码块:
+
+```python
+#[cfg(target: "macos")]
+fn platform_specific() { ... }    // 仅 macOS 编译
+
+#[cfg(target: "windows")]
+fn platform_specific() { ... }    // 仅 Windows 编译
+
+#[cfg(debug)]
+fn debug_log(msg) { ... }         // 仅 Debug 构建编译
+```
+
+支持的 cfg 谓词:`target: "macos" | "windows" | "linux" | "web"`, `debug`, `release`, `feature: "..."`。
+
 ## 7. 并发
 
 ```python
@@ -200,6 +241,65 @@ chan(capacity)                # 通道
 ch.send(v) / ch.recv()        # 收发
 select { case x => ch1.recv(), ... }
 ```
+
+### 7.1 async/await(v3.1.0)
+
+`async fn` 声明异步函数,调用返回协程;`await` 等待异步操作完成:
+
+```python
+async fn fetch_data(url: str) -> str {
+    let resp = await http_get(url)
+    return resp.body
+}
+
+async fn main() {
+    let a = await fetch_data("https://a.example.com")
+    let b = await fetch_data("https://b.example.com")
+    print(a + b)
+}
+```
+
+- `async fn` 可在内部使用 `await`;普通函数不可使用 `await`
+- 并发执行多个异步操作用 `spawn` + `await` 组合
+- 事件循环由运行时自动管理,无需手动驱动
+
+### 7.2 defer(v3.1.0 正式化)
+
+`defer` 语句注册函数退出时按 LIFO 顺序执行的清理动作,参数在注册时求值:
+
+```python
+fn process() {
+    let f = open("file.txt")
+    defer f.close()
+    // ... 提前 return 或异常退出,defer 仍会执行
+}
+```
+
+### 7.3 unsafe 与 extern "C"(v3.1.0)
+
+`unsafe` 块标记不安全操作区域(FFI 调用、裸指针操作),编译器对 unsafe 块内不做安全检查:
+
+```python
+unsafe {
+    let lib = std.ffi.load("libmylib.dylib")
+    let add = std.ffi.func(lib, "add", ["i32", "i32"], "i32")
+    println(add(3, 4))
+}
+```
+
+`extern "C"` 声明 C ABI 外部函数,用于与 C/Rust/C++ 共享库互操作:
+
+```python
+extern "C" {
+    fn puts(s: str) -> int
+    fn malloc(size: int) -> rawptr
+    fn free(ptr: rawptr)
+}
+```
+
+- `extern "C"` 块内的函数声明不生成实现,链接时从共享库解析
+- `rawptr` 类型仅在 unsafe 块内可用
+- FFI 调用必须在 `unsafe` 块中
 
 ## 8. 错误处理
 
@@ -273,6 +373,17 @@ aurora profile file   性能分析(v2.0.0)
 aurora debug file     调试器(v2.0.0)
 aurora lsp            LSP 语言服务器(v2.0.0)
 aurora pkg install X  包管理器(v2.0.0)
+aurora ai train/infer    AI 训练/推理(v3.0.0)
+aurora serve model.aur   推理服务(v3.0.0)
+aurora kernel install    Jupyter 内核(v3.0.0)
+aurora bench             性能基准测试(v3.1.0)
+aurora workspace         工作区管理(v3.1.0)
+aurora deps              依赖管理(v3.1.0)
+aurora ui                GUI 应用(v3.1.0)
+aurora package           跨平台打包(v3.1.0)
+aurora interop           语言互操作(v2.2.0)
+aurora gen-bindings      绑定代码生成(v2.2.0)
+aurora wasm              WebAssembly(v2.2.0)
 aurora --version      版本
 ```
 
@@ -300,6 +411,8 @@ entry = "main.aur"
 - 语义化版本 `MAJOR.MINOR.PATCH`;
 - **Stable** 特性:本规范第 2–11 章描述的全部语法与标准库;
 - v2.0.0 新增稳定内容:ARM64 原生汇编后端、@perf 性能注解、Result[T,E]/`?` 互操作、函数级增量编译缓存、P2 工具链(fmt/profile/debug/lsp)、P3 包管理器与标准库扩充;
+- v3.0.0 新增稳定内容:AI 原生引擎七模块(std.tensor/autograd/nn/data/agent/inference/kernel)、@ai 注解、aurora ai/serve/kernel 命令;
+- v3.1.0 新增稳定内容:并行编译、增量编译增强、图着色寄存器分配、指令调度、LICM、CSE、NEON SIMD、逃逸分析、模块化系统(pub/import/循环依赖检测)、#[cfg] 条件编译、工作区 Monorepo、LSP 企业级增强、调试器增强、AuroraUI 跨平台 GUI 框架、macOS/Windows/Web 原生绑定、全平台打包、新关键字 pub/async/await/defer/unsafe/extern "C";
 - 破坏性变更(如 `let` 语义)仅允许在 MAJOR 版本发布;
 - 详细策略见 `VERSIONING.md`,历史见 `CHANGELOG.md`。
 

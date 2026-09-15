@@ -1,0 +1,59 @@
+// ============================================================
+// Aurora v3.0.0 AI 示例 5:模型推理服务
+// 展示用 AuroraInference 加载模型、单次推理、启动 HTTP 推理服务器
+// ============================================================
+
+import std.tensor
+import std.autograd
+import std.nn
+import std.inference
+
+// --- 1. 构建一个简单模型:4 -> 8 -> 2 ---
+let model = nn.Sequential(
+    nn.Linear(4, 8),
+    nn.ReLU(),
+    nn.Linear(8, 2)
+)
+model.eval()
+
+// --- 2. 保存为 model.aur ---
+let path = model.save("model.aur")
+print("模型已保存:" + path)
+
+// --- 3. 用 InferenceEngine 加载并执行推理 ---
+let engine = inference.InferenceEngine()
+engine.load(path)
+
+let input = [0.5, -1.2, 0.3, 0.8]
+let out = engine.infer(input)
+print("单次推理输入:" + input)
+print("单次推理输出:" + out)
+print("本次耗时:" + engine.last_latency_ms + " ms")
+
+// 预热
+engine.warmup(4)
+print("预热完成")
+
+// 模型摘要
+let summary = engine.summary()
+print("模型摘要:" + summary)
+
+// --- 4. 启动推理服务器 ---
+// 监听 0.0.0.0:8080,提供 REST API
+let server = inference.InferenceServer(model, host: "0.0.0.0", port: 8080)
+server.start()
+
+print("推理服务器已启动:")
+print("  GET  /health   健康检查")
+print("  POST /predict  单样本推理,body: {\"input\": [0.5, -1.2, 0.3, 0.8]}")
+print("  POST /batch    批量推理")
+print("  GET  /model    返回模型摘要")
+print("")
+print("用 curl 测试:")
+print("  curl http://localhost:8080/health")
+print("  curl -X POST http://localhost:8080/predict \\")
+print("       -H 'Content-Type: application/json' \\")
+print("       -d '{\"input\": [0.5, -1.2, 0.3, 0.8]}'")
+
+// 阻塞运行;Ctrl-C 退出
+// server.stop()

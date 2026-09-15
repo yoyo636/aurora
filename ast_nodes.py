@@ -84,6 +84,12 @@ class RefType(TypeNode):
     mutable: bool = False
 
 
+@dataclass
+class OptionalType(TypeNode):
+    """可选类型 T?，等价于 Option<T>"""
+    inner: TypeNode = None
+
+
 # ============================================================
 # 表达式
 # ============================================================
@@ -312,6 +318,59 @@ class StringInterpolation(Expr):
     parts: List[Expr] = field(default_factory=list)
 
 
+@dataclass
+class CompFor(Node):
+    """推导式中的 for 子句：for x in arr"""
+    target: str = ""
+    iterable: Expr = None
+    is_nested: bool = False  # 用于多 for 推导式
+
+
+@dataclass
+class ListComp(Expr):
+    """列表推导式：[x * 2 for x in arr if x > 0]"""
+    expr: Expr = None
+    generators: List[CompFor] = field(default_factory=list)
+    conditions: List[Expr] = field(default_factory=list)
+
+
+@dataclass
+class SetComp(Expr):
+    """集合推导式：{x % 3 for x in arr}"""
+    expr: Expr = None
+    generators: List[CompFor] = field(default_factory=list)
+    conditions: List[Expr] = field(default_factory=list)
+
+
+@dataclass
+class MapComp(Expr):
+    """Map 推导式：{k: v for k, v in pairs}"""
+    key_expr: Expr = None
+    value_expr: Expr = None
+    generators: List[CompFor] = field(default_factory=list)
+    conditions: List[Expr] = field(default_factory=list)
+
+
+@dataclass
+class StructLiteral(Expr):
+    """结构体字面量：User { name: "Alice", age: 30 }"""
+    type_name: str = ""
+    fields: List[tuple] = field(default_factory=list)  # [(name, expr), ...]
+
+
+@dataclass
+class ForcedUnwrap(Expr):
+    """强制解包：a!（a 为 nil 时 panic）"""
+    operand: Expr = None
+
+
+@dataclass
+class TupleIndex(Expr):
+    """元组索引：tup.0, tup.1"""
+    object: Expr = None
+    index: int = 0
+
+
 # ============================================================
 # 模式（用于 match）
 # ============================================================
@@ -337,6 +396,19 @@ class ConstructorPattern(Pattern):
     """构造器模式：Ok(val), Err(msg)"""
     name: str = ""
     fields: List[Pattern] = field(default_factory=list)
+
+
+@dataclass
+class StructPattern(Pattern):
+    """结构体模式：Point { x, y } / User { name: n, age: a }"""
+    name: str = ""
+    fields: List[tuple] = field(default_factory=list)  # [(field_name, sub_pattern), ...]
+
+
+@dataclass
+class TuplePattern(Pattern):
+    """元组模式：(a, b, c)"""
+    elements: List[Pattern] = field(default_factory=list)
 
 
 @dataclass
@@ -380,14 +452,17 @@ class LetStmt(Stmt):
     mutable: bool = False  # let 不可变;var 可变
     type_annotation: Optional[TypeNode] = None
     initializer: Optional[Expr] = None
+    is_pub: bool = False   # v3.1.0: 顶层可见性
+    attributes: List['Attribute'] = field(default_factory=list)
 
 
 @dataclass
 class DestructureLet(Stmt):
-    """模式解构绑定：let (a, b) = expr / let [a, b] = expr"""
-    names: List[str] = field(default_factory=list)
+    """模式解构绑定：let (a, b) = expr / let [a, b] = expr / let (x, (y, z)) = expr"""
+    names: List[str] = field(default_factory=list)  # 扁平化名称列表(向后兼容)
     mutable: bool = False
     initializer: Expr = None
+    pattern: Optional[Pattern] = None  # 完整模式树(支持嵌套解构)
 
 
 @dataclass
@@ -395,7 +470,9 @@ class ConstStmt(Stmt):
     """常量声明：const X = expr"""
     name: str = ""
     type_annotation: Optional[TypeNode] = None
-    initializer: Expr = None
+    initializer: Optional[Expr] = None
+    is_pub: bool = False   # v3.1.0: 顶层可见性
+    attributes: List['Attribute'] = field(default_factory=list)
 
 
 @dataclass
@@ -505,6 +582,7 @@ class Param(Node):
     name: str = ""
     type_annotation: Optional[TypeNode] = None
     default_value: Optional[Expr] = None
+    variadic: bool = False  # ...nums 可变参数
 
 
 @dataclass
@@ -517,6 +595,11 @@ class FnDef(Stmt):
     is_pub: bool = False
     is_test: bool = False
     annotations: List[dict] = field(default_factory=list)
+    type_params: List[str] = field(default_factory=list)  # 泛型参数 fn map<T, U>(...)
+    # ── v3.1.0 ──
+    is_async: bool = False            # async fn
+    is_unsafe: bool = False           # unsafe fn
+    attributes: List['Attribute'] = field(default_factory=list)  # #[...] 属性
 
     # @perf 级别 -> 编译器优化建议
     _PERF_STRATEGIES = {
@@ -600,3 +683,48 @@ class TestBlock(Stmt):
 class Program(Node):
     """程序顶层节点"""
     statements: List[Stmt] = field(default_factory=list)
+
+
+# ============================================================
+# v3.1.0 — 语言级增强
+# ============================================================
+
+@dataclass
+class Attribute(Node):
+    """属性：#[name(key = "value", ...)] / #[cfg(...)]
+
+    args 为 (key, value) 键值对列表；对 cfg 这类函数式属性，
+    raw 保存括号内原始文本，交由 CfgEvaluator 解析。
+    """
+    name: str = ""
+    args: List[tuple] = field(default_factory=list)   # [(key, value_str), ...]
+    raw: str = ""                                      # 括号内原始表达式
+
+
+@dataclass
+class ExternFn(Node):
+    """extern 块内的外部函数签名声明（无函数体）"""
+    name: str = ""
+    params: List[Param] = field(default_factory=list)
+    return_type: Optional[TypeNode] = None
+    is_variadic: bool = False
+
+
+@dataclass
+class ExternBlock(Stmt):
+    """extern "C" { fn printf(...); fn malloc(...); }"""
+    abi: str = "C"
+    declarations: List[ExternFn] = field(default_factory=list)
+    attributes: List[Attribute] = field(default_factory=list)
+
+
+@dataclass
+class UnsafeBlock(Stmt):
+    """unsafe { ... } 块：块内允许原始指针操作"""
+    body: Block = None
+
+
+@dataclass
+class AwaitExpr(Expr):
+    """await expr：等待一个 Coroutine / Awaitable 完成"""
+    expression: Expr = None

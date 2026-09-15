@@ -1,0 +1,81 @@
+// mini_browser.aur — 简单浏览器
+// 展示：地址栏 / WebView / 导航按钮 / HTML 解析 / CSS 解析 / 布局 / Canvas 渲染
+
+import ui.window
+import ui.entry
+import ui.button
+import ui.webview
+import ui.canvas
+
+// 极简 HTML / CSS / 布局引擎（示意接口）
+import engine.html
+import engine.css
+import engine.layout
+import engine.paint
+
+var history = []
+var history_pos = -1
+
+fn navigate(url: str) {
+    history.push(url)
+    history_pos = history.len() - 1
+    webview.load(url)
+    render_title(url)
+}
+
+fn go_back() {
+    if history_pos > 0 {
+        history_pos = history_pos - 1
+        webview.load(history[history_pos])
+    }
+}
+
+fn go_forward() {
+    if history_pos < history.len() - 1 {
+        history_pos = history_pos + 1
+        webview.load(history[history_pos])
+    }
+}
+
+fn render_title(url: str) {
+    title_label.text = "Mini Browser — " + url
+}
+
+// 渲染管线（离线渲染演示）：HTML → CSS → 布局 → Canvas
+fn render_offline(html_src: str, canvas) {
+    let dom = html.parse(html_src)
+    let styles = css.parse("body { color: #222; }")
+    let tree = layout.build(dom, styles, viewport=canvas.size)
+    paint.draw(tree, canvas)
+}
+
+fn main() {
+    let win = window.new("Mini Browser", width=1024, height=720)
+
+    title_label = ui.label.new("Mini Browser")
+    win.add(title_label)
+
+    // 工具栏：后退 / 前进 / 地址栏 / 前往
+    let toolbar = ui.hbox()
+    let back = ui.button.new("←").on_click(go_back)
+    let fwd = ui.button.new("→").on_click(go_forward)
+    let urlbar = ui.entry.new("https://aurora.dev")
+    urlbar.on("submit", fn() { navigate(urlbar.text) })
+    let go = ui.button.new("Go").on_click(fn() { navigate(urlbar.text) })
+    toolbar.add(back, fwd, urlbar, go)
+    win.add(toolbar)
+
+    // WebView 主区域
+    webview = ui.webview.new()
+    win.add(webview)
+
+    // 离线渲染备用（无 WebView 后端时）
+    let canvas = ui.canvas.new(1024, 600)
+    render_offline("<h1>Hello Aurora</h1>", canvas)
+
+    navigate("https://aurora.dev")
+    win.show()
+    ui.run()
+}
+
+main()

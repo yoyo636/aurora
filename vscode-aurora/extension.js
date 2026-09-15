@@ -1,5 +1,7 @@
-// Aurora Language —— VSCode 扩展
+// Aurora Language —— VSCode 扩展 (v3.1.0)
 // 功能:运行 .aur 文件(集成终端)、静态检查(行内诊断)、运行选中代码
+// v3.1.0 新增:AI 引擎、基准测试、工作区/依赖管理、GUI、跨平台打包、
+//            Jupyter 内核、HTTP 推理服务、语言互操作、WebAssembly 编译
 "use strict";
 
 const vscode = require("vscode");
@@ -207,6 +209,119 @@ function activate(context) {
       if (!pick) return;
       const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
       termCli(["pkg", pick], "Aurora 包管理", folder ? folder.uri.fsPath : auroraDir());
+    })
+  );
+
+  // ── v3.1.0 新命令 ──────────────────────────────────
+  // 统一通过集成终端调用 aurora-run 的子命令
+
+  // AI:aurora ai train|infer <file>
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.ai", async () => {
+      const pick = await vscode.window.showQuickPick(
+        ["train", "infer"],
+        { placeHolder: "选择 aurora ai 子命令 (train / infer)" }
+      );
+      if (!pick) return;
+      const ed = await activeAuroraFile();
+      if (!ed) return;
+      termCli(["ai", pick, ed.document.fileName], "Aurora AI", path.dirname(ed.document.fileName));
+    })
+  );
+
+  // 性能基准测试:aurora bench <file>
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.bench", async () => {
+      const ed = await activeAuroraFile();
+      if (!ed) return;
+      termCli(["bench", ed.document.fileName], "Aurora 基准测试", path.dirname(ed.document.fileName));
+    })
+  );
+
+  // 工作区管理:aurora workspace init|list
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.workspace", async () => {
+      const pick = await vscode.window.showQuickPick(
+        ["init", "list"],
+        { placeHolder: "选择 aurora workspace 子命令" }
+      );
+      if (!pick) return;
+      const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+      termCli(["workspace", pick], "Aurora 工作区", folder ? folder.uri.fsPath : auroraDir());
+    })
+  );
+
+  // 依赖管理:aurora deps tree|outdated
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.deps", async () => {
+      const pick = await vscode.window.showQuickPick(
+        ["tree", "outdated"],
+        { placeHolder: "选择 aurora deps 子命令" }
+      );
+      if (!pick) return;
+      const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+      termCli(["deps", pick], "Aurora 依赖", folder ? folder.uri.fsPath : auroraDir());
+    })
+  );
+
+  // 运行 GUI 应用:aurora ui run <file>
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.ui", async () => {
+      const ed = await activeAuroraFile();
+      if (!ed) return;
+      termCli(["ui", "run", ed.document.fileName], "Aurora GUI", path.dirname(ed.document.fileName));
+    })
+  );
+
+  // 跨平台打包:aurora package macos|windows|linux|web
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.package", async () => {
+      const pick = await vscode.window.showQuickPick(
+        ["macos", "windows", "linux", "web"],
+        { placeHolder: "选择目标平台进行打包" }
+      );
+      if (!pick) return;
+      const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+      termCli(["package", pick], "Aurora 打包", folder ? folder.uri.fsPath : auroraDir());
+    })
+  );
+
+  // 安装 Jupyter 内核:aurora kernel install
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.kernel", async () => {
+      const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+      termCli(["kernel", "install"], "Aurora Jupyter 内核", folder ? folder.uri.fsPath : auroraDir());
+    })
+  );
+
+  // 启动推理服务:aurora serve <model.aur>
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.serve", async () => {
+      const modelPath = await vscode.window.showInputBox({
+        prompt: "输入模型文件路径 (model.aur)",
+        placeHolder: "/path/to/model.aur",
+      });
+      if (!modelPath) return;
+      const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+      termCli(["serve", modelPath], "Aurora 推理服务", folder ? folder.uri.fsPath : auroraDir());
+    })
+  );
+
+  // 语言互操作:aurora interop <file>
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.interop", async () => {
+      const ed = await activeAuroraFile();
+      if (!ed) return;
+      termCli(["interop", ed.document.fileName], "Aurora 互操作", path.dirname(ed.document.fileName));
+    })
+  );
+
+  // 编译 WebAssembly:aurora wasm <file>
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.wasm", async () => {
+      const ed = await activeAuroraFile();
+      if (!ed) return;
+      termCli(["wasm", ed.document.fileName], "Aurora WASM", path.dirname(ed.document.fileName));
     })
   );
 

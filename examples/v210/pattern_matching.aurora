@@ -1,0 +1,77 @@
+# Aurora v2.1.0 模式匹配 + 代数数据类型示例
+# 支持 enum 带 payload、match 表达式、穷尽性检查
+
+# === 带 payload 的枚举 ===
+enum Shape {
+    Circle(radius: float)
+    Rect(w: float, h: float)
+    Square(side: float)
+}
+
+# === 结构体变体 ===
+enum Message {
+    Quit()
+    Move { x: int, y: int }
+    Write(text: str)
+}
+
+# === match 表达式 ===
+fn area(shape) {
+    match shape {
+        Circle(r) => 3.14 * r * r,
+        Rect(w, h) => w * h,
+        Square(s) => s * s
+    }
+}
+
+fn handle_message(msg) {
+    match msg {
+        Quit() => "quitting",
+        Move(x, y) => "moving to (" + x + ", " + y + ")",
+        Write(text) => "writing: " + text
+    }
+}
+
+# === 字面量模式 + 通配符 ===
+fn describe_number(n) {
+    match n {
+        0 => "zero",
+        1 => "one",
+        2 => "two",
+        _ => "many"
+    }
+}
+
+# === 元组模式 ===
+fn classify_point(p) {
+    match p {
+        (0, 0) => "origin",
+        (x, 0) => "x-axis",
+        (0, y) => "y-axis",
+        (x, y) => "(" + x + ", " + y + ")"
+    }
+}
+
+# === 结构体模式 ===
+struct Point { x: int, y: int }
+
+fn is_origin(p) {
+    match p {
+        Point { x: 0, y: 0 } => true,
+        _ => false
+    }
+}
+
+fn main() {
+    let c = Shape.Circle(radius: 2.0)
+    println(area(c))  # ~12.56
+
+    let msg = Message.Write(text: "hello")
+    println(handle_message(msg))  # writing: hello
+
+    println(describe_number(5))  # many
+    println(classify_point((3, 4)))  # (3, 4)
+    println(is_origin(Point { x: 0, y: 0 }))  # true
+}
+
+main()

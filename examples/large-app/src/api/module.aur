@@ -1,0 +1,22 @@
+// src/api/module.aur — HTTP API 模块
+// 展示：async/await、pub 路由、模块间组合
+
+import auth.module
+import db.module
+import utils.module
+
+pub async fn fetch_user(uid: int) -> auth.User {
+    // 模拟异步 I/O
+    event_loop.sleep(0)
+    return auth.login("user_" + uid, "user" + uid + "@example.com")
+}
+
+pub async fn list_users() -> [auth.User] {
+    let u1 = await fetch_user(1)
+    let u2 = await fetch_user(2)
+    return [u1, u2]
+}
+
+pub fn health() -> str {
+    return utils.module.greet("ops") + " / db=" + db.module.DB_PATH
+}

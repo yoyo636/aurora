@@ -1,0 +1,94 @@
+# Aurora v2.1.0 struct 数据类 + 命名参数/默认参数示例
+
+# === struct 定义（struct 是 type 的别名）===
+struct User {
+    name: str
+    age: int = 0
+    active: bool = true
+}
+
+# === 结构体字面量 ===
+let alice = User { name: "Alice", age: 30 }
+println(alice.name)  # Alice
+println(alice.age)  # 30
+println(alice.active)  # true（默认值）
+
+# 只填必填字段，其余用默认值
+let bob = User { name: "Bob" }
+println(bob.age)  # 0
+println(bob.active)  # true
+
+# 覆盖默认值
+let charlie = User { name: "Charlie", age: 25, active: false }
+println(charlie.active)  # false
+
+# === 字段访问 ===
+println(alice.name)  # Alice
+
+# === 命名参数函数调用 ===
+fn greet(name: str, greeting: str = "Hello") {
+    greeting + ", " + name + "!"
+}
+
+println(greet(name: "Alice", greeting: "Hi"))  # Hi, Alice!
+println(greet(name: "Bob"))  # Hello, Bob!
+
+# === 默认参数 ===
+fn add(a, b = 1) {
+    a + b
+}
+
+println(add(5))  # 6
+println(add(5, 3))  # 8
+
+# === 可变参数 ... ===
+fn sum(...nums) {
+    var total = 0
+    for n in nums {
+        total = total + n
+    }
+    total
+}
+
+println(sum(1, 2, 3, 4, 5))  # 15
+println(sum(10, 20))  # 30
+
+# === 可变参数 + 固定参数 ===
+fn join(separator, ...parts) {
+    var result = parts[0]
+    for i in 1..len(parts) - 1 {
+        result = result + separator + parts[i]
+    }
+    result
+}
+
+println(join(", ", "a", "b", "c"))  # a, b, c
+
+# === struct 与模式匹配 ===
+struct Point { x: int = 0, y: int = 0 }
+
+fn distance(p) {
+    match p {
+        Point { x: 0, y: 0 } => 0,
+        Point { x: a, y: b } => a + b
+    }
+}
+
+println(distance(Point { x: 3, y: 4 }))  # 7
+println(distance(Point {}))  # 0（全部用默认值）
+
+# === 嵌套 struct ===
+struct Config {
+    host: str = "localhost"
+    port: int = 8080
+    debug: bool = false
+}
+
+struct App {
+    name: str
+    config: Config = Config {}
+}
+
+let app = App { name: "MyApp" }
+println(app.config.host)  # localhost
+println(app.config.port)  # 8080

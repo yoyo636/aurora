@@ -1,0 +1,60 @@
+// mac_app.aur — macOS 原生应用（Cocoa 绑定）
+// 仅在 macOS 上编译：通过 #[cfg(target_os = "macos")] 守卫
+
+#[cfg(target_os = "macos")]
+import cocoa.app
+#[cfg(target_os = "macos")]
+import cocoa.window
+#[cfg(target_os = "macos")]
+import cocoa.button
+#[cfg(target_os = "macos")]
+import cocoa.menu
+#[cfg(target_os = "macos")]
+import cocoa.notification
+#[cfg(target_os = "macos")]
+import cocoa.dock
+
+#[cfg(target_os = "macos")]
+fn main() {
+    let app = NSApplication.shared()
+
+    // 主窗口
+    let win = NSWindow("Aurora on macOS", width=640, height=480)
+    win.set_titlebar_appears_transparent(true)
+
+    // 按钮：点击发送通知
+    let btn = NSButton("Say Hello")
+    btn.set_frame(x=220, y=200, width=200, height=44)
+    btn.on_click(fn() {
+        let n = NSNotification.new("Aurora", "Hello from macOS")
+        n.show()
+    })
+    win.add(btn)
+
+    // 菜单栏：File / Edit / View / Help（Cocoa 标准布局）
+    let menubar = NSMenu.new()
+    menubar.add_item("File", "New", "n")
+    menubar.add_item("File", "Quit", "q", action=app.terminate)
+    menubar.add_item("Help", "Documentation", action=open_docs)
+    app.set_main_menu(menubar)
+
+    // Dock 集成：自定义图标与徽章
+    dock.set_icon("assets/icon.png")
+    dock.set_badge("3")
+
+    win.center()
+    win.show()
+    app.run()  // NSApplicationMain
+}
+
+fn open_docs() {
+    println("Opening Aurora docs...")
+}
+
+// 非 macOS 平台：给出提示
+#[cfg(not(target_os = "macos"))]
+fn main() {
+    println("This sample requires macOS (Cocoa).")
+}
+
+main()

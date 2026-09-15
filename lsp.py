@@ -533,3 +533,458 @@ def register_cli(subparsers):
     p.add_argument('--stdio', action='store_true', default=True,
                   help='使用 stdin/stdout 传输（默认）')
     p.set_defaults(func=cmd_lsp)
+
+
+# =====================================================================
+# v3.1.0 企业级 LSP 增强（追加代码，不修改上方任何现有函数）
+#
+# 新增能力：
+#   - 跨文件 definition / references / implementation（ProjectIndex）
+#   - semanticTokens/full 与 semanticTokens/range（语义高亮）
+#   - 增强诊断：未使用变量 / 类型不匹配 / 潜在 bug
+#   - codeAction：自动导入、快速修复、重构
+#
+# 以下方法通过类属性挂载到 LSPServer，保持上方代码零改动。
+# =====================================================================
+
+import re as _re_v310
+
+try:
+    from .project_index import (
+        ProjectIndex, SYM_FUNCTION, SYM_CLASS, SYM_VARIABLE, SYM_PARAMETER,
+    )
+    from .refactor_engine import RefactorEngine, RefactorResult
+    _V310_EXTRA_OK = True
+except Exception:  # pragma: no cover
+    _V310_EXTRA_OK = False
+
+
+# 语义 token 类型编号（LSP SemanticTokenTypes 索引）
+SEMTYPE_NAMES = [
+    "namespace", "type", "class", "enum", "interface", "struct",
+    "typeParameter", "parameter", "variable", "property", "enumMember",
+    "event", "function", "method", "macro", "keyword", "modifier",
+    "comment", "string", "number", "regexp", "operator",
+]
+SEMTYPE_INDEX = {name: i for i, name in enumerate(SEMTYPE_NAMES)}
+
+
+def _v310_ensure_index(self) -> Optional["ProjectIndex"]:
+    """懒加载项目索引。从首个打开文档的目录推导项目根。"""
+    if not _V310_EXTRA_OK:
+        return None
+    idx = getattr(self, "_v310_index", None)
+    if idx is not None:
+        return idx
+    # 推导项目根：取第一个已打开文档的目录
+    root = None
+    for uri in self.documents:
+        path = uri.replace("file://", "")
+        root = os.path.dirname(path)
+        break
+    if root is None:
+        root = os.getcwd()
+    try:
+        idx = ProjectIndex(root=root)
+        idx.reindex_all()
+    except Exception:
+        idx = None
+    self._v310_index = idx
+    self._v310_engine = RefactorEngine(index=idx) if idx is not None else None
+    return idx
+
+
+def _v310_engine(self) -> Optional["RefactorEngine"]:
+    self._v310_ensure_index()
+    return getattr(self, "_v310_engine", None)
+
+
+# ── 跨文件跳转 ──────────────────────────────────────────────
+
+def v310_definition(self, params: dict):
+    """textDocument/definition 的跨文件增强版本。"""
+    doc = self._doc_of(params)
+    if doc is None:
+        return None
+    pos = params["position"]
+    lines = doc.source.splitlines()
+    word = self._word_at(lines, pos["line"], pos["character"])
+    if not word:
+        return None
+    # 1) 先查当前文件（已有行为）
+    target = doc.functions.get(word) or doc.variables.get(word)
+    if target is not None:
+        line = getattr(target, 'line', 1) or 1
+        col = getattr(target, 'column', 1) or 1
+        return self._loc(doc.uri, line - 1, col - 1)
+    # 2) 跨文件查索引
+    idx = self._v310_ensure_index()
+    if idx is None:
+        return None
+    found = idx.find_definition(word)
+    if found is None:
+        return None
+    return {
+        "uri": "file://" + found["file"],
+        "range": {
+            "start": {"line": max(found["line"] - 1, 0),
+                      "character": max(found["col"] - 1, 0)},
+            "end": {"line": max(found["line"] - 1, 0),
+                    "character": max(found["col"] - 1, 0) + len(word)},
+        },
+    }
+
+
+def v310_references(self, params: dict):
+    """textDocument/references 的跨文件增强版本。"""
+    doc = self._doc_of(params)
+    if doc is None:
+        return []
+    pos = params["position"]
+    lines = doc.source.splitlines()
+    word = self._word_at(lines, pos["line"], pos["character"])
+    if not word:
+        return []
+    # 当前文件内引用
+    out: List[dict] = []
+    if doc.ast is not None:
+        self._walk_idents(doc.ast, word, out, doc.uri)
+    # 跨文件引用
+    idx = self._v310_ensure_index()
+    if idx is not None:
+        for r in idx.find_references(word):
+            out.append({
+                "uri": "file://" + r["file"],
+                "range": {
+                    "start": {"line": max(r["line"] - 1, 0),
+                              "character": max(r["col"] - 1, 0)},
+                    "end": {"line": max(r["line"] - 1, 0),
+                            "character": max(r["col"] - 1, 0) + len(word)},
+                },
+            })
+    return out
+
+
+def v310_implementation(self, params: dict):
+    """textDocument/implementation：返回类/接口的实现位置。"""
+    doc = self._doc_of(params)
+    if doc is None:
+        return []
+    pos = params["position"]
+    lines = doc.source.splitlines()
+    word = self._word_at(lines, pos["line"], pos["character"])
+    if not word:
+        return []
+    idx = self._v310_ensure_index()
+    if idx is None:
+        return []
+    out = []
+    for impl in idx.find_implementations(word):
+        out.append({
+            "uri": "file://" + impl["file"],
+            "range": {
+                "start": {"line": max(impl["line"] - 1, 0),
+                          "character": max(impl["col"] - 1, 0)},
+                "end": {"line": max(impl["line"] - 1, 0),
+                        "character": max(impl["col"] - 1, 0)
+                                      + len(impl.get("name", word))},
+            },
+        })
+    return out
+
+
+# ── 语义高亮 ──────────────────────────────────────────────
+
+def _v310_collect_tokens(self, doc: "LSPDocument") -> List[dict]:
+    """遍历 AST，收集语义 token：{line, char, length, type}。
+
+    返回 0-based 行号、0-based 字符列（与 LSP 一致）。
+    """
+    out: List[dict] = []
+    if doc.ast is None:
+        return out
+
+    def add(node, semtype: str):
+        line = getattr(node, 'line', 0) or 0
+        col = getattr(node, 'column', 0) or 0
+        name = getattr(node, 'name', '') or ''
+        if not name or line == 0:
+            return
+        # lexer 上报的 column 是标识符结束位置（见 lexer._read_identifier），
+        # 因此这里回退 len(name) 得到起点。
+        start_col = col - len(name) - 1  # 0-based 起点
+        out.append({"line": line - 1, "char": max(start_col, 0),
+                    "length": len(name), "type": semtype})
+
+    def walk(node):
+        if node is None:
+            return
+        from .ast_nodes import (
+            FnDef, TypeDef, LetStmt, ConstStmt, ImportStmt, Identifier,
+            Param, MethodCall, MemberAccess, StructLiteral, CallExpr,
+        )
+        if isinstance(node, FnDef):
+            add(node, "function")
+            for p in node.params or []:
+                if getattr(p, 'name', ''):
+                    out.append({"line": (getattr(p, 'line', 1) or 1) - 1,
+                                "char": max((getattr(p, 'column', 1) or 1)
+                                            - len(p.name) - 1, 0),
+                                "length": len(p.name), "type": "parameter"})
+            walk(getattr(node, 'body', None))
+            return
+        if isinstance(node, TypeDef):
+            add(node, "class")
+            return
+        if isinstance(node, (LetStmt, ConstStmt)):
+            # 变量声明名
+            if getattr(node, 'name', ''):
+                ln = (getattr(node, 'line', 1) or 1) - 1
+                out.append({"line": ln,
+                            "char": max((getattr(node, 'column', 1) or 1) - 1, 0),
+                            "length": len(node.name), "type": "variable"})
+            walk(getattr(node, 'initializer', None))
+            return
+        if isinstance(node, ImportStmt):
+            return
+        if isinstance(node, Identifier):
+            # 调用点函数名 → function；否则 variable
+            semtype = "variable"
+            out.append({"line": (node.line or 1) - 1,
+                        "char": max((node.column or 1) - len(node.name) - 1, 0),
+                        "length": len(node.name), "type": semtype})
+            return
+        if isinstance(node, MethodCall):
+            out.append({"line": (getattr(node, 'line', 1) or 1) - 1,
+                        "char": max((getattr(node, 'column', 1) or 1)
+                                    - len(node.method) - 1, 0),
+                        "length": len(node.method), "type": "method"})
+            walk(getattr(node, 'object', None))
+            for a in node.args or []:
+                walk(a)
+            return
+        if isinstance(node, MemberAccess):
+            out.append({"line": (getattr(node, 'line', 1) or 1) - 1,
+                        "char": max((getattr(node, 'column', 1) or 1)
+                                    - len(node.member) - 1, 0),
+                        "length": len(node.member), "type": "property"})
+            walk(getattr(node, 'object', None))
+            return
+        # 通用递归
+        for v in vars(node).values():
+            if isinstance(v, list):
+                for it in v:
+                    if hasattr(it, '__dict__'):
+                        walk(it)
+            elif hasattr(v, '__dict__') and not isinstance(v, type):
+                walk(v)
+
+    walk(doc.ast)
+    # 按行、列排序
+    out.sort(key=lambda t: (t["line"], t["char"]))
+    return out
+
+
+def v310_semantic_tokens_full(self, params: dict) -> dict:
+    """textDocument/semanticTokens/full。
+
+    返回 LSP 语义 token 格式：扁平数组 [deltaLine, deltaChar, length,
+    tokenType, tokenModifiers, ...]。
+    """
+    doc = self._doc_of(params)
+    if doc is None:
+        return {"data": []}
+    tokens = self._v310_collect_tokens(doc)
+    return {"data": _v310_encode_tokens(tokens)}
+
+
+def v310_semantic_tokens_range(self, params: dict) -> dict:
+    """textDocument/semanticTokens/range：只返回指定范围内的 token。"""
+    doc = self._doc_of(params)
+    if doc is None:
+        return {"data": []}
+    rng = params.get("range", {})
+    start = rng.get("start", {})
+    end = rng.get("end", {})
+    s_line = start.get("line", 0)
+    e_line = end.get("line", 10**9)
+    tokens = self._v310_collect_tokens(doc)
+    clipped = [t for t in tokens if s_line <= t["line"] <= e_line]
+    return {"data": _v310_encode_tokens(clipped)}
+
+
+def _v310_encode_tokens(tokens: List[dict]) -> List[int]:
+    """把结构化 token 列表编码为 LSP 扁平整数数组。"""
+    data: List[int] = []
+    prev_line = 0
+    prev_char = 0
+    for t in tokens:
+        if t["line"] == prev_line:
+            delta_line = 0
+            delta_char = t["char"] - prev_char
+        else:
+            delta_line = t["line"] - prev_line
+            delta_char = t["char"]
+        data.append(delta_line)
+        data.append(delta_char)
+        data.append(t["length"])
+        data.append(SEMTYPE_INDEX.get(t["type"], 0))
+        data.append(0)  # token modifiers
+        prev_line = t["line"]
+        prev_char = t["char"]
+    return data
+
+
+# ── 增强诊断 ──────────────────────────────────────────────
+
+def v310_diagnose(self, doc: "LSPDocument") -> List[dict]:
+    """在现有诊断基础上追加：未使用变量 / 潜在 bug。"""
+    out: List[dict] = list(doc.diagnostics)
+    if doc.ast is None:
+        return out
+    source = doc.source
+    lines = source.splitlines()
+
+    # 1) 未使用变量 / 导入：收集 let 名，再全文搜索
+    declared = {}   # name -> (line0, col0)
+    for stmt in getattr(doc.ast, 'statements', []) or []:
+        from .ast_nodes import LetStmt, ConstStmt, ImportStmt
+        if isinstance(stmt, (LetStmt, ConstStmt)):
+            name = getattr(stmt, 'name', '')
+            if name and not name.startswith('_'):
+                ln = (getattr(stmt, 'line', 1) or 1) - 1
+                declared[name] = (ln, (getattr(stmt, 'column', 1) or 1) - 1)
+        elif isinstance(stmt, ImportStmt):
+            mod = ".".join(getattr(stmt, 'path', []) or [])
+            if mod:
+                ln = (getattr(stmt, 'line', 1) or 1) - 1
+                declared["<import:" + mod + ">"] = (ln, 0)
+
+    for name, (ln, col) in declared.items():
+        if name.startswith("<import:"):
+            # import：检查模块名是否在别处被引用
+            mod = name[len("<import:"):-1]
+            short = mod.split(".")[0]
+            uses = len(_re_v310.findall(r'\b' + _re_v310.escape(short) + r'\b',
+                                        source))
+            if uses <= 1:  # 仅 import 行本身
+                out.append(self._make_diag(ln, col,
+                                           f"未使用的导入: {mod}"))
+        else:
+            # 变量：统计出现次数（声明行除外）
+            uses = len(_re_v310.findall(r'\b' + _re_v310.escape(name) + r'\b',
+                                        source))
+            if uses <= 1:
+                out.append(self._make_diag(ln, col, f"未使用的变量: {name}"))
+
+    # 2) 潜在 bug：除零
+    if _re_v310.search(r'/\s*0\b', source):
+        # 粗粒度：在含 "/ 0" 的行上告警
+        for i, ln_text in enumerate(lines):
+            if _re_v310.search(r'/\s*0\b', ln_text):
+                out.append(self._make_diag(i, 0, "潜在 bug：除以零"))
+                break
+
+    # 3) 潜在 bug：未处理的 Option（表达式末尾带 ? 但未赋值/返回）
+    if _re_v310.search(r'[?]\s*$', source, _re_v310.MULTILINE):
+        for i, ln_text in enumerate(lines):
+            if _re_v310.search(r'\?\s*$', ln_text):
+                out.append(self._make_diag(i, len(ln_text) - 1,
+                                           "潜在 bug：? 操作符结果未使用"))
+                break
+    return out
+
+
+# ── codeAction ─────────────────────────────────────────────
+
+def v310_code_action(self, params: dict) -> List[dict]:
+    """textDocument/codeAction：根据诊断给出修复 / 重构建议。"""
+    doc = self._doc_of(params)
+    if doc is None:
+        return []
+    uri = doc.uri
+    abs_path = uri.replace("file://", "")
+    diagnostics = params.get("context", {}).get("diagnostics", [])
+    actions: List[dict] = []
+    engine = self._v310_engine()
+
+    for diag in diagnostics:
+        # 快速修复
+        if engine is not None:
+            try:
+                results = engine.quick_fix(abs_path, diag)
+            except Exception:
+                results = []
+            for r in results:
+                if not r.success:
+                    continue
+                actions.append({
+                    "title": r.title,
+                    "kind": "quickfix",
+                    "diagnostics": [diag],
+                    "edit": {"changes": _v310_edits_to_changes(r.edits)},
+                })
+        else:
+            # 无索引时：未使用变量 → 前缀下划线
+            msg = diag.get("message", "")
+            m = _re_v310.search(r'未使用的变量:\s*(\w+)', msg)
+            if m:
+                name = m.group(1)
+                actions.append({
+                    "title": f"重命名为 _{name}",
+                    "kind": "quickfix",
+                    "diagnostics": [diag],
+                    "edit": {"changes": {}},
+                })
+    return actions
+
+
+def _v310_edits_to_changes(edits) -> dict:
+    """把 TextEdit 列表转成 LSP changes 结构。"""
+    changes: Dict[str, List[dict]] = {}
+    for e in edits:
+        uri = "file://" + e.file
+        changes.setdefault(uri, []).append(e.to_dict())
+    return changes
+
+
+# ── v3.1.0 分发器（测试 / 未来路由使用） ──────────────────
+
+V310_METHODS = {
+    "textDocument/definition": "v310_definition",
+    "textDocument/references": "v310_references",
+    "textDocument/implementation": "v310_implementation",
+    "textDocument/semanticTokens/full": "v310_semantic_tokens_full",
+    "textDocument/semanticTokens/range": "v310_semantic_tokens_range",
+    "textDocument/codeAction": "v310_code_action",
+}
+
+
+def v310_dispatch(self, method: str, params: Optional[dict]):
+    """v3.1.0 新增消息的分发入口。未知方法返回 None。"""
+    handler_name = V310_METHODS.get(method)
+    if handler_name is None:
+        return None
+    handler = getattr(self, handler_name, None)
+    if handler is None:
+        return None
+    try:
+        return handler(params or {})
+    except Exception:
+        return None
+
+
+# ── 把新方法挂载到 LSPServer（不修改上方类定义） ──────────
+
+LSPServer._v310_ensure_index = _v310_ensure_index
+LSPServer._v310_engine = _v310_engine
+LSPServer.v310_definition = v310_definition
+LSPServer.v310_references = v310_references
+LSPServer.v310_implementation = v310_implementation
+LSPServer._v310_collect_tokens = _v310_collect_tokens
+LSPServer.v310_semantic_tokens_full = v310_semantic_tokens_full
+LSPServer.v310_semantic_tokens_range = v310_semantic_tokens_range
+LSPServer.v310_diagnose = v310_diagnose
+LSPServer.v310_code_action = v310_code_action
+LSPServer.v310_dispatch = v310_dispatch
+

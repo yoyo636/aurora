@@ -1,0 +1,84 @@
+// ============================================================
+// Aurora v3.0.0 AI 示例 3:LLM Agent 工具调用
+// 展示用 AuroraAgent 框架构建一个会调用工具的助手
+//
+// 运行前需要配置 API Key:
+//   export AURORA_AI_API_KEY="你的密钥"
+// 也支持通过环境变量 AURORA_AI_BASE_URL 指向本地模型(如 Ollama)。
+// ============================================================
+
+import std.agent
+
+// --- 1. 定义工具函数 ---
+// 工具就是普通的 Aurora 函数,Agent 会自动决定何时调用
+
+fn get_weather(city) {
+    // 实际项目里这里调用天气 API
+    // 这里返回一个模拟结果用于演示
+    "北京 晴 25°C,湿度 40%"
+}
+
+fn calculate(expression) {
+    // 计算数学表达式(实际可委托给 std.python.eval)
+    // 这里直接用 Aurora 计算示例
+    let a = 23
+    let b = 47
+    a * b
+}
+
+fn get_time() {
+    "当前时间:2026-09-15 18:30 CST"
+}
+
+// --- 2. 用 Tool 类把函数包装成 Agent 可识别的工具 ---
+let tool_weather = agent.Tool(
+    name: "get_weather",
+    func: get_weather,
+    description: "查询指定城市的天气",
+    params: {"city": "城市名称,如 北京"}
+)
+
+let tool_calc = agent.Tool(
+    name: "calculate",
+    func: calculate,
+    description: "计算一个数学表达式",
+    params: {"expression": "要计算的表达式字符串,如 23*47"}
+)
+
+let tool_time = agent.Tool(
+    name: "get_time",
+    func: get_time,
+    description: "获取当前时间",
+    params: {}
+)
+
+// --- 3. 创建 Agent ---
+let system_prompt = "你是一个有用的助手,可以调用工具获取信息。请先用工具拿到数据,再用中文回答用户。"
+
+let my_agent = agent.Agent(
+    tools: [tool_weather, tool_calc, tool_time],
+    model: "doubao-seed-1-6",
+    system_prompt: system_prompt
+)
+
+// --- 4. 运行 Agent ---
+let question = "北京今天天气怎么样?帮我算一下 23*47 等于多少"
+print("用户提问:" + question)
+print("---")
+
+let result = my_agent.run(question)
+
+// --- 5. 输出结果 ---
+print("Agent 回答:")
+print(result["answer"])
+print("---")
+print("调用的工具列表:")
+for tc in result["tool_calls"] {
+    print("  - " + tc["name"] + "  参数=" + tc["args"]
+          + "  结果=" + tc["result"])
+}
+print("总步数:" + result["steps"])
+
+// --- 6. 带记忆的对话(可选) ---
+// my_agent.chat("那上海呢?")
+// my_agent.chat("现在几点了?")

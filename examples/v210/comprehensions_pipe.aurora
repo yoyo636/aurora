@@ -1,0 +1,55 @@
+# Aurora v2.1.0 列表推导式 + 管道运算符示例
+
+# === 列表推导式 ===
+let squares = [x * x for x in 1..5]
+println(squares)  # [1, 4, 9, 16, 25]
+
+# === 带过滤的列表推导式 ===
+let evens = [x for x in 1..10 if x % 2 == 0]
+println(evens)  # [2, 4, 6, 8, 10]
+
+# === 集合推导式 ===
+let unique_mods = {x % 3 for x in 1..10}
+println(unique_mods)  # {0, 1, 2}
+
+# === Map 推导式 ===
+let square_map = {k: k * k for k in 1..5}
+println(square_map)  # {1: 1, 2: 4, 3: 9, 4: 16, 5: 25}
+
+# === 嵌套推导式 ===
+let pairs = [a + b for a in [1, 2] for b in [10, 20]]
+println(pairs)  # [11, 21, 12, 22]
+
+# === 管道运算符 ===
+fn double(x) { x * 2 }
+fn add_one(x) { x + 1 }
+
+let result = 5 |> double |> add_one
+println(result)  # 11
+
+# === 管道与内置函数 ===
+let data = [3, 1, 4, 1, 5, 9, 2, 6]
+let sorted_len = data |> sorted |> len
+println(sorted_len)  # 8
+
+# === lambda 简写 ===
+let f = fn x => x * x
+println(f(5))  # 25
+
+# === lambda 简写与管道组合 ===
+fn my_map(f, arr) {
+    [f(x) for x in arr]
+}
+
+fn my_filter(pred, arr) {
+    [x for x in arr if pred(x)]
+}
+
+let transformed = [1, 2, 3, 4, 5]
+    |> my_filter(fn x => x % 2 == 0)
+    |> my_map(fn x => x * 10)
+println(transformed)  # [20, 40]
+
+# === 推导式与管道组合 ===
+let comp_pipe = [x * 2 for x in 1..5] |> len
+println(comp_pipe)  # 5

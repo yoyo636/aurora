@@ -1,0 +1,49 @@
+# Aurora v2.1.0 解构赋值 + 元组示例
+
+# === 元组字面量 ===
+let point = (3, 4)
+let person = ("Alice", 30, true)
+
+# === 元组索引 ===
+println(point.0)  # 3
+println(point.1)  # 4
+println(person.0)  # Alice
+
+# === 解构赋值 ===
+let (x, y) = point
+println(x + y)  # 7
+
+let (name, age, active) = person
+println(name)  # Alice
+
+# === 嵌套解构 ===
+let nested = (1, (2, 3))
+let (a, (b, c)) = nested
+println(a + b + c)  # 6
+
+# === 交换变量 ===
+var i = 10
+var j = 20
+i, j = j, i
+println(i)  # 20
+println(j)  # 10
+
+# === 函数返回多值 ===
+fn divmod(a, b) {
+    (int(a / b), a % b)
+}
+
+let (q, r) = divmod(17, 5)
+println(q)  # 3
+println(r)  # 2
+
+# === 元组数组 ===
+let pairs = [(1, 2), (3, 4), (5, 6)]
+println(pairs[1].0 + pairs[1].1)  # 7
+
+# === for 循环解构 ===
+var total = 0
+for (a, b) in pairs {
+    total = total + a + b
+}
+println(total)  # 21

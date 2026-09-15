@@ -1,0 +1,37 @@
+# demo_java.aur — 与 Java 生态打通
+# 需要 JDK 环境(java/javac 命令可用)
+import std.java
+import std.json
+
+println("=== Java 互操作 ===")
+
+# 检测环境
+if std.java.available() {
+    println("Java 版本: " + std.java.version())
+} else {
+    println("警告: Java 不可用,以下示例将失败")
+}
+
+# 1. eval:通过 jshell 执行 Java 代码
+println("\n--- java.eval ---")
+println("java.eval('1 + 2 * 3') = " + str(std.java.eval("1 + 2 * 3")))
+println("java.eval('\"Hello\".toUpperCase()') = " + str(std.java.eval("\"Hello\".toUpperCase()")))
+
+# 2. call:调用 Java 静态方法
+# 格式: java.call(类名, 方法名, 参数...)
+println("\n--- java.call ---")
+# Math 类的静态方法
+println("java.call('java.lang.Math', 'sqrt', 81.0) = " + str(std.java.call("java.lang.Math", "sqrt", 81.0)))
+println("java.call('java.lang.Math', 'abs', -42) = " + str(std.java.call("java.lang.Math", "abs", -42)))
+# Integer 类
+println("java.call('java.lang.Integer', 'parseInt', '100') = " + str(std.java.call("java.lang.Integer", "parseInt", "100")))
+# String 类
+println("java.call('java.lang.String', 'valueOf', 123) = " + str(std.java.call("java.lang.String", "valueOf", 123)))
+
+# 3. run:运行已编译的 Java 程序
+println("\n--- java.run ---")
+println("(需先编译 .class 文件,然后 java.run('MainClass', args, classpath))")
+
+# 4. compile:编译 Java 源文件
+println("\n--- java.compile ---")
+println("(java.compile('Hello.java') 可编译源文件)")

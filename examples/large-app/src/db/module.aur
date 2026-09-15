@@ -1,0 +1,29 @@
+// src/db/module.aur — 数据库模块
+// 展示：条件编译选择后端、pub 接口、defer 资源清理
+
+#[cfg(target_os = "macos")]
+pub const DB_PATH = "./data/app.sqlite"
+
+#[cfg(target_os = "windows")]
+pub const DB_PATH = "C:\\aurora\\app.sqlite"
+
+#[cfg(not(or(target_os = "macos", target_os = "windows")))]
+pub const DB_PATH = "/var/lib/aurora/app.sqlite"
+
+var _open_handles = []
+
+pub fn connect(path: str) -> int {
+    println("Opening database at " + path)
+    _open_handles.push(path)
+    return _open_handles.len()
+}
+
+pub fn close(handle: int) {
+    // defer 演示：无论是否出错都释放资源
+    defer { println("Releasing handle " + handle) }
+    println("Closing connection " + handle)
+}
+
+pub fn query(conn: int, sql: str) -> [any] {
+    return [1, 2, 3]
+}

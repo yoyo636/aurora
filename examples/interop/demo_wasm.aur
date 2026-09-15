@@ -1,0 +1,37 @@
+# demo_wasm.aur — WebAssembly 互操作
+# 通过 Node.js WebAssembly API 加载和调用 .wasm 模块
+# 需要 Node.js 环境
+import std.wasm
+import std.js
+import std.json
+
+println("=== WebAssembly 互操作 ===")
+
+if std.wasm.available() {
+    println("WASM 运行时: Node.js WebAssembly API")
+} else {
+    println("警告: Node.js 不可用,WASM 功能需要 Node.js")
+}
+
+# 1. 用 JS 动态编译一个简单的 WASM 模块(演示)
+# WASM 二进制格式: 这里用一个 add 函数的 WASM 字节码
+# 实际使用时加载 Rust/Go/C++ 编译出的 .wasm 文件
+println("\n--- wasm.exports ---")
+println("用法: wasm.exports('path/to/module.wasm') 列出导出函数")
+println("用法: wasm.load('path/to/module.wasm') 加载模块")
+println("用法: wasm.call(module, 'add', 1, 2) 调用函数")
+
+# 2. 演示:通过 JS 创建 WASM 模块并调用
+println("\n--- 通过 JS 创建最小 WASM 模块 ---")
+# WASM 二进制:一个简单的 add(i32, i32) -> i32 函数
+# 这是 WASM 二进制格式的十六进制表示
+let wasm_hex = "0061736d0100000001070160027f7f017f030201000707010361646400000a09010700200020016a0b"
+println("WASM add 模块已定义(hex 格式)")
+println("实际项目中: rustc --target wasm32-unknown-unknown add.rs -o add.wasm")
+
+# 3. 与 Rust/Go/C++ 编译为 WASM 的工作流
+println("\n--- WASM 编译工作流 ---")
+println("Rust:  rustc --target wasm32-unknown-unknown math.rs -o math.wasm")
+println("Go:    tinygo build -o math.wasm -target wasm math.go")
+println("C/C++: emcc math.c -o math.wasm -s EXPORTED_FUNCTIONS=['_add']")
+println("然后:  wasm.load('math.wasm') + wasm.call(module, 'add', 3, 4)")

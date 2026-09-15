@@ -1,0 +1,14 @@
+[project]
+name = "aurora-todo-web"
+version = "1.0.0"
+description = "Aurora v3.1.0 Web 应用示例 — TodoList（组件化 / 虚拟 DOM）"
+author = "Aurora Team"
+
+[build]
+entry = "web_app.aur"
+
+[package]
+target = "web"
+# 打包为 PWA：aurora package web --pwa
+pwa = true
+icon = "icons/icon-512.png"

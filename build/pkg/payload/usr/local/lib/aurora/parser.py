@@ -71,16 +71,41 @@ class Parser:
     def _parse_top_level(self) -> Optional[Stmt]:
         # @perf(level) 等函数级注解（仅作用于紧随其后的 fn）
         annotations = self._parse_annotations()
+        # v3.1.0：#[...] 属性，可多个，附加到紧随其后的定义
+        attrs = self._parse_attributes()
 
         pub = bool(self._match(TokenType.PUB))
+        # v3.1.0：async / unsafe 修饰符（仅在紧随 fn 时消费；否则交给语句解析
+        # 以支持独立的 unsafe { ... } 块）
+        is_async = bool(self._match(TokenType.ASYNC))
+        is_unsafe = False
+        if not is_async and self._at(TokenType.UNSAFE) and self._peek(1).type == TokenType.FN:
+            self._advance()
+            is_unsafe = True
+        if is_async and self._at(TokenType.UNSAFE) and self._peek(1).type == TokenType.FN:
+            self._advance()
+            is_unsafe = True
+
+        # extern "C" { ... } 外部函数声明块
+        if self._at(TokenType.EXTERN):
+            return self._parse_extern_block(attrs=attrs)
 
         tok = self._current()
         if tok.type == TokenType.FN:
             fn = self._parse_fn_def(is_pub=pub)
             fn.annotations = annotations
+            fn.is_async = is_async
+            fn.is_unsafe = is_unsafe
+            fn.attributes = attrs
             return fn
         if tok.type == TokenType.TYPE:
-            return self._parse_type_def(is_pub=pub)
+            td = self._parse_type_def(is_pub=pub)
+            td.attributes = attrs
+            return td
+        if tok.type == TokenType.STRUCT:
+            td = self._parse_type_def(is_pub=pub)
+            td.attributes = attrs
+            return td
         if tok.type == TokenType.ENUM:
             return self._parse_enum_def(is_pub=pub)
         if tok.type == TokenType.TRAIT:
@@ -92,12 +117,92 @@ class Parser:
         if tok.type == TokenType.TEST:
             return self._parse_test_block()
         if tok.type == TokenType.CONST:
-            return self._parse_const()
+            c = self._parse_const()
+            c.is_pub = pub
+            c.attributes = attrs
+            return c
+        # v3.1.0：pub let name = ...（顶层可见性变量）
+        if pub and tok.type in (TokenType.LET, TokenType.VAR):
+            s = self._parse_let(mutable=(tok.type == TokenType.VAR))
+            if isinstance(s, LetStmt):
+                s.is_pub = pub
+            s.attributes = attrs
+            return s
 
-        # pub 后面必须跟 fn/type/enum/trait
+        # pub 后面必须跟 fn/type/enum/trait/const/let
         if pub:
-            raise ParseError("'pub' 只能修饰 fn/type/enum/trait", tok)
+            raise ParseError("'pub' 只能修饰 fn/type/struct/enum/trait/const/let", tok)
         return self._parse_statement()
+
+    def _parse_attributes(self) -> List[Attribute]:
+        """解析前导 #[...] 属性列表（v3.1.0），如 #[cfg(target_os = "macos")]"""
+        attrs = []
+        while self._at(TokenType.POUND):
+            self._advance()  # #
+            self._expect(TokenType.LBRACKET, "属性语法应为 #[...]")
+            name = self._expect(TokenType.IDENTIFIER).value
+            args = []
+            raw_parts = []
+            if self._match(TokenType.LPAREN):
+                # 收集括号内原始文本直到匹配的 )
+                depth = 1
+                while depth and not self._at(TokenType.EOF):
+                    t = self._current()
+                    if t.type == TokenType.LPAREN:
+                        depth += 1
+                    elif t.type == TokenType.RPAREN:
+                        depth -= 1
+                        if depth == 0:
+                            self._advance()
+                            break
+                    raw_parts.append(t.value)
+                    self._advance()
+                raw = ' '.join(raw_parts).strip()
+                # 解析简单的 key = "value" 列表
+                args = self._parse_attr_args(raw)
+            else:
+                raw = ''
+            self._expect(TokenType.RBRACKET, "属性 ] 不匹配")
+            attrs.append(Attribute(name=name, args=args, raw=raw))
+        return attrs
+
+    def _parse_attr_args(self, raw: str) -> List[tuple]:
+        """把属性括号内文本切成 (key, value) 对，如 target_os = "macos"。"""
+        import re as _re
+        pairs = []
+        # 按逗号切分（粗粒度：字符串内逗号不常见，cfg 表达式逗号多在顶层）
+        for chunk in _re.split(r',(?![^"]*"\s*\))', raw):
+            m = _re.match(r'\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]*)"', chunk)
+            if m:
+                pairs.append((m.group(1), m.group(2)))
+        return pairs
+
+    def _parse_extern_block(self, attrs=None) -> ExternBlock:
+        """解析 extern "C" { fn a(...) -> T; fn b(...) -> U; }"""
+        self._expect(TokenType.EXTERN)
+        abi = "C"
+        if self._at(TokenType.STRING):
+            abi = self._advance().value
+        self._expect(TokenType.LBRACE)
+        decls = []
+        while not self._at(TokenType.RBRACE):
+            # 可选 pub 前缀（extern 块内通常不写，兼容）
+            self._match(TokenType.PUB)
+            self._expect(TokenType.FN)
+            fname = self._expect(TokenType.IDENTIFIER).value
+            self._expect(TokenType.LPAREN)
+            params = self._parse_params()
+            self._expect(TokenType.RPAREN)
+            ret_type = None
+            if self._match(TokenType.ARROW):
+                ret_type = self._parse_type()
+            is_variadic = any(p.variadic for p in params)
+            decls.append(ExternFn(name=fname, params=params,
+                                  return_type=ret_type, is_variadic=is_variadic))
+            while self._match(TokenType.SEMICOLON):
+                pass
+        self._expect(TokenType.RBRACE)
+        return ExternBlock(abi=abi, declarations=decls, attributes=attrs or [])
 
     # ── function definition ─────────────────────────────
 
@@ -127,6 +232,7 @@ class Parser:
     def _parse_fn_def(self, is_pub=False, require_body=True) -> FnDef:
         tok = self._expect(TokenType.FN)
         name = self._expect(TokenType.IDENTIFIER).value
+        type_params = self._parse_generic_params()
         self._expect(TokenType.LPAREN)
         params = self._parse_params()
         self._expect(TokenType.RPAREN)
@@ -142,11 +248,13 @@ class Parser:
             # trait 方法允许带默认实现
             body = self._parse_block()
         return FnDef(name=name, params=params, return_type=ret_type,
-                     body=body, is_pub=is_pub, line=tok.line, column=tok.column)
+                     body=body, is_pub=is_pub, type_params=type_params,
+                     line=tok.line, column=tok.column)
 
     def _parse_params(self) -> List[Param]:
         params = []
         while not self._at(TokenType.RPAREN):
+            variadic = bool(self._match(TokenType.VARIADIC))
             p_name = self._expect(TokenType.IDENTIFIER).value
             p_type = None
             if self._match(TokenType.COLON):
@@ -154,7 +262,8 @@ class Parser:
             default = None
             if self._match(TokenType.ASSIGN):
                 default = self._parse_expr()
-            params.append(Param(name=p_name, type_annotation=p_type, default_value=default))
+            params.append(Param(name=p_name, type_annotation=p_type,
+                                default_value=default, variadic=variadic))
             if not self._match(TokenType.COMMA):
                 break
         return params
@@ -162,7 +271,10 @@ class Parser:
     # ── type definition ─────────────────────────────────
 
     def _parse_type_def(self, is_pub=False) -> TypeDef:
-        self._expect(TokenType.TYPE)
+        tok = self._current()
+        if tok.type not in (TokenType.TYPE, TokenType.STRUCT):
+            raise ParseError(f"期望 type 或 struct，得到 {tok.type.name}", tok)
+        self._advance()
         name = self._expect(TokenType.IDENTIFIER).value
         type_params = self._parse_generic_params()
         self._expect(TokenType.LBRACE)
@@ -202,6 +314,7 @@ class Parser:
             v_name = self._expect(TokenType.IDENTIFIER).value
             v_fields = []
             if self._match(TokenType.LPAREN):
+                # 元组变体: Circle(f64)
                 while not self._at(TokenType.RPAREN):
                     f_name = self._expect(TokenType.IDENTIFIER).value
                     self._expect(TokenType.COLON)
@@ -210,6 +323,16 @@ class Parser:
                     if not self._match(TokenType.COMMA):
                         break
                 self._expect(TokenType.RPAREN)
+            elif self._match(TokenType.LBRACE):
+                # 结构体变体: Point { x: i64, y: i64 }
+                while not self._at(TokenType.RBRACE):
+                    f_name = self._expect(TokenType.IDENTIFIER).value
+                    self._expect(TokenType.COLON)
+                    f_type = self._parse_type()
+                    v_fields.append((f_name, f_type))
+                    if not self._match(TokenType.COMMA):
+                        break
+                self._expect(TokenType.RBRACE)
             variants.append(EnumVariant(name=v_name, fields=v_fields))
             self._match(TokenType.COMMA)
         self._expect(TokenType.RBRACE)
@@ -343,8 +466,16 @@ class Parser:
             return self._parse_assert()
         if tok.type == TokenType.DEFER:
             return self._parse_defer()
+        if tok.type == TokenType.UNSAFE:
+            # v3.1.0: unsafe { ... } 块
+            self._advance()
+            return UnsafeBlock(body=self._parse_block())
         if tok.type == TokenType.YIELD:
             return self._parse_yield()
+        if tok.type in (TokenType.TYPE, TokenType.STRUCT):
+            return self._parse_type_def()
+        if tok.type == TokenType.ENUM:
+            return self._parse_enum_def()
 
         # 赋值或表达式
         return self._parse_assign_or_expr()
@@ -356,21 +487,16 @@ class Parser:
             mutable = True
         tok = self._current()
 
-        # 模式解构: let (a, b) = expr / let [a, b] = expr
+        # 模式解构: let (a, b) = expr / let (x, (y, z)) = expr / let [a, b] = expr
         if tok.type in (TokenType.LPAREN, TokenType.LBRACKET):
-            self._advance()
+            pattern = self._parse_pattern()
+            # 扁平化收集所有绑定名
             names = []
-            closing = TokenType.RPAREN if tok.type == TokenType.LPAREN else TokenType.RBRACKET
-            while not self._at(closing):
-                if self._at(TokenType.EOF):
-                    break
-                names.append(self._expect(TokenType.IDENTIFIER).value)
-                if not self._match(TokenType.COMMA):
-                    break
-            self._expect(closing)
+            self._collect_pattern_names(pattern, names)
             self._expect(TokenType.ASSIGN, "解构绑定需要 = 初始化")
             init = self._parse_expr()
-            return DestructureLet(names=names, mutable=mutable, initializer=init)
+            return DestructureLet(names=names, mutable=mutable,
+                                  initializer=init, pattern=pattern)
 
         name = self._expect(TokenType.IDENTIFIER).value
         type_ann = None
@@ -380,6 +506,23 @@ class Parser:
         if self._match(TokenType.ASSIGN):
             init = self._parse_expr()
         return LetStmt(name=name, mutable=mutable, type_annotation=type_ann, initializer=init)
+
+    def _collect_pattern_names(self, pattern: Pattern, names: List[str]):
+        """递归收集模式中所有绑定名称"""
+        if isinstance(pattern, BindPattern):
+            names.append(pattern.name)
+        elif isinstance(pattern, TuplePattern):
+            for p in pattern.elements:
+                self._collect_pattern_names(p, names)
+        elif isinstance(pattern, ConstructorPattern):
+            for p in pattern.fields:
+                self._collect_pattern_names(p, names)
+        elif isinstance(pattern, StructPattern):
+            for fname, sub in pattern.fields:
+                if sub:
+                    self._collect_pattern_names(sub, names)
+                else:
+                    names.append(fname)
 
     def _parse_defer(self) -> DeferStmt:
         self._expect(TokenType.DEFER)
@@ -419,9 +562,19 @@ class Parser:
 
     def _parse_for_stmt(self) -> ForStmt:
         self._expect(TokenType.FOR)
-        variables = [self._expect(TokenType.IDENTIFIER).value]
-        while self._match(TokenType.COMMA):
-            variables.append(self._expect(TokenType.IDENTIFIER).value)
+        # 支持 for (a, b) in pairs 元组解构
+        if self._at(TokenType.LPAREN):
+            self._advance()
+            variables = []
+            while not self._at(TokenType.RPAREN):
+                variables.append(self._expect(TokenType.IDENTIFIER).value)
+                if not self._match(TokenType.COMMA):
+                    break
+            self._expect(TokenType.RPAREN)
+        else:
+            variables = [self._expect(TokenType.IDENTIFIER).value]
+            while self._match(TokenType.COMMA):
+                variables.append(self._expect(TokenType.IDENTIFIER).value)
         # expect 'in' as identifier
         self._expect(TokenType.IDENTIFIER, "期望 'in'")
         iterable = self._parse_expr()
@@ -502,6 +655,24 @@ class Parser:
 
     def _parse_assign_or_expr(self) -> Stmt:
         expr = self._parse_expr()
+        # 元组赋值: a, b = b, a / (a, b) = (1, 2)
+        if self._at(TokenType.COMMA):
+            targets = [expr]
+            while self._match(TokenType.COMMA):
+                targets.append(self._parse_expr())
+            if self._at(TokenType.ASSIGN, TokenType.PLUS_EQ, TokenType.MINUS_EQ,
+                        TokenType.STAR_EQ, TokenType.SLASH_EQ):
+                op = self._advance().value
+                value = self._parse_expr()
+                # 右侧如果是逗号分隔,构造元组
+                if self._at(TokenType.COMMA):
+                    vals = [value]
+                    while self._match(TokenType.COMMA):
+                        vals.append(self._parse_expr())
+                    value = TupleLiteral(elements=vals)
+                return AssignStmt(target=TupleLiteral(elements=targets), value=value, op=op)
+            # 非赋值的逗号表达式:构造元组
+            return ExprStmt(expr=TupleLiteral(elements=targets))
         # 赋值
         if self._at(TokenType.ASSIGN, TokenType.PLUS_EQ, TokenType.MINUS_EQ,
                     TokenType.STAR_EQ, TokenType.SLASH_EQ):
@@ -540,10 +711,62 @@ class Parser:
                         break
                 self._expect(TokenType.RPAREN)
                 return ConstructorPattern(name=name, fields=fields)
+            # 结构体模式: Point { x, y } / User { name: n, age: a }
+            if self._match(TokenType.LBRACE):
+                fields = []
+                while not self._at(TokenType.RBRACE):
+                    fname = self._expect(TokenType.IDENTIFIER).value
+                    sub = None
+                    if self._match(TokenType.COLON):
+                        sub = self._parse_pattern()
+                    fields.append((fname, sub))
+                    if not self._match(TokenType.COMMA):
+                        break
+                self._expect(TokenType.RBRACE)
+                return StructPattern(name=name, fields=fields)
             return BindPattern(name=name)
+        # 元组模式: (a, b, c)
+        if tok.type == TokenType.LPAREN:
+            self._advance()
+            elems = []
+            while not self._at(TokenType.RPAREN):
+                elems.append(self._parse_pattern())
+                if not self._match(TokenType.COMMA):
+                    break
+            self._expect(TokenType.RPAREN)
+            return TuplePattern(elements=elems)
+        # 数组模式: [a, b, c]
+        if tok.type == TokenType.LBRACKET:
+            self._advance()
+            elems = []
+            while not self._at(TokenType.RBRACKET):
+                elems.append(self._parse_pattern())
+                if not self._match(TokenType.COMMA):
+                    break
+            self._expect(TokenType.RBRACKET)
+            return TuplePattern(elements=elems)  # 复用 TuplePattern
         # 字面量模式
         lit = self._parse_primary()
         return LiteralPattern(value=lit)
+
+    def _parse_comprehension_clauses(self):
+        """解析推导式的 for/if 子句，返回 (generators, conditions)"""
+        gens = []
+        conds = []
+        while self._at(TokenType.FOR):
+            self._advance()  # for
+            targets = [self._expect(TokenType.IDENTIFIER).value]
+            while self._match(TokenType.COMMA):
+                targets.append(self._expect(TokenType.IDENTIFIER).value)
+            # expect 'in' as identifier
+            self._expect(TokenType.IDENTIFIER, "期望 'in'")
+            iterable = self._parse_expr()
+            for t in targets:
+                gens.append(CompFor(target=t, iterable=iterable))
+            while self._at(TokenType.IF):
+                self._advance()  # if
+                conds.append(self._parse_expr())
+        return gens, conds
 
     # ── types ───────────────────────────────────────────
 
@@ -555,7 +778,19 @@ class Parser:
             inner = self._parse_type()
             return RefType(inner=inner, mutable=mutable)
 
+        # v3.1.0: 原始指针类型 *T / *void（extern 块使用）
+        if self._match(TokenType.STAR):
+            if self._at(TokenType.IDENTIFIER) and self._current().value == 'void':
+                self._advance()
+                return RefType(inner=NamedType(name='void'), mutable=True)
+            inner = self._parse_type()
+            return RefType(inner=inner, mutable=True)
+
         base = self._parse_type_atom()
+
+        # 可选类型 T?（可链式 T??）
+        while self._match(TokenType.QUESTION):
+            base = OptionalType(inner=base)
 
         # 函数类型 (T) -> U  — 已在 _parse_type_atom 中处理
         # 联合类型 T | U
@@ -739,8 +974,13 @@ class Parser:
         return left
 
     def _parse_multiplication(self) -> Expr:
+        start_line = self._current().line
         left = self._parse_power()
+        # 行感知：跨行的 * 视为解引用而非乘法（支持 unsafe 块内 *ptr = v 独立成行）
         while self._at(TokenType.STAR, TokenType.SLASH, TokenType.PERCENT):
+            if (self._current().type == TokenType.STAR and start_line
+                    and self._current().line != start_line):
+                break
             op = self._advance().value
             right = self._parse_power()
             left = BinaryOp(left=left, op=op, right=right)
@@ -767,6 +1007,9 @@ class Parser:
         if self._match(TokenType.CHANNEL_SEND):
             # 前缀通道接收: <-ch
             return ChannelRecv(channel=self._parse_unary())
+        if self._match(TokenType.AWAIT):
+            # v3.1.0: await expr
+            return AwaitExpr(expression=self._parse_unary())
         return self._parse_postfix()
 
     def _parse_postfix(self) -> Expr:
@@ -774,28 +1017,47 @@ class Parser:
         expr = self._parse_primary()
         while True:
             if self._match(TokenType.DOT):
+                # 元组索引: tup.0, tup.1
+                if self._at(TokenType.INTEGER):
+                    idx = int(self._advance().value)
+                    expr = TupleIndex(object=expr, index=idx)
+                    continue
                 member = self._expect_member_name()
+                # 强制解包: obj.field! (field! 后不跟 ()
+                unwrap = member.endswith('!') and not self._at(TokenType.LPAREN)
+                if unwrap:
+                    member = member[:-1]
                 if self._match(TokenType.LPAREN):
                     args, named = self._parse_args()
                     self._expect(TokenType.RPAREN)
                     expr = MethodCall(object=expr, method=member, args=args, named_args=named)
                 else:
                     expr = MemberAccess(object=expr, member=member)
+                if unwrap:
+                    expr = ForcedUnwrap(operand=expr)
             elif self._match(TokenType.OPTIONAL_DOT):
                 member = self._expect_member_name()
+                unwrap = member.endswith('!') and not self._at(TokenType.LPAREN)
+                if unwrap:
+                    member = member[:-1]
                 if self._match(TokenType.LPAREN):
                     args, named = self._parse_args()
                     self._expect(TokenType.RPAREN)
                     expr = OptionalCall(object=expr, method=member, args=args, named_args=named)
                 else:
                     expr = OptionalAccess(object=expr, member=member)
-            elif self._match(TokenType.LBRACKET):
+                if unwrap:
+                    expr = ForcedUnwrap(operand=expr)
+            elif self._at(TokenType.LBRACKET):
+                # 换行即语句边界:跨行的 [ 属于新的一行,不是上一表达式的索引
+                if start_tok.line != 0 and self._current().line != start_tok.line:
+                    break
+                self._advance()
                 idx = self._parse_expr()
                 self._expect(TokenType.RBRACKET)
                 expr = IndexAccess(object=expr, index=idx)
             elif self._at(TokenType.LPAREN):
                 # 换行即语句边界:跨行的 ( 属于新的一行,不是上一表达式的调用参数
-                # (NEWLINE token 在解析前被过滤,故用行号判断,避免 `1\n(2)` 被当作 `1(2)`)
                 if start_tok.line != 0 and self._current().line != start_tok.line:
                     break
                 self._advance()
@@ -872,6 +1134,30 @@ class Parser:
             self._advance()
             return NilLiteral(line=tok.line, column=tok.column)
 
+        # lambda 简写: fn x => expr / fn (x, y) => expr
+        if tok.type == TokenType.FN:
+            self._advance()
+            params = []
+            if self._at(TokenType.LPAREN):
+                self._advance()
+                while not self._at(TokenType.RPAREN):
+                    pname = self._expect(TokenType.IDENTIFIER).value
+                    ptype = None
+                    if self._match(TokenType.COLON):
+                        ptype = self._parse_type()
+                    params.append(Param(name=pname, type_annotation=ptype))
+                    if not self._match(TokenType.COMMA):
+                        break
+                self._expect(TokenType.RPAREN)
+            else:
+                pname = self._expect(TokenType.IDENTIFIER).value
+                params.append(Param(name=pname))
+            self._expect(TokenType.FAT_ARROW, "lambda 简写需要 =>")
+            body_expr = self._parse_expr()
+            body = Block(statements=[ReturnStmt(value=body_expr)])
+            return LambdaExpr(params=params, body=body, is_expression=True,
+                              line=tok.line, column=tok.column)
+
         # 标识符
         if tok.type == TokenType.IDENTIFIER:
             # Ok(expr) / Err(expr) 特殊形式（仍兼容裸标识符 Ok 作为值）
@@ -884,31 +1170,88 @@ class Parser:
                 if kind == 'Ok':
                     return OkExpr(value=arg, line=tok.line, column=tok.column)
                 return ErrExpr(error=arg, line=tok.line, column=tok.column)
+            name = tok.value
             self._advance()
-            return Identifier(name=tok.value, line=tok.line, column=tok.column)
+            # 强制解包: identifier! 后不跟 ( 时为强制解包
+            unwrap = name.endswith('!') and not self._at(TokenType.LPAREN)
+            if unwrap:
+                name = name[:-1]
+            ident = Identifier(name=name, line=tok.line, column=tok.column)
+            # 结构体字面量: Name { field: value, ... }（仅大写开头的类型名）
+            if name and name[0].isupper() and self._at(TokenType.LBRACE):
+                self._advance()
+                fields = []
+                while not self._at(TokenType.RBRACE):
+                    fname = self._expect(TokenType.IDENTIFIER).value
+                    self._expect(TokenType.COLON)
+                    fval = self._parse_expr()
+                    fields.append((fname, fval))
+                    if not self._match(TokenType.COMMA):
+                        break
+                self._expect(TokenType.RBRACE)
+                sl = StructLiteral(type_name=name, fields=fields,
+                                   line=tok.line, column=tok.column)
+                if unwrap:
+                    return ForcedUnwrap(operand=sl, line=tok.line, column=tok.column)
+                return sl
+            if unwrap:
+                return ForcedUnwrap(operand=ident, line=tok.line, column=tok.column)
+            return ident
 
-        # 数组字面量
+        # 数组字面量 / 列表推导式
         if tok.type == TokenType.LBRACKET:
             self._advance()
-            elems = []
-            while not self._at(TokenType.RBRACKET):
-                elems.append(self._parse_expr())
-                if not self._match(TokenType.COMMA):
+            # 空数组 []
+            if self._at(TokenType.RBRACKET):
+                self._advance()
+                return ArrayLiteral(elements=[], line=tok.line, column=tok.column)
+            first = self._parse_expr()
+            # 列表推导式: [expr for x in arr if cond]
+            if self._at(TokenType.FOR):
+                gens, conds = self._parse_comprehension_clauses()
+                self._expect(TokenType.RBRACKET)
+                return ListComp(expr=first, generators=gens, conditions=conds,
+                                line=tok.line, column=tok.column)
+            elems = [first]
+            while self._match(TokenType.COMMA):
+                if self._at(TokenType.RBRACKET):
                     break
+                elems.append(self._parse_expr())
             self._expect(TokenType.RBRACKET)
             return ArrayLiteral(elements=elems, line=tok.line, column=tok.column)
 
-        # map 字面量
+        # map 字面量 / 集合推导式 / Map 推导式
         if tok.type == TokenType.LBRACE:
             self._advance()
-            entries = []
-            while not self._at(TokenType.RBRACE):
+            # 空 map {}
+            if self._at(TokenType.RBRACE):
+                self._advance()
+                return MapLiteral(entries=[], line=tok.line, column=tok.column)
+            first_key = self._parse_expr()
+            # 集合推导式: {expr for x in arr}
+            if self._at(TokenType.FOR):
+                gens, conds = self._parse_comprehension_clauses()
+                self._expect(TokenType.RBRACE)
+                return SetComp(expr=first_key, generators=gens, conditions=conds,
+                               line=tok.line, column=tok.column)
+            # Map 字面量或 Map 推导式
+            self._expect(TokenType.COLON)
+            first_val = self._parse_expr()
+            # Map 推导式: {k: v for k, v in pairs}
+            if self._at(TokenType.FOR):
+                gens, conds = self._parse_comprehension_clauses()
+                self._expect(TokenType.RBRACE)
+                return MapComp(key_expr=first_key, value_expr=first_val,
+                               generators=gens, conditions=conds,
+                               line=tok.line, column=tok.column)
+            entries = [(first_key, first_val)]
+            while self._match(TokenType.COMMA):
+                if self._at(TokenType.RBRACE):
+                    break
                 k = self._parse_expr()
                 self._expect(TokenType.COLON)
                 v = self._parse_expr()
                 entries.append((k, v))
-                if not self._match(TokenType.COMMA):
-                    break
             self._expect(TokenType.RBRACE)
             return MapLiteral(entries=entries, line=tok.line, column=tok.column)
 

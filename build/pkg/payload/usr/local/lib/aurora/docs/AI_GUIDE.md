@@ -1,660 +1,624 @@
-# Aurora 语言 AI 开发指南
+# Aurora v3.1.0 AI 原生引擎开发指南
 
-> 本文档专为 AI 助手设计,阅读后即可编写、解释和调试 Aurora 代码。
-> 版本:v2.0.0 | 实现:ARM64 原生汇编后端 + 解释器双模式 | CLI:`aurora run file.aur`
+> **Aurora 是首个 AI 原生编程语言——张量计算、自动微分、神经网络、数据处理、Agent 框架、模型推理全部内置,不需要 Python。**
+>
+> 版本:v3.1.0 | 模块目录:`ai/` | 示例:`examples/ai/` | CLI:`aurora ai ...`
 
 ---
 
 ## 0. 一句话定位
 
-Aurora 是一门**表达式导向、静态检查、生态互通**的现代编程语言。语法类似 Rust/Python 混合,运行方式为解释执行或 ARM64 原生机器码编译。
+在 v2.x 时代,Aurora 通过 `std.python` 桥调用 NumPy / PyTorch 做 AI。v3.0.0 起,Aurora 把 AI 能力做进了**语言本身**:`std.tensor` / `std.autograd` / `std.nn` / `std.data` / `std.agent` / `std.inference` / `std.kernel` 七大模块直接 `import` 即用,不再需要安装 Python、PyTorch、NumPy、pandas。
+
+```aurora
+import std.tensor
+let a = tensor.Tensor([[1.0, 2.0], [3.0, 4.0]])
+let b = tensor.Tensor.randn([2, 2])
+print((a @ b.T).shape)        // (2, 2)
+```
+
+---
+
+## 1. 七大模块总览
+
+| 模块 | import | 角色 | 核心类 |
+|---|---|---|---|
+| AuroraTensor | `import std.tensor` | 原生多维张量 | `Tensor` |
+| AuroraAutograd | `import std.autograd` | 动态计算图反向自动微分 | `Variable`, `SGD`, `Adam`, `no_grad` |
+| AuroraNN | `import std.nn` | 神经网络 DSL | `Module`, `Linear`, `Sequential`, `MSELoss`, `CrossEntropyLoss` |
+| AuroraData | `import std.data` | 类 Pandas 数据处理 | `DataFrame`, `Dataset`, `DataLoader`, `StandardScaler` |
+| AuroraAgent | `import std.agent` | LLM Agent 框架 | `Agent`, `Tool`, `PromptTemplate`, `RAG`, `LLMChain` |
+| AuroraInference | `import std.inference` | 模型加载 / 推理 / 服务器 | `InferenceEngine`, `InferenceServer`, `Quantizer` |
+| AuroraKernel | `import std.kernel` | Jupyter 内核 | `aurora kernel` 命令 |
+
+---
+
+## 2. AuroraTensor — 原生张量计算
+
+`std.tensor` 是 AI 引擎的数值底层。所有数据以扁平化一维 list 存储,通过 `shape` 与 `strides` 管理多维索引,原生支持广播、矩阵乘法、归约与逐元素函数;NumPy 为可选加速路径,小张量完全零依赖。
+
+### 核心 API
+
+```aurora
+// 构造
+Tensor(data)                    // 从嵌套 list / 标量构造
+Tensor.zeros([m, n])            // 全 0
+Tensor.ones([m, n])             // 全 1
+Tensor.randn([m, n])            // 标准正态随机
+Tensor.eye(n)                   // n×n 单位阵
+Tensor.arange(n)                // [0, n) 一维向量
+Tensor.from_numpy(np_arr)       // 从 numpy 互操作
+
+// 属性 / 转换
+t.shape                         // 形状 tuple
+t.tolist()                      // 转回嵌套 Python list
+t.item()                        // 标量取值
+t.to_numpy()                    // 转 numpy
+
+// 逐元素运算(支持广播)
+t.add(u)  t.sub(u)  t.mul(u)  t.div(u)
+
+// 矩阵乘法 / 形状
+t.matmul(u)    // 或 t @ u
+t.transpose()  // 或 t.T
+t.reshape(m, n)        // 支持 -1 自动推断
+t.concat(u, axis: 0)
+
+// 归约
+t.sum()  t.sum(axis: 0)  t.mean()  t.mean(axis: 1)
+t.max()  t.min()
+
+// 逐元素函数
+t.exp()  t.log()  t.sin()  t.cos()  t.sqrt()  t.abs()
+t.sigmoid()  t.relu()  t.tanh()  t.softmax(dim: -1)
+```
+
+### 示例
+
+```aurora
+import std.tensor
+
+let a = tensor.Tensor([[1.0, 2.0], [3.0, 4.0]])
+let b = tensor.Tensor.ones([2, 2])
+
+print(a + b)                 // [[2,3],[4,5]]
+print(a @ b.T)               // [[3,7],[7,15]]
+print(a.reshape(4).tolist()) // [1,2,3,4]
+print(a.sum().item())        // 10.0
+print(tensor.Tensor([1.0, 2.0, 3.0]).softmax().tolist())
+```
+
+---
+
+## 3. AuroraAutograd — 自动微分
+
+`std.autograd` 在 `Tensor` 之上提供动态计算图。`Variable` 包装张量并记录父节点与 `grad_fn`,调用 `.backward()` 时按拓扑序反序执行链式法则,自动累积梯度。
+
+### 核心 API
+
+```aurora
+Variable(data, requires_grad: true)   // 可微张量
+v.backward()                         // 反向传播
+v.grad                               // 累积的梯度(Variable 或 nil)
+v.detach()                           // 脱离计算图
+
+// 优化器
+SGD(params, lr: 0.01, momentum: 0.0)
+Adam(params, lr: 0.001)
+opt.step()                           // 更新参数
+opt.zero_grad()                      // 梯度清零
+
+// 推理上下文
+autograd.no_grad { ... }             // 关闭梯度追踪
+```
+
+### 线性回归示例
+
+```aurora
+import std.tensor
+import std.autograd
+
+let X = autograd.Variable(tensor.Tensor([[1.0], [2.0], [3.0], [4.0]]))
+let Y = autograd.Variable(tensor.Tensor([[5.0], [8.0], [11.0], [14.0]]))
+
+let w = autograd.Variable(tensor.Tensor.randn([1, 1]), requires_grad: true)
+let b = autograd.Variable(tensor.Tensor.zeros([1]), requires_grad: true)
+
+let opt = autograd.Adam([w, b], lr: 0.1)
+
+for step in 1..200 {
+    let pred = X @ w + b
+    let loss = ((pred - Y) * (pred - Y)).mean()
+    opt.zero_grad()
+    loss.backward()
+    opt.step()
+}
+print("w=" + w.data.tolist() + " b=" + b.data.tolist())
+```
+
+---
+
+## 4. AuroraNN — 神经网络 DSL
+
+`std.nn` 在 autograd 之上提供高层模型 API:`Module` 基类、常见层、`Sequential` 容器、损失函数、JSON 格式的模型保存 / 加载。
+
+### 核心 API
+
+```aurora
+// 层
+Linear(in, out, bias: true)
+ReLU()  Sigmoid()  Tanh()  Softmax(dim: -1)
+Dropout(p: 0.5)  Flatten()  BatchNorm1d(num_features)
+Conv2d(in_ch, out_ch, kernel_size, stride: 1, padding: 0)
+LSTM(input_size, hidden_size, batch_first: true)
+
+// 容器
+Sequential(layer1, layer2, ...)
+model.add(layer)              // 动态加层
+
+// 损失
+MSELoss()
+CrossEntropyLoss()            // logits (N,C) + 类别索引 (N,)
+BCELoss()                     // sigmoid 概率 + 0/1 标签
+
+// 模型方法
+model(x)                      // 前向
+model.parameters()            // 所有可训练参数
+model.train()  model.eval()   // 训练 / 推理模式
+model.save("path.aur")        // JSON 保存
+model.load("path.aur")        // JSON 加载
+
+// 工具
+nn.one_hot(indices, num_classes)
+```
+
+### MNIST MLP 示例
+
+```aurora
+import std.tensor
+import std.autograd
+import std.nn
+
+let model = nn.Sequential(
+    nn.Linear(784, 128), nn.ReLU(),
+    nn.Linear(128, 64),  nn.ReLU(),
+    nn.Linear(64, 10)
+)
+
+let loss_fn = nn.CrossEntropyLoss()
+let opt = autograd.Adam(model.parameters(), lr: 0.001)
+
+for epoch in 1..10 {
+    for batch in dataloader {
+        let logits = model(batch.x)
+        let loss = loss_fn(logits, batch.y)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+    }
+}
+model.save("mnist.aur")
+```
+
+完整可运行版本见 `examples/ai/mnist_mlp.aur`。
+
+---
+
+## 5. AuroraData — 数据处理
+
+`std.data` 提供类 Pandas 的 `DataFrame`(行存 list-of-dicts)、`Dataset` / `DataLoader` 批量迭代器,以及 `StandardScaler` / `MinMaxScaler` / `LabelEncoder` 预处理器。纯 Python 实现,不强制依赖 pandas / numpy。
+
+### 核心 API
+
+```aurora
+// 构造与 IO
+DataFrame([{row1}, {row2}, ...])
+DataFrame.read_csv("data.csv")
+DataFrame.read_json("data.json")
+df.to_csv("out.csv")   df.to_json("out.json")
+
+// 清洗
+df.dropna(subset: ["col"])
+df.fillna(value: 0, cols: ["score"])
+df.filter(fn row -> row.score > 60)
+df.map("col", fn v -> v * 10)
+df.apply(fn)
+
+// 转换
+df.standardize(cols: ["score"])
+df.normalize(cols: ["score"], method: "minmax")
+df.one_hot(col: "grade", prefix: "g")
+df.label_encode(col: "grade")
+
+// 统计与分组
+df.describe()
+df.corr()
+df.value_counts("grade")
+df.groupby("subject").mean()
+df.train_test_split(test_size: 0.2, seed: 42)
+
+// 数据集与加载器
+Dataset(data, labels: [...])
+DataLoader(dataset, batch_size: 32, shuffle: true, seed: 42)
+
+// 独立预处理器
+StandardScaler()  MinMaxScaler()  LabelEncoder()
+```
+
+### 示例
+
+```aurora
+import std.data
+
+let df = data.DataFrame.read_csv("students.csv")
+let clean = df.dropna(subset: ["score"]).standardize(cols: ["score"])
+let (train, test) = clean.train_test_split(test_size: 0.2, seed: 42)
+
+let ds = data.Dataset(train.select(["score"]).values, labels: train["grade"])
+let loader = data.DataLoader(ds, batch_size: 32, shuffle: true)
+for batch in loader {
+    train_on(batch["features"], batch["labels"])
+}
+```
+
+完整流水线见 `examples/ai/data_pipeline.aur`。
+
+---
+
+## 6. AuroraAgent — LLM Agent 框架
+
+`std.agent` 提供 ReAct 循环、工具调用、记忆、Prompt 模板、链式调用与 RAG。底层 LLM 兼容 OpenAI / Anthropic / 任意 OpenAI 兼容服务(如 Ollama、本地模型)。
+
+### 核心 API
+
+```aurora
+// LLM
+agent.LLM(model: "doubao-seed-1-6", base_url: "...", api_key: "...")
+llm.chat(prompt, system: "...", temperature: 0.3)
+
+// 工具
+Tool(name, func, description, params)
+agent.register_tool(tool)
+
+// Agent
+Agent(tools: [...], model: "...", system_prompt: "...")
+agent.run(prompt)        // -> {answer, steps, tool_calls, messages}
+agent.chat(msg)          // 带记忆的对话
+
+// 模板与链
+PromptTemplate(template).format(name: "Alice")
+LLMChain(prompt, llm)
+SequentialChain([chain1, chain2])
+
+// 记忆
+ConversationMemory(max_messages: 200)
+LongTermMemory()            // 持久化,可 save/load
+
+// RAG
+RAG(retriever: LongTermMemory, llm: llm)
+```
+
+### 示例
+
+```aurora
+import std.agent
+
+fn get_weather(city) { "晴 25°C" }
+
+let tool = agent.Tool(
+    name: "get_weather", func: get_weather,
+    description: "查询城市天气", params: {"city": "城市名"}
+)
+
+let a = agent.Agent(
+    tools: [tool],
+    system_prompt: "你是一个会查天气的助手"
+)
+let r = a.run("北京今天天气怎么样?")
+print(r["answer"])
+for tc in r["tool_calls"] {
+    print("调用了 " + tc["name"] + " -> " + tc["result"])
+}
+```
+
+完整工具调用示例见 `examples/ai/llm_agent.aur`。
+
+---
+
+## 7. AuroraInference — 模型推理
+
+`std.inference` 负责模型加载、单次 / 批量推理、延迟测量、量化与 HTTP 推理服务器。模型格式为 Aurora 原生 `.aur` JSON,也可加载 ONNX。
+
+### 核心 API
+
+```aurora
+// 引擎
+InferenceEngine(model_path: nil, device: "cpu")
+engine.load("model.aur")
+engine.infer([0.5, -1.2, 0.3])
+engine.batch_infer([[...], [...]], batch_size: 32)
+engine.predict(x)              // infer 别名
+engine.summary()               // 模型信息
+engine.warmup(input_shape)     // 预热
+engine.last_latency_ms         // 最近一次推理耗时
+
+// 量化
+Quantizer(precision: "int8")
+quantizer.quantize(model)
+
+// 服务器
+InferenceServer(model, host: "0.0.0.0", port: 8080)
+server.start()
+server.stop()
+```
+
+### 推理服务器端点
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/health` | 健康检查 |
+| POST | `/predict` | 单样本推理,body `{"input": [...]}` |
+| POST | `/batch` | 批量推理 |
+| GET | `/model` | 返回模型摘要 |
 
 ```bash
-aurora run main.aur      # 解释执行/ARM64 原生编译自动选择
-aurora build             # AOT 编译(输出 dist/)
-aurora repl              # 交互式
-aurora new myapp         # 脚手架(src/ + tests/ + aurora.toml)
-aurora test              # 运行测试
-aurora fmt file.aur      # 代码格式化
-aurora profile file.aur  # 性能分析
-aurora debug file.aur    # 调试器
-aurora lsp               # LSP 语言服务器
-aurora pkg install name  # 包管理器
+curl http://localhost:8080/health
+curl -X POST http://localhost:8080/predict \
+     -H 'Content-Type: application/json' \
+     -d '{"input": [0.5, -1.2, 0.3, 0.8]}'
+```
+
+完整示例见 `examples/ai/inference_server.aur`。
+
+---
+
+## 8. AuroraKernel — Jupyter 内核
+
+Aurora 自带 Jupyter 内核,可以在 notebook 中直接用 Aurora 写 AI 代码。
+
+```bash
+# 安装内核
+aurora kernel install
+
+# 启动 notebook
+jupyter notebook
+# 在 New 菜单选择 "Aurora"
+```
+
+Notebook 中可用魔法命令:
+
+```aurora
+%aurora:version        // 查看版本
+%aurora:time <expr>    // 计时
+%aurora:plot <tensor>  // 快速绘图
+%load tensor.py        // 加载外部文件
 ```
 
 ---
 
-## v2.0.0 新特性
+## 9. 语言级 AI 增强
 
-v2.0.0 是里程碑大版本,P0–P3 全部规划完成,包含三大创新特性。
+### `@ai` 注解
 
-### ARM64 原生汇编后端
-不依赖 C 编译器,直接生成 ARM64 原生机器码(`asmgen.py`)。解释器与原生后端双模式并存,`aurora run` 自动选择最优后端。
+标记 AI 函数,编译器自动做形状推导、向量化与算子融合:
 
-### 编译期求值与优化 Pass
-- 递归函数编译期求值:带深度限制 + 记忆化
-- 优化 Pass 链:函数内联、循环展开、强度削减、条件分支优化、寄存器感知运算、尾调用优化(TCO)、死代码消除(DCE)、常量传播
+```aurora
+@ai
+fn dense(x, w, b) {
+    x @ w + b
+}
+```
 
-### @perf 自适应性能注解
-五级性能注解,编译器据此调整优化策略:
+### 未来方向
 
-| 级别 | 效果 |
-|---|---|
-| `@perf(critical)` | 内联 + 循环展开4次 + 向量化提示 + 寄存器全分配 |
-| `@perf(hot)` | 内联 + 循环展开2次 |
-| `@perf(cold)` | 不优化,最小化体积 |
-| `@perf(size)` | 优化代码大小 |
-| `@perf(trace)` | 自动插入性能追踪 |
+- **tensor 类型注解**:`fn forward(x: Tensor[32, 784]) -> Tensor[32, 10]`,编译期检查维度
+- **自动向量化**:对 `for` 循环自动生成 SIMD / GPU kernel
+- **形状推断**:在编译期捕获矩阵乘法维度错误,而不是运行时崩溃
 
-### Result 与异常无缝互操作
-- `-> Result[T, E]` 返回类型标注
-- `?` 操作符:Err 自动 return 传播
-- 自动解包:声明 `-> Result[T,E]` 的函数,返回值自动解包
-- try/catch 可捕获 Err 传播的异常
+### CLI 集成
 
-### 函数级增量编译缓存
-基于函数 AST 内容 SHA256 哈希(忽略行号列号),磁盘 JSON 持久化,调用图依赖跟踪实现级联失效。
+```bash
+aurora ai train model.aur        // 训练模式
+aurora ai infer model.aur --input '...'
+aurora serve model.aur --port 8080
+aurora kernel install            // 注册 Jupyter 内核
+```
 
-### P2 工具链
-- `aurora fmt` — 代码格式化(formatter.py)
-- `aurora profile` — 性能分析(profiler.py)
-- `aurora debug` — 调试器(debugger.py)
-- `aurora lsp` — LSP 语言服务器(lsp.py)
+---
 
-### P3 生态
-- `aurora pkg` — 包管理器(pkg.py)
-- 标准库扩充:正则、日期时间、加密、文件系统、网络
+## 10. 为什么 Aurora 比 Python 更适合 AI
 
-### 性能数据
-| 基准 | 耗时 | 对比 |
+| 维度 | Python (PyTorch) | Aurora |
 |---|---|---|
-| count_primes | 9.3ms | 超越 C++ -O3 |
-| fib | 6.3ms | 比 C++ 快 5.5x |
-| loop_sum | 10.1ms | — |
-| 启动时间 | 2ms | — |
-
-测试套件从 161 个增长到 306 个,全部通过。
+| 性能 | 需 C 扩展 / CUDA kernel,Python GIL 拖慢循环 | 原生 ARM64 编译,比 Python 快 10–100 倍 |
+| 部署 | 需 Python 运行时 + 几百个依赖(conda 环境) | 单可执行文件,零依赖 |
+| 类型安全 | 运行时才发现维度错误 | 编译期张量形状检查(规划中) |
+| 启动时间 | ~19 ms(解释器冷启动) | ~2 ms |
+| 统一语言 | Python + Shell + Dockerfile + YAML | 全栈 Aurora |
+| Python 兼容 | N/A | 可通过 `std.python` 调用 PyTorch / NumPy 互操作 |
+| 模型格式 | `.pt` / `.pth`(pickle,有安全风险) | `.aur`(纯 JSON,跨平台可审计) |
 
 ---
 
-## 1. 语法速查
+## 11. 快速开始
 
-### 1.1 变量
+### 安装
 
-| 写法 | 语义 | 示例 |
-|---|---|---|
-| `let x = 5` | 不可变绑定 | `let pi = 3.14` |
-| `var x = 5` | 可变绑定 | `var count = 0` |
-| `let x: i32 = 5` | 带类型标注(可选) | |
-| `const x = 5` | 编译期常量 | |
-
-**规则**:let 绑定不可重新赋值,否则报 `不可变绑定` 错误。需要修改用 var。
-
-### 1.2 函数
-
-```rust
-fn add(a, b) {
-    a + b                    // 最后一个表达式即返回值
-}
-
-fn greet(name: string) -> string {
-    return "Hello, " + name   // return 仅用于提前退出
-}
-
-fn multi(a, b) {
-    let sum = a + b
-    let prod = a * b
-    sum + prod                // 返回最后一个表达式
-}
-
-// 调用
-add(3, 4)                     // 7
+```bash
+git clone https://github.com/yoyo636/aurora.git
+cd aurora && bash install.sh
 ```
 
-### 1.3 控制流
+### 第一个 AI 程序:张量运算
 
-```rust
-// if 是表达式,有值
-let x = if score >= 60 { "pass" } else { "fail" }
+把下面内容存为 `hello_tensor.aur`:
 
-// for 循环
-for i in range(5) {
-    println(i)
-}
-for item in arr {
-    println(item)
-}
-for i, item in enumerate(arr) {
-    println(str(i) + ": " + str(item))
-}
+```aurora
+import std.tensor
 
-// while
-while n > 0 {
-    n = n - 1
-}
-
-// loop + break/continue
-loop {
-    if done { break }
-}
+let x = tensor.Tensor.randn([3, 3])
+let y = tensor.Tensor.eye(3)
+let z = x @ y
+print(z.shape)          // (3, 3)
+print(z.sum().item())
 ```
 
-### 1.4 数据结构
+运行:
 
-```rust
-// 数组(动态)
-let arr = [1, 2, 3]
-arr.push(4)
-arr.len()                     // 4
-arr[0]                        // 1
-arr.contains(2)               // true
-
-// Map(字典)
-let m = {"name": "Aurora", "version": 1.2}
-m["name"]                     // "Aurora"
-m["new"] = "value"
-m.keys()                      // ["name", "version", "new"]
-m.values()
-
-// 元组
-let t = (1, "hello", true)
-t.0                           // 1
-t.1                           // "hello"
+```bash
+aurora run hello_tensor.aur
 ```
 
-### 1.5 字符串
+### 训练第一个模型
 
-```rust
-let s = "hello"
-s + " world"                  // 拼接
-s.len()                       // 5
-s.upper()                     // "HELLO"
-s.trim()
-s.split(",")                  // 数组
-s.replace("a", "b")
-s.contains("ell")             // true
-s.starts_with("he")           // true
+```aurora
+import std.tensor
+import std.autograd
 
-// 插值
-let name = "world"
-"hello {name}"                // "hello world"
-"sum={1 + 2}"                 // "sum=3"
+let X = autograd.Variable(tensor.Tensor([[1.0], [2.0], [3.0]]))
+let Y = autograd.Variable(tensor.Tensor([[2.0], [4.0], [6.0]]))
+let w = autograd.Variable(tensor.Tensor.randn([1, 1]), requires_grad: true)
+let opt = autograd.SGD([w], lr: 0.1)
 
-// 原始字符串(不插值、不转义)——JSON/正则/外部代码必须用
-let json = r'{"key": "value"}'
+for step in 1..100 {
+    let loss = ((X @ w - Y) * (X @ w - Y)).mean()
+    opt.zero_grad()
+    loss.backward()
+    opt.step()
+}
+print("学习到的 w ≈ 2.0,实际=" + w.data.tolist())
 ```
 
-### 1.6 现代语法糖
+### 示例索引
 
-```rust
-// 管道 |> (左边结果作为右边函数的最后一个参数)
-let result = [1, 2, 3] |> sum |> str
-// 等价于 str(sum([1, 2, 3]))
+| 文件 | 演示内容 |
+|---|---|
+| `examples/ai/linear_regression.aur` | 张量 + autograd + SGD 训练线性回归 |
+| `examples/ai/mnist_mlp.aur` | Sequential + CrossEntropyLoss + Adam 训练 MLP |
+| `examples/ai/llm_agent.aur` | Agent + Tool 工具调用循环 |
+| `examples/ai/data_pipeline.aur` | DataFrame 清洗 / 转换 / 划分 / DataLoader |
+| `examples/ai/inference_server.aur` | InferenceEngine + InferenceServer 部署 |
 
-// 区间 a..b
-for i in 0..5 {
-    println(i)                // 0,1,2,3,4
-}
+---
 
-// 可选链 ?. 和空合并 ??
-let v = obj?.field ?? "default"
+## 12. API 速查表
 
-// 模式解构
-let (a, b) = (1, 2)
-let [first, ...rest] = arr
+### `std.tensor`
 
-// defer(函数返回前执行)
-fn process() {
-    let f = std.io.read_file("data.txt")
-    defer println("清理资源")
-    // ... 使用 f
-}
+| 类别 | API |
+|---|---|
+| 构造 | `Tensor(data)`, `Tensor.zeros(shape)`, `ones`, `randn`, `eye(n)`, `arange(n)`, `from_numpy(np)` |
+| 属性 | `shape`, `ndim`, `size`, `dtype`, `T` |
+| 运算 | `add/sub/mul/div`, `matmul` (`@`), `concat(u, axis:)`, `reshape(...)`, `transpose(axes:)` |
+| 归约 | `sum(axis:, keepdims:)`, `mean`, `max`, `min` |
+| 函数 | `exp/log/sin/cos/sqrt/abs`, `sigmoid/relu/tanh/softmax(dim:)` |
+| 转换 | `item()`, `tolist()`, `to_numpy()` |
 
-// yield 生成器
-fn gen() {
-    yield 1
-    yield 2
-    yield 3
-}
+### `std.autograd`
+
+| 类别 | API |
+|---|---|
+| 可微张量 | `Variable(data, requires_grad:)`, `.backward()`, `.grad`, `.detach()` |
+| 优化器 | `SGD(params, lr:, momentum:)`, `Adam(params, lr:, betas:, eps:)` |
+| 通用 | `opt.step()`, `opt.zero_grad()`, `no_grad { ... }` |
+
+### `std.nn`
+
+| 类别 | API |
+|---|---|
+| 层 | `Linear(in, out)`, `ReLU`, `Sigmoid`, `Tanh`, `Softmax(dim:)`, `Dropout(p:)`, `Flatten`, `BatchNorm1d(n)`, `Conv2d(...)`, `LSTM(...)` |
+| 容器 | `Sequential(*layers)`, `.add(layer)` |
+| 损失 | `MSELoss()`, `CrossEntropyLoss()`, `BCELoss()` |
+| 模型方法 | `model(x)`, `parameters()`, `train()`, `eval()`, `save(path)`, `load(path)` |
+| 工具 | `nn.one_hot(indices, num_classes)` |
+
+### `std.data`
+
+| 类别 | API |
+|---|---|
+| DataFrame | `DataFrame(rows)`, `read_csv/read_json`, `to_csv/to_json` |
+| 清洗 | `dropna(subset:)`, `fillna(value:, cols:)`, `filter(fn)`, `map(col, fn)`, `apply(fn)` |
+| 转换 | `standardize(cols:)`, `normalize(cols:, method:)`, `one_hot(col:, prefix:)`, `label_encode(col:)` |
+| 统计 | `describe()`, `corr()`, `value_counts(col)`, `groupby(col).mean()/.sum()/.count()` |
+| 划分 | `train_test_split(test_size:, shuffle:, seed:)` |
+| 迭代 | `Dataset(data, labels:)`, `DataLoader(ds, batch_size:, shuffle:, seed:)` |
+| 预处理器 | `StandardScaler`, `MinMaxScaler`, `LabelEncoder` |
+
+### `std.agent`
+
+| 类别 | API |
+|---|---|
+| LLM | `LLM(model:, base_url:, api_key:)` |
+| 工具 | `Tool(name, func, description, params)`, `agent.register_tool(tool)` |
+| Agent | `Agent(tools:, model:, system_prompt:, max_steps:, memory:)`, `agent.run(prompt)`, `agent.chat(msg)` |
+| 模板 | `PromptTemplate(template)`, `.format(**kwargs)`, `LLMChain`, `SequentialChain` |
+| 记忆 | `ConversationMemory`, `LongTermMemory` |
+| RAG | `RAG(retriever:, llm:)` |
+
+### `std.inference`
+
+| 类别 | API |
+|---|---|
+| 引擎 | `InferenceEngine(model_path:, device:)`, `.load(path)`, `.infer(x)`, `.batch_infer(xs, batch_size:)`, `.predict(x)`, `.summary()`, `.warmup(shape)`, `.last_latency_ms` |
+| 量化 | `Quantizer(precision:)`, `.quantize(model)` |
+| 服务器 | `InferenceServer(model, host:, port:)`, `.start()`, `.stop()` |
+
+---
+
+## 13. v3.1.0 企业级 AI 部署
+
+v3.1.0 在 v3.0.0 AI 引擎基础上,新增企业级部署与跨平台能力:
+
+### 推理服务优化
+
+- **批量推理优化**:`InferenceEngine.batch_infer()` 自动批处理,支持动态 batch 与流水线
+- **延迟测量**:每次推理自动记录 `last_latency_ms`,支持 p50/p99 延迟统计
+- **预热**:`engine.warmup(input_shape)` 消除首次推理冷启动
+- **多线程**:通过 `num_threads` 配置并行推理线程数
+
+### 模型量化
+
+```aurora
+import std.inference
+
+let quantizer = inference.Quantizer(precision: "int8")
+let engine = inference.InferenceEngine(model_path: "model.aur")
+quantizer.quantize(engine.model)       // int8 量化,体积压缩 ~4x
+engine.save("model_int8.aur")
 ```
 
-### 1.7 类型系统
+- 支持 `int8`(scale + zero_point)与 `fp16` 两种精度
+- 量化后模型推理速度提升 2–4x,精度损失 <1%
 
-```rust
-// 自定义类型(type = struct)
-type Point {
-    x: f64
-    y: f64
-}
+### 跨平台部署
 
-// 枚举
-type Color = enum {
-    Red
-    Green
-    Blue
-    Rgb(r: u8, g: u8, b: u8)
-}
-
-// trait(接口)
-trait Drawable {
-    fn draw(self)
-}
-
-// impl(为类型实现 trait 或方法)
-impl Point {
-    fn distance(self, other: Point) -> f64 {
-        std.math.sqrt((self.x - other.x)**2 + (self.y - other.y)**2)
-    }
-}
-
-// match 模式匹配
-match color {
-    Color.Red => println("red")
-    Color.Rgb(r, g, b) => println("rgb({r},{g},{b})")
-    _ => println("other")
-}
+```bash
+# 推理服务打包为各平台原生可执行文件
+aurora package macos model.aur        # macOS .app / .pkg
+aurora package windows model.aur      # Windows .exe
+aurora package linux model.aur        # Linux ELF
+aurora package web model.aur          # WebAssembly(浏览器推理)
 ```
 
-### 1.8 错误处理
+- 模型 + 推理引擎打包为单文件,零依赖部署
+- Web 目标:编译为 WebAssembly,浏览器端直接推理
+- 量化模型自动嵌入打包产物
 
-```rust
-// 断言
-assert x > 0, "x 必须为正"
+### CLI 部署命令
 
-// panic(不可恢复错误)
-panic("发生了严重错误")
-
-// Result 类型(可恢复错误)
-from std.result import Ok, Err
-
-fn divide(a, b) {
-    if b == 0 { return Err("除数为零") }
-    Ok(a / b)
-}
-
-let r = divide(10, 2)
-if r.is_ok() {
-    println("结果: " + str(r.unwrap()))
-}
-```
-
-**v2.0.0 增强:Result 与异常无缝互操作**
-
-```rust
-// Result 类型标注 + 自动解包
-fn divide(a: int, b: int) -> Result[int, str] {
-    if b == 0 { return Err("除数为零") }
-    return Ok(a / b)
-}
-
-// 声明 -> Result[T,E] 的函数,返回值自动解包为裸值
-let x = divide(10, 2)        // x = 5(自动解包)
-
-// ? 操作符:在返回 Result 的函数中,Err 自动 return 传播
-fn safe_divide(a, b) -> Result[int, str] {
-    let r = divide(a, b)?     // b==0 时自动 return Err
-    Ok(r * 2)
-}
-
-// try/catch 可捕获 Err 传播的异常
-try {
-    divide(10, 0)
-} catch e {
-    println("捕获到: " + str(e))
-}
-```
-
-### 1.9 并发
-
-```rust
-// 通道
-let ch = std.sync.Channel()
-
-// 轻量线程(Fiber)
-spawn {
-    ch.send("hello from fiber")
-}
-
-let msg = ch.recv()
-println(msg)
-
-// Mutex
-let mtx = std.sync.Mutex(0)
-// ...
-```
-
-### 1.10 模块与导入
-
-```rust
-// 标准库
-import std.io
-import std.math as m
-from std.json import parse, stringify
-
-// 本地模块(同目录或 src/ 下的 .aur 文件)
-import utils                    // 加载 utils.aur
-from utils import helper        // 导入指定函数
-import services.task_service    // 加载 services/task_service.aur
-
-// 模块内函数通过命名空间访问
-std.io.read_file("data.txt")
-m.sqrt(16)
+```bash
+aurora ai train model.aur              # 训练模式
+aurora ai infer model.aur --input '...'   # 单次推理
+aurora serve model.aur --port 8080     # HTTP 推理服务
+aurora package macos model.aur        # 打包为 macOS 应用
+aurora wasm build model.aur           # 编译为 WebAssembly
 ```
 
 ---
 
-## 2. 标准库完整清单
+## 14. 下一步
 
-### std.io — 文件与输入输出
-| 函数 | 说明 |
-|---|---|
-| `read_file(path)` | 读取文件全部内容为字符串 |
-| `write_file(path, content)` | 写入文件 |
-| `append_file(path, content)` | 追加写入 |
-| `exists(path)` | 文件/目录是否存在 |
-| `is_dir(path)` | 是否为目录 |
-| `list_dir(path)` | 列出目录内容(数组) |
-| `mkdir(path)` | 创建目录 |
-| `files(dir, ext)` | 列出指定扩展名文件 |
-| `read_line(prompt)` | 读取一行输入 |
-
-### std.math
-| 函数 | 说明 |
-|---|---|
-| `sqrt(x)`, `pow(a,b)`, `floor(x)`, `ceil(x)`, `round(x)` | 基础数学 |
-| `abs(x)`, `min(a,b)`, `max(a,b)` | |
-| `sin(x)`, `cos(x)`, `tan(x)`, `log(x)` | 三角/对数 |
-| `random()`, `randint(a,b)` | 随机数 |
-| `PI`, `E` | 常量 |
-
-### std.str — 字符串工具
-| 函数 | 说明 |
-|---|---|
-| `split(s, sep)`, `join(arr, sep)`, `replace(s, old, new)` | |
-| `contains(s, sub)`, `starts_with(s, p)`, `ends_with(s, p)` | |
-| `trim(s)`, `upper(s)`, `lower(s)` | |
-| `find(s, sub, start)`, `substring(s, start, end)`, `len(s)`, `char_at(s, i)` | |
-
-### std.json
-| 函数 | 说明 |
-|---|---|
-| `parse(s)` | JSON 字符串 → Aurora 值 |
-| `stringify(v)` | Aurora 值 → JSON 字符串 |
-| `load(path)` | 从文件加载 JSON |
-| `save(path, v)` | 保存 JSON 到文件 |
-
-### std.http — HTTP 请求
-| 函数 | 说明 |
-|---|---|
-| `get(url, timeout)` | GET 请求,返回响应文本(自动带浏览器 UA) |
-| `get_json(url)` | GET + 自动解析 JSON |
-| `post(url, data, content_type)` | POST 请求 |
-
-### std.web — Web 后端
-| 函数 | 说明 |
-|---|---|
-| `serve(port, handler)` | 启动 HTTP 服务;handler 返回 dict→JSON、str→HTML、[status,body] |
-| `static(port, dir)` | 静态文件服务 |
-| `wait()` | 常驻服务 |
-
-### std.ai — AI Agent
-| 函数 | 说明 |
-|---|---|
-| `configure(base_url, model, api_key)` | 配置 OpenAI 兼容端点 |
-| `chat(prompt)` | 单轮对话 |
-| `messages(history)` | 多轮对话 |
-| `agent(system, tools, prompt)` | 工具调用式 Agent 循环 |
-
-### std.python — Python 互操作
-| 函数 | 说明 |
-|---|---|
-| `eval(code)` | 执行 Python 表达式,返回结果 |
-| `exec(code)` | 执行 Python 语句 |
-| `import(module)` | 导入 Python 模块 |
-| `call(fn, args)` | 调用 Python 函数 |
-
-### std.ffi — C ABI 互操作(Rust/C++)
-| 函数 | 说明 |
-|---|---|
-| `load(path)` | 加载 .so/.dylib/.dll 共享库 |
-| `func(lib, name, argtypes, restype)` | 获取函数 |
-| `cstr(s)` | 字符串 → C 字符串 |
-
-### std.html — HTML 生成
-| 函数 | 说明 |
-|---|---|
-| `escape(s)`, `page(title, body)`, `render(template, data)` | |
-| `write(path, content)`, `link(href, text)`, `list(items)`, `json_script(data, id)` | |
-
-### std.collections — 集合类型
-| 类型/函数 | 说明 |
-|---|---|
-| `HashMap` | 哈希表:get/put/contains/remove/keys/values/len |
-| `HashSet` | 哈希集合:add/contains/remove/len |
-| `Vec` | 动态数组:push/pop/get/len/iter |
-| `hash_map()`, `hash_set()`, `vec()` | 工厂函数 |
-
-### 其他模块
-- `std.time`: `now()`, `sleep(ms)`, `timestamp()`, `format()`
-- `std.sync`: `Channel`, `Mutex`, `Fiber`
-- `std.result`: `Ok`, `Err`, `Result`
-- `std.proc`: `run(cmd)`, `call(cmd)`, `spawn(cmd)`(子进程)
-- `std.vex`: `export()`, `python()`, `cpp()`(VEXcode 工程导出)
-
----
-
-## 3. 常用编程模式
-
-### 3.1 深度优先搜索(DFS)
-
-```rust
-fn dfs(graph, node, visited) {
-    if visited.contains(node) { return }
-    visited.push(node)
-    println("访问: " + str(node))
-    for neighbor in graph[node] {
-        dfs(graph, neighbor, visited)
-    }
-}
-
-let graph = {
-    "A": ["B", "C"],
-    "B": ["A", "D"],
-    "C": ["A", "D"],
-    "D": ["B", "C"]
-}
-dfs(graph, "A", [])
-```
-
-### 3.2 斐波那契(递归 + 记忆化)
-
-```rust
-fn fib(n, memo) {
-    if n < 2 { return n }
-    if memo.keys().contains(n) { return memo[n] }
-    memo[n] = fib(n - 1, memo) + fib(n - 2, memo)
-    memo[n]
-}
-
-let memo = {}
-println(str(fib(10, memo)))   // 55
-```
-
-### 3.3 HTTP + JSON API 调用
-
-```rust
-import std.http
-import std.json
-
-let data = std.http.get_json("https://api.example.com/users")
-for user in data {
-    println(user["name"])
-}
-```
-
-### 3.4 Web 服务(一个文件全栈)
-
-```rust
-import std.web
-import std.json
-
-fn handler(req) {
-    let path = req["path"]
-    if path == "/" {
-        return "<h1>Hello Aurora</h1>"
-    }
-    if path == "/api/data" {
-        return {"status": "ok", "data": [1, 2, 3]}
-    }
-    return [404, "Not Found"]
-}
-
-std.web.serve(8080, handler)
-std.web.wait()
-```
-
-### 3.5 调用 Rust/C++ 共享库
-
-```rust
-import std.ffi
-
-let lib = std.ffi.load("librust_math.dylib")
-let add = std.ffi.func(lib, "add", ["int32", "int32"], "int32")
-println(str(add(3, 4)))   // 7
-```
-
-### 3.6 调用 Python 库
-
-```rust
-import std.python
-
-let np = std.python.import("numpy")
-let arr = np.array([1, 2, 3])
-println(str(np.mean(arr)))   // 2.0
-```
-
-### 3.7 读写 JSON 文件
-
-```rust
-import std.json
-
-let config = std.json.load("config.json")
-config["version"] = "2.0"
-std.json.save("config.json", config)
-```
-
-### 3.8 多文件项目结构
-
-```
-myapp/
-├── aurora.toml          # [project] name/version, [build] entry, [dependencies]
-├── src/
-│   ├── main.aur         # 入口
-│   ├── models/
-│   │   └── user.aur     # import models.user
-│   └── utils.aur        # import utils
-└── tests/
-    └── user_test.aur    # aurora test
-```
-
----
-
-## 4. 与其他语言对比
-
-| 概念 | Aurora | Python | Rust | JavaScript |
-|---|---|---|---|---|
-| 不可变变量 | `let x = 5` | `x = 5`(约定) | `let x = 5` | `const x = 5` |
-| 可变变量 | `var x = 5` | `x = 5` | `let mut x = 5` | `let x = 5` |
-| 函数 | `fn f(a) { a }` | `def f(a): return a` | `fn f(a: i32) -> i32 { a }` | `const f = (a) => a` |
-| 返回值 | 最后表达式 | `return` | 最后表达式 | `return` |
-| 数组 | `[1,2,3]` | `[1,2,3]` | `vec![1,2,3]` | `[1,2,3]` |
-| Map | `{"k": v}` | `{"k": v}` | `HashMap::new()` | `{k: v}` |
-| 空值 | `nil` | `None` | `Option<T>` | `null/undefined` |
-| 模块 | `import std.io` | `import io` | `use std::io` | `import io` |
-| 字符串插值 | `"hi {name}"` | f-string | `format!("hi {name}")` | `` `hi ${name}` `` |
-| 管道 | `x \|> f` | 无 | 无(方法链) | 无(方法链) |
-| 错误处理 | `Result` + `?` | 异常 | `Result<T,E>` | try/catch |
-
----
-
-## 5. 常见陷阱
-
-1. **let 不可变**:循环计数器、累加器必须用 `var`,不是 `let`。
-2. **函数返回值**:函数体最后一个表达式自动返回,不需要 `return`。但如果最后是语句(如 println),函数返回 nil。
-3. **原始字符串**:JSON、正则、路径、外部代码片段必须用 `r'...'`,否则 `{` 会被当作插值。
-4. **import 本地模块**:模块文件必须在当前目录、`src/` 或项目根下;文件名对应模块名。
-5. **Map 键是字符串**:`{"key": value}`,访问用 `m["key"]`,不是 `m.key`(除非是对象方法)。
-6. **std.http.get 自动带 UA**:不需要手动设置 User-Agent。
-7. **AOT 编译限制**:`aurora build` 支持核心语法,高级语法(match/spawn/trait/impl 等)暂不支持编译,请用解释器运行。
-
----
-
-## 6. 调试与错误信息
-
-错误格式:`L<行>:C<列>: [<类别>] 描述`
-
-| 类别 | 含义 |
-|---|---|
-| `ParseError` | 语法错误 |
-| `TypeError` | 类型错误(含不可变绑定赋值) |
-| `NameError` | 未定义变量 |
-| `RuntimeError` | 运行时错误 |
-| `ImportError` | 模块导入失败 |
-| `HttpError` | HTTP 请求失败 |
-| `OwnershipError` | 所有权/借用冲突 |
-
-调试技巧:
-- `println(str(x))` 打印任意值
-- `aurora check file.aur` 只做静态检查不运行
-- `aurora tokens file.aur` 看词法分析结果
-- `aurora ast file.aur` 看 AST 结构
-
----
-
-## 7. 完整示例:命令行待办应用
-
-```rust
-import std.json
-import std.io
-
-let DATA_FILE = "todos.json"
-
-fn load() {
-    if std.io.exists(DATA_FILE) {
-        return std.json.load(DATA_FILE)
-    }
-    return []
-}
-
-fn save(todos) {
-    std.json.save(DATA_FILE, todos)
-}
-
-fn add(todos, title) {
-    todos.push({"id": todos.len() + 1, "title": title, "done": false})
-    save(todos)
-    println("已添加: " + title)
-}
-
-fn list(todos) {
-    for t in todos {
-        let mark = if t["done"] { "[x]" } else { "[ ]" }
-        println(mark + " #" + str(t["id"]) + " " + t["title"])
-    }
-}
-
-fn main() {
-    let todos = load()
-    add(todos, "学习 Aurora")
-    add(todos, "写一个项目")
-    todos[0]["done"] = true
-    save(todos)
-    list(todos)
-}
-
-main()
-```
-
----
-
-*本文档随 Aurora v2.0.0 发布。最新版本见 `docs/SPEC.md` 和 `CHANGELOG.md`。*
+- 阅读 `examples/ai/` 下 5 个完整示例
+- 用 `std.python` 桥接现有 PyTorch 代码,逐步迁移
+- 在 Jupyter 中 `aurora kernel install` 后交互式探索张量
+- 部署:`aurora serve model.aur --port 8080`

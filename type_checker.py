@@ -99,12 +99,18 @@ class TypeChecker:
     def __init__(self):
         self.global_env = TypeEnvironment()
         self.errors: List[TypeError] = []
-        
+        self.warnings: List[TypeError] = []
+        self._fn_defs: Dict[str, FnDef] = {}
+
         # 注册内建类型和函数
         for name, ti in self.BUILTIN_TYPES.items():
             self.global_env.define(name, ti)
         for name, ti in self.BUILTIN_FUNCTIONS.items():
             self.global_env.define(name, ti)
+
+    def _warn(self, message: str, node: Node = None):
+        """记录一条警告（不阻止编译）"""
+        self.warnings.append(TypeError(message, node))
     
     def check(self, program: Program) -> List[TypeError]:
         """类型检查整个程序"""
@@ -182,6 +188,14 @@ class TypeChecker:
             env.define(stmt.name, inferred)
     
     def _check_fn_def(self, stmt: FnDef, env: TypeEnvironment):
+        # 可变参数检查：variadic 参数之后不能再有普通位置参数（警告）
+        seen_variadic = False
+        for p in stmt.params:
+            if seen_variadic and not p.variadic and p.default_value is None:
+                self._warn(f"可变参数 '{[q.name for q in stmt.params if q.variadic][0]}' 之后不应再有普通位置参数 '{p.name}'", stmt)
+            if p.variadic:
+                seen_variadic = True
+
         fn_env = env.child()
         param_types = []
         for p in stmt.params:
@@ -191,13 +205,14 @@ class TypeChecker:
                 ti = TypeInfo('any')
             fn_env.define(p.name, ti)
             param_types.append(ti)
-        
+
         ret_type = TypeInfo('void')
         if stmt.return_type:
             ret_type = self._resolve_type_node(stmt.return_type, env)
-        
+
         fn_type = TypeInfo('fn', param_types + [ret_type])
         env.define(stmt.name, fn_type)
+        self._fn_defs[stmt.name] = stmt
 
         if stmt.body is not None:
             self._check_stmts(stmt.body.statements, fn_env)
@@ -284,11 +299,66 @@ class TypeChecker:
         self._check_stmts(stmt.body.statements, while_env)
     
     def _check_match(self, stmt: MatchStmt, env: TypeEnvironment):
-        self._infer_expr(stmt.subject, env)
+        subject_type = self._infer_expr(stmt.subject, env)
         for arm in stmt.arms:
             arm_env = env.child()
             self._register_pattern_bindings(arm.pattern, arm_env)
             self._infer_expr(arm.body, arm_env)
+        self._check_match_exhaustive(stmt, subject_type, env)
+
+    def _check_match_exhaustive(self, stmt: MatchStmt, subject_type: TypeInfo, env: TypeEnvironment):
+        """Match 穷尽性检查（警告级别，不报错）"""
+        patterns = [arm.pattern for arm in stmt.arms]
+
+        # 有通配符 -> 穷尽
+        if any(isinstance(p, WildcardPattern) for p in patterns):
+            return
+
+        # bool 类型：检查 true/false 是否都覆盖
+        if subject_type.name == 'bool':
+            covered = set()
+            for p in patterns:
+                if isinstance(p, LiteralPattern) and isinstance(p.value, BoolLiteral):
+                    covered.add(p.value.value)
+            if covered == {True, False}:
+                return
+            self._warn(f"match 未穷尽：bool 未覆盖 {'true' if False not in covered else 'false'} 分支", stmt)
+            return
+
+        # enum 类型：检查所有变体是否都被覆盖
+        enum_name = subject_type.name
+        enum_def = env.type_defs.get(enum_name)
+        # EnumDef 注册在 global_env 上；通过遍历查找
+        for top_name, top_def in env.type_defs.items():
+            if isinstance(top_def, EnumDef) and top_def.name == enum_name:
+                enum_def = top_def
+                break
+        if enum_def is None:
+            # 向上查找 enum 定义
+            cur = env
+            while cur is not None:
+                for tn, td in cur.type_defs.items():
+                    if isinstance(td, EnumDef) and td.name == enum_name:
+                        enum_def = td
+                        break
+                if enum_def is not None:
+                    break
+                cur = cur.parent
+        if enum_def is not None and isinstance(enum_def, EnumDef):
+            covered = set()
+            for p in patterns:
+                if isinstance(p, ConstructorPattern):
+                    # ConstructorPattern.name 可能是 "Enum.Variant" 或 "Variant"
+                    short = p.name.split('.')[-1]
+                    covered.add(short)
+            all_variants = {v.name for v in enum_def.variants}
+            missing = all_variants - covered
+            if missing:
+                self._warn(f"match 未穷尽：枚举 '{enum_name}' 缺少变体 {sorted(missing)}", stmt)
+            return
+
+        # 其他类型（如 tuple/struct）：宽松，不警告
+        return
     
     def _check_try(self, stmt: TryStmt, env: TypeEnvironment):
         try_env = env.child()
@@ -310,6 +380,17 @@ class TypeChecker:
         elif isinstance(pattern, ConstructorPattern):
             for field in pattern.fields:
                 self._register_pattern_bindings(field, env)
+        elif isinstance(pattern, StructPattern):
+            # 结构体模式：Point { x, y } 或 User { name: n, age: a }
+            for field_name, sub in pattern.fields:
+                if sub is None:
+                    # 简写 Point { x }：字段名即绑定名
+                    env.define(field_name, TypeInfo('any'))
+                else:
+                    self._register_pattern_bindings(sub, env)
+        elif isinstance(pattern, TuplePattern):
+            for elem in pattern.elements:
+                self._register_pattern_bindings(elem, env)
     
     # ── 类型推断 ────────────────────────────────────────
     
@@ -369,22 +450,62 @@ class TypeChecker:
         elif isinstance(expr, CallExpr):
             if isinstance(expr.callee, Identifier):
                 callee_type = env.lookup(expr.callee.name)
+                # 命名参数检查：命名参数名必须在函数参数列表中存在
+                fn_def = self._fn_defs.get(expr.callee.name)
+                if fn_def is not None and expr.named_args:
+                    declared_names = {p.name for p in fn_def.params}
+                    for arg_name, _ in expr.named_args:
+                        if arg_name not in declared_names:
+                            self._warn(
+                                f"命名参数 '{arg_name}' 不在函数 '{expr.callee.name}' 的参数列表中",
+                                expr)
+                # 默认参数检查：有默认值的参数可以不传；缺失的必选参数警告
+                if fn_def is not None:
+                    positional_count = len(expr.args)
+                    required = [p.name for p in fn_def.params
+                                if p.default_value is None and not p.variadic]
+                    # 已通过位置参数覆盖的必选参数
+                    covered_pos = positional_count
+                    missing = []
+                    for i, p in enumerate(fn_def.params):
+                        if p.variadic or p.default_value is not None:
+                            continue
+                        if i >= covered_pos:
+                            # 检查是否通过命名参数提供
+                            named_provided = any(n == p.name for n, _ in expr.named_args)
+                            if not named_provided:
+                                missing.append(p.name)
+                    if missing:
+                        self._warn(
+                            f"函数 '{expr.callee.name}' 缺少必选参数: {missing}", expr)
                 if callee_type and callee_type.params:
-                    return callee_type.params[-1]
+                    result = callee_type.params[-1]
+                    for arg in expr.args:
+                        self._infer_expr(arg, env)
+                    for _, val in expr.named_args:
+                        self._infer_expr(val, env)
+                    return result
             for arg in expr.args:
                 self._infer_expr(arg, env)
             for _, val in expr.named_args:
                 self._infer_expr(val, env)
             return TypeInfo('any')
         elif isinstance(expr, MethodCall):
-            self._infer_expr(expr.object, env)
+            obj_type = self._infer_expr(expr.object, env)
+            # 可选类型空安全：对 Optional 直接调方法 -> 警告（除非用 ?. 或 !）
+            if obj_type.name == 'Option' or obj_type.name.endswith('?'):
+                self._warn(
+                    f"对可选类型直接调用方法 '{expr.method}'，建议使用 ?. 或 ! 解包", expr)
             for arg in expr.args:
                 self._infer_expr(arg, env)
             for _, val in expr.named_args:
                 self._infer_expr(val, env)
             return TypeInfo('any')
         elif isinstance(expr, MemberAccess):
-            self._infer_expr(expr.object, env)
+            obj_type = self._infer_expr(expr.object, env)
+            if obj_type.name == 'Option' or obj_type.name.endswith('?'):
+                self._warn(
+                    f"对可选类型直接访问字段 '{expr.member}'，建议使用 ?. 或 ! 解包", expr)
             return TypeInfo('any')
         elif isinstance(expr, IndexAccess):
             obj_type = self._infer_expr(expr.object, env)
@@ -393,6 +514,38 @@ class TypeChecker:
             if obj_type.name.startswith('['):
                 return TypeInfo(obj_type.name[1:-1] if len(obj_type.name) > 2 else 'any')
             return TypeInfo('any')
+        elif isinstance(expr, TupleIndex):
+            # 元组索引：返回对应位置的元素类型
+            obj_type = self._infer_expr(expr.object, env)
+            if obj_type.name == 'tuple' and obj_type.params:
+                if 0 <= expr.index < len(obj_type.params):
+                    return obj_type.params[expr.index]
+            return TypeInfo('any')
+        elif isinstance(expr, (ListComp, SetComp)):
+            elem = self._infer_expr(expr.expr, env)
+            for gen in expr.generators:
+                self._infer_expr(gen.iterable, env)
+            for cond in expr.conditions:
+                self._infer_expr(cond, env)
+            return TypeInfo(f'[{elem.name}]')
+        elif isinstance(expr, MapComp):
+            k = self._infer_expr(expr.key_expr, env)
+            v = self._infer_expr(expr.value_expr, env)
+            for gen in expr.generators:
+                self._infer_expr(gen.iterable, env)
+            for cond in expr.conditions:
+                self._infer_expr(cond, env)
+            return TypeInfo('map', [k, v])
+        elif isinstance(expr, StructLiteral):
+            for _, val in expr.fields:
+                self._infer_expr(val, env)
+            return TypeInfo(expr.type_name)
+        elif isinstance(expr, ForcedUnwrap):
+            inner = self._infer_expr(expr.operand, env)
+            # 去掉 Optional 包装
+            if inner.name == 'Option' and inner.params:
+                return inner.params[0]
+            return inner
         elif isinstance(expr, LambdaExpr):
             return TypeInfo('fn')
         elif isinstance(expr, IfExpr):
@@ -458,4 +611,11 @@ class TypeChecker:
         elif isinstance(node, RefType):
             inner = self._resolve_type_node(node.inner, env)
             return TypeInfo('ref', [inner])
+        elif isinstance(node, OptionalType):
+            inner = self._resolve_type_node(node.inner, env)
+            return TypeInfo('Option', [inner])
+        elif isinstance(node, ResultType):
+            ok = self._resolve_type_node(node.ok_type, env) if node.ok_type else TypeInfo('any')
+            err = self._resolve_type_node(node.err_type, env) if node.err_type else TypeInfo('any')
+            return TypeInfo('Result', [ok, err])
         return TypeInfo('any')

@@ -1,0 +1,64 @@
+// win_app.aur — Windows 原生应用（Win32 绑定）
+// 仅在 Windows 上编译：#[cfg(target_os = "windows")] 守卫
+
+#[cfg(target_os = "windows")]
+import win32
+
+#[cfg(target_os = "windows")]
+fn wndproc(hwnd: int, msg: int, wparam: int, lparam: int) -> int {
+    match msg {
+        win32.WM_DESTROY => win32.PostQuitMessage(0)
+        win32.WM_COMMAND => {
+            if wparam == 1001 {
+                let text = editbox.get_text()
+                win32.MessageBox(hwnd, "You entered: " + text, "Aurora")
+            }
+        }
+        _ => return win32.DefWindowProc(hwnd, msg, wparam, lparam)
+    }
+    return 0
+}
+
+#[cfg(target_os = "windows")]
+fn main() {
+    let hinstance = win32.GetModuleHandle(None)
+
+    // 注册窗口类
+    let wc = win32.WNDCLASS({
+        lpsz_class_name: "AuroraWin32",
+        lpfn_wndproc: wndproc,
+        h_instance: hinstance,
+    })
+    win32.RegisterClass(wc)
+
+    // 创建主窗口
+    let hwnd = win32.CreateWindowEx(
+        "AuroraWin32", "Aurora on Windows",
+        win32.WS_OVERLAPPEDWINDOW,
+        x=100, y=100, width=480, height=320)
+
+    // 编辑框 + 按钮（系统托盘与注册表操作）
+    editbox = win32.CreateEdit(hwnd, x=20, y=20, w=200, h=24)
+    let btn = win32.CreateButton(hwnd, "Submit", id=1001, x=230, y=20, w=90, h=24)
+
+    // 系统托盘图标
+    let tray = win32.NotifyIcon(hwnd)
+    tray.set_tip("Aurora Windows Demo")
+    tray.show()
+
+    // 注册表：记录上次窗口位置
+    let reg = win32.RegOpenCurrentUser("Software\\Aurora")
+    reg.set_value("X", 100)
+    reg.set_value("Y", 100)
+    reg.close()
+
+    win32.ShowWindow(hwnd, win32.SW_SHOW)
+    win32.MessageLoop()  // DispatchMessage 主循环
+}
+
+#[cfg(not(target_os = "windows"))]
+fn main() {
+    println("This sample requires Windows (Win32).")
+}
+
+main()

@@ -1,0 +1,70 @@
+// web_app.aur — TodoList Web 应用
+// 展示：Component / 虚拟 DOM / 路由 / 状态管理 / DOM 操作
+
+import web.app
+import web.component
+import web.router
+import web.store
+import web.dom
+
+// 全局状态（store）
+var todos = []
+var next_id = 1
+
+fn add_todo(text: str) {
+    todos.push({ id=next_id, text=text, done=false })
+    next_id = next_id + 1
+}
+
+fn toggle(id: int) {
+    for t in todos {
+        if t.id == id { t.done = !t.done }
+    }
+}
+
+// 组件：TodoItem
+@component
+fn TodoItem(t) -> VNode {
+    return li(class=t.done ? "done" : "") {
+        input(type="checkbox", checked=t.done).on("change", fn() { toggle(t.id) })
+        span { t.text }
+        button(class="del").on("click", fn() { remove_todo(t.id) })
+    }
+}
+
+fn remove_todo(id: int) {
+    todos = todos.filter(fn(t) { return t.id != id })
+}
+
+// 组件：App
+@component
+fn App() -> VNode {
+    return div(id="app") {
+        h1 { "Aurora Todos" }
+        input(id="new-todo", placeholder="Add a task...")
+            .on("keydown", fn(e) {
+                if e.key == "Enter" {
+                    add_todo(e.target.value)
+                    e.target.value = ""
+                }
+            })
+        ul {
+            for t in todos { TodoItem(t) }
+        }
+        footer { todos.len() + " items left" }
+    }
+}
+
+fn main() {
+    // 路由：/ 与 /about
+    let r = router.new()
+    r.on("/", fn() { mount(App(), "#root") })
+    r.on("/about", fn() { mount(div { "Built with Aurora + WebAssembly" }, "#root") })
+    r.start()
+
+    // 种子数据
+    add_todo("Learn Aurora")
+    add_todo("Build a web app")
+}
+
+main()

@@ -55,11 +55,27 @@
       ]
     },
     "keywords": {
-      "match": "\\b(fn|let|var|const|if|elif|else|for|while|return|type|enum|impl|match|trait|true|false|nil|in|break|continue|import|from|as|spawn|chan|select|default|try|catch|finally|panic|self|std|and|or|not|loop|pub|mut|defer|yield)\\b",
+      "match": "\\b(fn|let|var|const|if|elif|else|for|while|return|type|enum|impl|match|trait|true|false|nil|in|break|continue|import|from|as|spawn|chan|select|default|try|catch|finally|panic|self|std|and|or|not|loop|pub|mut|defer|yield|async|await|unsafe|extern|cfg|tensor|struct)\\b",
       "name": "keyword.control.aurora"
     },
     "annotations": {
       "patterns": [
+        {
+          "begin": "#\\[",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.annotation.aurora" }
+          },
+          "end": "\\]",
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.annotation.aurora" }
+          },
+          "patterns": [
+            { "match": "\\b(cfg|target_os|target_arch|target_env|feature|test|derive|inline|repr|deprecated|allow|warn|deny|forbid)\\b", "name": "storage.modifier.annotation.aurora" },
+            { "match": "\"[^\"]*\"", "name": "string.quoted.double.aurora" },
+            { "match": "[(),=]", "name": "punctuation.separator.annotation.aurora" }
+          ],
+          "name": "meta.annotation.aurora"
+        },
         {
           "begin": "(@perf)\\s*\\(",
           "beginCaptures": {

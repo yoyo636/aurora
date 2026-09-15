@@ -1,0 +1,60 @@
+// ============================================================
+// Aurora v3.0.0 AI 示例 1:线性回归训练
+// 展示 AuroraTensor + AuroraAutograd + SGD 的完整训练流程
+// 目标:用梯度下降拟合 y = 2x + 3 的线性模型
+// ============================================================
+
+import std.tensor
+import std.autograd
+
+// --- 1. 生成 synthetic 数据:y = 2*x + 3 + 噪声 ---
+// X: shape (N, 1),N 个样本
+// 真实参数 w_true=2.0,b_true=3.0
+var xs = []
+var ys = []
+for i in 0..19 {
+    let x_val = i * 0.1                  // x 从 0 到 1.9
+    let noise = (i % 3 - 1) * 0.05      // 简单的伪噪声,避免引入随机数差异
+    let y_val = 2.0 * x_val + 3.0 + noise
+    xs.push(x_val)
+    ys.push(y_val)
+}
+
+// 把一维 list 转成列向量张量 (20, 1)
+let X = tensor.Tensor(xs).reshape(20, 1)
+let Y = tensor.Tensor(ys).reshape(20, 1)
+
+// --- 2. 定义可训练参数 ---
+// w: (1,1) 矩阵,b: (1,) 向量,都需要梯度
+let w = autograd.Variable(tensor.Tensor.randn([1, 1]), requires_grad: true)
+let b = autograd.Variable(tensor.Tensor.zeros([1]), requires_grad: true)
+
+// --- 3. 优化器:SGD ---
+let lr = 0.05
+let opt = autograd.SGD([w, b], lr: lr)
+
+// --- 4. 训练循环 ---
+let epochs = 100
+for epoch in 1..epochs {
+    // 前向:预测 = X @ w + b
+    let pred = X @ w + b
+
+    // MSE loss = mean((pred - y)^2)
+    let diff = pred - Y
+    let loss = (diff * diff).mean()
+
+    // 反向传播 + 参数更新
+    opt.zero_grad()
+    loss.backward()
+    opt.step()
+
+    // 每 10 轮打印一次 loss
+    if epoch % 10 == 0 {
+        print("epoch " + epoch + "  loss=" + loss.item())
+    }
+}
+
+// --- 5. 输出学习到的参数(应接近 w=2.0, b=3.0) ---
+print("训练完成")
+print("学习到的 w = " + w.data.tolist())
+print("学习到的 b = " + b.data.tolist())

@@ -42,6 +42,11 @@ examples/interop/*.so
 # 运行时数据
 examples/largeapp/tasks.json
 *.aurora-cache/
+.aurora_cache/
+*.aurc
+build/
+!build/pkg/
+!build/pkg/**
 
 # VSCode 插件构建
 vscode-aurora/*.vsix

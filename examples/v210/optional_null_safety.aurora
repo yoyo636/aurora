@@ -1,0 +1,70 @@
+# Aurora v2.1.0 可选类型 + 空安全示例
+
+# === 可选链访问 ?. ===
+struct User {
+    name: str
+    address: any
+}
+
+struct Address {
+    city: str
+    zip: str
+}
+
+# 安全访问：obj 为 nil 时返回 nil
+let nil_user = nil
+println(nil_user?.name)  # nil
+
+let user = User { name: "Alice", address: Address { city: "NYC", zip: "10001" } }
+println(user?.name)  # Alice
+println(user?.address?.city)  # NYC
+
+# 链式可选访问
+let no_addr = User { name: "Bob", address: nil }
+println(no_addr?.address?.city)  # nil
+
+# === 空值合并 ?? ===
+let config_name = nil
+let name = config_name ?? "default"
+println(name)  # default
+
+let actual = "hello"
+println(actual ?? "fallback")  # hello
+
+# 链式空合并
+let a = nil
+let b = nil
+let c = "found"
+println(a ?? b ?? c)  # found
+
+# === 强制解包 ! ===
+let maybe_value = "hello"
+println(maybe_value!)  # hello
+
+# 强制解包 nil 会 panic
+# nil!  # 抛出 ValueError: 强制解包 nil 值
+
+# === 可选类型注解 T? ===
+fn find_user(users, name) -> User? {
+    for u in users {
+        if u.name == name {
+            return u
+        }
+    }
+    nil
+}
+
+let users = [
+    User { name: "Alice", address: nil },
+    User { name: "Bob", address: nil }
+]
+
+let found = find_user(users, "Alice")
+println(found?.name ?? "not found")  # Alice
+
+let not_found = find_user(users, "Charlie")
+println(not_found?.name ?? "not found")  # not found
+
+# === 可选与推导式组合 ===
+let names = [u?.name for u in users if u != nil]
+println(names)  # ["Alice", "Bob"]

@@ -1,0 +1,13 @@
+[project]
+name = "aurora-macos-demo"
+version = "1.0.0"
+description = "Aurora v3.1.0 macOS 原生应用示例（Cocoa 绑定）"
+author = "Aurora Team"
+
+[build]
+entry = "mac_app.aur"
+
+[package]
+platform = "macos"
+bundle_id = "dev.aurora.macos-demo"
+category = "public.app-category.developer-tools"

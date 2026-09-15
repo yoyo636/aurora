@@ -1,0 +1,24 @@
+// src/utils/module.aur — 工具模块
+// pub 导出对外可见；下划线/未 pub 符号为模块私有
+
+pub const APP_NAME = "Aurora Large App"
+pub const VERSION = "3.1.0"
+
+// 私有辅助函数：仅模块内部使用
+fn _hash(s: str) -> int {
+    let h = 0
+    for c in s {
+        h = (h * 31 + c) % 1000000007
+    }
+    return h
+}
+
+pub fn greet(name: str) -> str {
+    return "Hello, " + name + " from " + APP_NAME
+}
+
+// 条件编译：在 debug 构建下导出额外的调试函数
+#[cfg(feature = "debug")]
+pub fn debug_dump(x: any) -> str {
+    return "[debug] " + x
+}

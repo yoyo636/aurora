@@ -1,0 +1,28 @@
+// src/auth/module.aur — 认证模块
+// 展示：pub 结构体 / pub fn / 错误处理 / 内部私有状态
+
+import utils.module
+
+pub type User {
+    id: int,
+    name: str,
+    email: str,
+}
+
+// 私有会话表：模块外不可见
+var _sessions = {}
+
+pub fn login(name: str, email: str) -> User {
+    let user = User(id=1, name=name, email=email)
+    _sessions[email] = true
+    return user
+}
+
+pub fn is_logged_in(email: str) -> bool {
+    return _sessions.contains(email)
+}
+
+// extern 声明示例：调用平台本地库（仅声明，不实现）
+extern "C" {
+    fn getpwuid(uid: int) -> *void;
+}

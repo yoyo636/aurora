@@ -1,0 +1,37 @@
+# demo_js.aur — 与 JavaScript/TypeScript 生态打通
+# 需要 Node.js 环境(node 命令可用)
+import std.js
+import std.json
+
+println("=== JavaScript/TypeScript 互操作 ===")
+
+# 检测环境
+if std.js.available() {
+    println("Node.js 版本: " + std.js.version())
+} else {
+    println("警告: Node.js 不可用,以下示例将失败")
+}
+
+# 1. eval:执行 JS 表达式
+println("\n--- js.eval ---")
+println("js.eval('1 + 2 * 3') = " + str(std.js.eval("1 + 2 * 3")))
+println("js.eval('[1,2,3].map(x => x*2)') = " + str(std.js.eval("[1,2,3].map(x => x*2)")))
+println("js.eval('JSON.stringify({a:1})') = " + str(std.js.eval("JSON.stringify({a:1})")))
+
+# 2. call:调用 JS 全局函数
+println("\n--- js.call ---")
+println("js.call('parseInt', '42') = " + str(std.js.call("parseInt", "42")))
+println("js.call('Math.sqrt', 81) = " + str(std.js.call("Math.sqrt", 81)))
+
+# 3. require:加载 Node.js 模块
+println("\n--- js.require ---")
+let os_info = std.js.require("os")
+println("os.platform = " + str(os_info["platform"]))
+println("os.arch = " + str(os_info["arch"]))
+
+# 4. 与 JSON 数据互通
+println("\n--- JS <-> JSON 互通 ---")
+let js_data = std.js.eval("({name: 'Aurora', langs: ['JS','Python','Rust'], version: 2.2})")
+println("JS 对象 → Aurora: " + js_data["name"] + " v" + str(js_data["version"]))
+let json_str = std.json.stringify(js_data)
+println("Aurora → JSON: " + json_str)

@@ -1,0 +1,90 @@
+// calculator.aur — 原生计算器（AuroraUI 声明式 UI）
+// 展示：Window / Button / Label / Grid 布局 / 事件处理 / CSS 样式
+
+import ui.window
+import ui.button
+import ui.label
+import ui.grid
+import ui.css
+
+// 应用状态
+var display = "0"
+var operand = 0.0
+var op = ""
+var fresh = true
+
+fn update_display(text: str) {
+    display = text
+    label.text = display
+}
+
+fn input_digit(d: str) {
+    if fresh {
+        update_display(d)
+        fresh = false
+    } else {
+        update_display(display + d)
+    }
+}
+
+fn set_op(next: str) {
+    operand = parseFloat(display)
+    op = next
+    fresh = true
+}
+
+fn calculate() {
+    let b = parseFloat(display)
+    match op {
+        "+" => { update_display(str(operand + b)) }
+        "-" => { update_display(str(operand - b)) }
+        "*" => { update_display(str(operand * b)) }
+        "/" => {
+            if b == 0 { update_display("Error") } else { update_display(str(operand / b)) }
+        }
+        _ => {}
+    }
+    fresh = true
+}
+
+fn main() {
+    let style = css.parse("
+        window  { background: #1e1e2e; }
+        display { font: 28px mono; color: #cdd6f4; padding: 12; }
+        button  { font: 20px; corner-radius: 8; }
+        .op     { background: #f38ba8; }
+        .eq     { background: #a6e3a1; }
+    ")
+
+    let win = window.new("Calculator", width=280, height=360)
+    win.set_style(style)
+
+    let display_label = label.new(display).class("display")
+    win.add(display_label)
+
+    // Grid 布局：4 列
+    let keys = grid.new(columns=4)
+    for d in ["7","8","9","+","4","5","6","-","1","2","3","*","0","C","=","/"] {
+        let b = button.new(d)
+        b.on_click(fn() {
+            match d {
+                "0"..="9" => input_digit(d)
+                "+" => set_op("+")
+                "-" => set_op("-")
+                "*" => set_op("*")
+                "/" => set_op("/")
+                "=" => calculate()
+                "C" => update_display("0")
+            }
+        })
+        if d in "+-*/" { b.class("op") }
+        if d == "=" { b.class("eq") }
+        keys.add(b)
+    }
+    win.add(keys)
+
+    win.show()
+    ui.run()  // 进入事件循环
+}
+
+main()

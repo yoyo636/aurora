@@ -1,4 +1,4 @@
-# Aurora Language — VSCode 扩展 (v2.0.0)
+# Aurora Language — VSCode 扩展 (v3.1.0)
 
 在 VSCode 中完整支持 **Aurora** 编程语言(`.aur` 文件)。
 
@@ -9,7 +9,7 @@
 code --install-extension /Users/wuyuanduo/aurora/vscode-aurora
 
 # 方式二:复制到扩展目录后重启 VSCode
-cp -r /Users/wuyuanduo/aurora/vscode-aurora ~/.vscode/extensions/aurora-ide-2.0.0
+cp -r /Users/wuyuanduo/aurora/vscode-aurora ~/.vscode/extensions/aurora-ide-3.1.0
 ```
 
 > 安装后**重启 VSCode**,打开任意 `.aur` 文件即自动激活。
@@ -22,9 +22,9 @@ cp -r /Users/wuyuanduo/aurora/vscode-aurora ~/.vscode/extensions/aurora-ide-2.0.
 | 运行选中代码 | 右键菜单「Aurora: 运行选中代码」 | 选中片段写入临时文件后执行 |
 | 静态检查 | 标题栏 ✓ 按钮 / 右键菜单 / `⌘⌥K`(Win: `Ctrl+Alt+K`) | 类型检查 + 所有权检查,错误**行内波浪线**标出,点击跳转 |
 | 语法高亮 | 自动 | 关键字 / 内建函数 / 字符串(含插值)/ 数字 / 注释(`//` 与 `#`)/ 运算符 |
-| 自动配对 | 自动 | 括号与引号自动闭合、缩进/折叠规则 |
+| 自动配对 | 自动 | 括号、引号与 `#[...]` 条件编译属性自动闭合、缩进/折叠规则 |
 
-### v2.0.0 新特性
+### v2.0.0 特性
 
 | 功能 | 命令 | 对应 CLI |
 | --- | --- | --- |
@@ -34,11 +34,28 @@ cp -r /Users/wuyuanduo/aurora/vscode-aurora ~/.vscode/extensions/aurora-ide-2.0.
 | LSP 语言服务器 | `Aurora: 启动 LSP 语言服务器` | `aurora lsp [--stdio]` |
 | 包管理 | `Aurora: 包管理 (aurora pkg)` | `aurora pkg {init,add,remove,install,list,search,publish,outdated}` |
 
+### v3.1.0 新特性 — AI 引擎与全平台开发
+
+| 功能 | 命令 | 对应 CLI |
+| --- | --- | --- |
+| AI 训练/推理 | `Aurora: AI 训练/推理` | `aurora ai train\|infer <file>` |
+| 性能基准测试 | `Aurora: 性能基准测试` | `aurora bench <file>` |
+| 工作区管理 | `Aurora: 工作区管理` | `aurora workspace init\|list` |
+| 依赖管理 | `Aurora: 依赖管理` | `aurora deps tree\|outdated` |
+| 运行 GUI 应用 | `Aurora: 运行 GUI 应用` | `aurora ui run <file>` |
+| 跨平台打包 | `Aurora: 跨平台打包` | `aurora package macos\|windows\|linux\|web` |
+| Jupyter 内核 | `Aurora: 安装 Jupyter 内核` | `aurora kernel install` |
+| 推理服务 | `Aurora: 启动推理服务` | `aurora serve <model.aur>` |
+| 语言互操作 | `Aurora: 语言互操作` | `aurora interop <file>` |
+| WebAssembly 编译 | `Aurora: 编译 WebAssembly` | `aurora wasm <file>` |
+
 语法高亮同步增强:
 
+- 新增关键字:`async`、`await`、`unsafe`、`extern`、`cfg`、`tensor`、`struct`
+- `#[cfg(...)]` 条件编译属性高亮(含 `target_os`、`feature` 等参数)
 - `@perf(critical|hot|cold|size|trace)` 注解及其参数
 - `Result[T,E]` 类型与 `Ok()` / `Err()` 构造
-- `?` 问号操作符、`try` / `catch` 错误处理
+- `?` 问号操作符、`??` / `?.` / `|>` / `=>` 等运算符
 
 ## 配置
 
@@ -52,8 +69,8 @@ cp -r /Users/wuyuanduo/aurora/vscode-aurora ~/.vscode/extensions/aurora-ide-2.0.
 ```
 vscode-aurora/
 ├── package.json                # 扩展清单(命令/语言/键位/菜单/配置)
-├── extension.js                # 运行 / 检查 / 诊断逻辑
-├── language-configuration.json # 注释、括号、缩进、折叠
+├── extension.js                # 运行 / 检查 / 诊断逻辑 + v3.1.0 新命令
+├── language-configuration.json # 注释、括号、缩进、折叠、#[ 自动配对
 ├── syntaxes/aurora.tmLanguage.json  # TextMate 语法高亮
 └── icons/aurora.png            # 扩展图标
 ```

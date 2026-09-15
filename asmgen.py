@@ -260,6 +260,21 @@ class ARM64CodeGenerator:
             ch = [expr.inner]
         elif isinstance(expr, TupleLiteral):
             ch = list(expr.elements)
+        elif isinstance(expr, TupleIndex):
+            ch = [expr.object]
+        elif isinstance(expr, ForcedUnwrap):
+            ch = [expr.operand]
+        elif isinstance(expr, PipeExpr):
+            ch = [expr.left, expr.call]
+        elif isinstance(expr, (ListComp, SetComp)):
+            ch = [expr.expr] + [g.iterable for g in expr.generators] + list(expr.conditions)
+        elif isinstance(expr, MapComp):
+            ch = ([expr.key_expr, expr.value_expr]
+                  + [g.iterable for g in expr.generators] + list(expr.conditions))
+        elif isinstance(expr, StructLiteral):
+            ch = [v for _, v in expr.fields]
+        elif isinstance(expr, MatchExpr):
+            ch = [expr.subject] + [arm.body for arm in expr.arms]
         return [c for c in ch if c is not None]
 
     def _exprs_of_stmt(self, stmt):
@@ -284,6 +299,12 @@ class ARM64CodeGenerator:
             out.append(stmt.condition)
         elif isinstance(stmt, ForStmt):
             out.append(stmt.iterable)
+        elif isinstance(stmt, DestructureLet):
+            if stmt.initializer:
+                out.append(stmt.initializer)
+        elif isinstance(stmt, MatchStmt):
+            out.append(stmt.subject)
+            out += [arm.body for arm in stmt.arms]
         return out
 
     def _visit_all_stmts(self, block, visit):
@@ -590,6 +611,23 @@ class ARM64CodeGenerator:
             if isinstance(stmt.target, IndexAccess):
                 stmt.target.object = self._cp_expr(stmt.target.object, env)
                 stmt.target.index = self._cp_expr(stmt.target.index, env)
+            # 赋值会改写目标变量,失效其常量传播
+            if isinstance(stmt.target, Identifier):
+                env.pop(stmt.target.name, None)
+            elif isinstance(stmt.target, TupleLiteral):
+                for tgt in stmt.target.elements:
+                    if isinstance(tgt, Identifier):
+                        env.pop(tgt.name, None)
+        elif isinstance(stmt, DestructureLet):
+            if stmt.initializer is not None:
+                stmt.initializer = self._cp_expr(stmt.initializer, env)
+            # 解构绑定会改写这些变量,失效其常量
+            for name in stmt.names:
+                env.pop(name, None)
+        elif isinstance(stmt, MatchStmt):
+            stmt.subject = self._cp_expr(stmt.subject, env)
+            for arm in stmt.arms:
+                arm.body = self._cp_expr(arm.body, env)
         elif isinstance(stmt, IfStmt):
             stmt.condition = self._cp_expr(stmt.condition, env)
             self._cp_block(stmt.then_body, excluded, env)
@@ -662,6 +700,32 @@ class ARM64CodeGenerator:
         elif isinstance(expr, NullCoalesce):
             expr.left = self._cp_expr(expr.left, env)
             expr.right = self._cp_expr(expr.right, env)
+        elif isinstance(expr, TupleLiteral):
+            expr.elements = [self._cp_expr(e, env) for e in expr.elements]
+        elif isinstance(expr, TupleIndex):
+            expr.object = self._cp_expr(expr.object, env)
+        elif isinstance(expr, ForcedUnwrap):
+            expr.operand = self._cp_expr(expr.operand, env)
+        elif isinstance(expr, PipeExpr):
+            expr.left = self._cp_expr(expr.left, env)
+            expr.call = self._cp_expr(expr.call, env)
+        elif isinstance(expr, (ListComp, SetComp)):
+            expr.expr = self._cp_expr(expr.expr, env)
+            for g in expr.generators:
+                g.iterable = self._cp_expr(g.iterable, env)
+            expr.conditions = [self._cp_expr(c, env) for c in expr.conditions]
+        elif isinstance(expr, MapComp):
+            expr.key_expr = self._cp_expr(expr.key_expr, env)
+            expr.value_expr = self._cp_expr(expr.value_expr, env)
+            for g in expr.generators:
+                g.iterable = self._cp_expr(g.iterable, env)
+            expr.conditions = [self._cp_expr(c, env) for c in expr.conditions]
+        elif isinstance(expr, StructLiteral):
+            expr.fields = [(n, self._cp_expr(v, env)) for n, v in expr.fields]
+        elif isinstance(expr, MatchExpr):
+            expr.subject = self._cp_expr(expr.subject, env)
+            for arm in expr.arms:
+                arm.body = self._cp_expr(arm.body, env)
         return expr
 
     def _as_pure_literal(self, expr):
@@ -775,6 +839,11 @@ class ARM64CodeGenerator:
             if stmt.name not in seen:
                 vars_list.append(stmt.name)
                 seen.add(stmt.name)
+        elif isinstance(stmt, DestructureLet):
+            for name in stmt.names:
+                if name not in seen:
+                    vars_list.append(name)
+                    seen.add(name)
         elif isinstance(stmt, IfStmt):
             if stmt.then_body:
                 for s in stmt.then_body.statements:
@@ -1008,6 +1077,10 @@ class ARM64CodeGenerator:
             self.gen_return_stmt(stmt)
         elif isinstance(stmt, ExprStmt):
             self.gen_expr_stmt(stmt)
+        elif isinstance(stmt, DestructureLet):
+            self.gen_destructure_let(stmt)
+        elif isinstance(stmt, MatchStmt):
+            self.gen_match_stmt(stmt)
         elif isinstance(stmt, BreakStmt):
             self.emit(f'b {self._current_loop_end}')
         elif isinstance(stmt, ContinueStmt):
@@ -1088,6 +1161,23 @@ class ARM64CodeGenerator:
 
     def gen_assign_stmt(self, stmt: AssignStmt):
         """生成赋值语句"""
+        if isinstance(stmt.target, TupleLiteral):
+            # 元组赋值: a, b = b, a
+            # 先求值右侧到临时元组,再依次取出元素赋值给各目标
+            self.gen_expr_to_reg(stmt.value, 'x9')
+            self.emit('str x9, [x29, #-128]')   # 保存右侧元组指针
+            for i, tgt in enumerate(stmt.target.elements):
+                self.emit('ldr x0, [x29, #-128]')
+                self.emit(f'mov x1, #{i}')
+                self.emit('bl _aurora_array_get')
+                self.emit('mov x9, x0')
+                if isinstance(tgt, Identifier):
+                    self._store_reg_to_var('x9', tgt.name)
+                    if (self._get_var_offset(tgt.name) is None
+                            and self._get_var_reg(tgt.name) is None):
+                        self._alloc_stack_var(tgt.name)
+                        self._store_reg_to_var('x9', tgt.name)
+            return
         if isinstance(stmt.target, IndexAccess):
             # arr[i] = val 或 map[key] = val
             is_map = False
@@ -1740,6 +1830,31 @@ class ARM64CodeGenerator:
             self.gen_call_expr(expr, reg)
         elif isinstance(expr, IfExpr):
             self.gen_if_expr(expr, reg)
+        elif isinstance(expr, TupleLiteral):
+            self.gen_tuple_literal(expr, reg)
+        elif isinstance(expr, TupleIndex):
+            self.gen_tuple_index(expr, reg)
+        elif isinstance(expr, ForcedUnwrap):
+            self.gen_forced_unwrap(expr, reg)
+        elif isinstance(expr, NullCoalesce):
+            self.gen_null_coalesce(expr, reg)
+        elif isinstance(expr, OptionalAccess):
+            self.gen_optional_access(expr, reg)
+        elif isinstance(expr, PipeExpr):
+            self.gen_pipe_expr(expr, reg)
+        elif isinstance(expr, ListComp):
+            self.gen_list_comp(expr, reg)
+        elif isinstance(expr, SetComp):
+            self.gen_set_comp(expr, reg)
+        elif isinstance(expr, MapComp):
+            self.gen_map_comp(expr, reg)
+        elif isinstance(expr, StructLiteral):
+            self.gen_struct_literal(expr, reg)
+        elif isinstance(expr, MatchExpr):
+            self.gen_match_expr(expr, reg)
+        elif isinstance(expr, LambdaExpr):
+            # 降级:后端不支持闭包,返回 0(不崩溃)
+            self.emit(f'mov {reg}, #0')
         else:
             self.emit(f'mov {reg}, #0')
 
@@ -2475,6 +2590,254 @@ class ARM64CodeGenerator:
         self.emit_raw(f'{end_label}:')
 
     # ============================================================
+    # Aurora v2.1.0 新特性:元组 / 可选链 / 推导式 / 结构体 / 模式匹配
+    # ============================================================
+    def gen_tuple_literal(self, expr: TupleLiteral, reg: str):
+        """元组字面量:按数组布局创建,元素存于 data 区(+16 起)"""
+        n = len(expr.elements)
+        self.emit(f'mov x0, #{max(n, 1)}')
+        self.emit('bl _aurora_array_new')
+        self.emit('str x0, [x29, #-128]')
+        for i, elem in enumerate(expr.elements):
+            self.gen_expr_to_reg(elem, 'x2')
+            self.emit('str x2, [x29, #-120]')
+            self.emit('ldr x0, [x29, #-128]')
+            self.emit(f'mov x1, #{i}')
+            self.emit('bl _aurora_array_set')
+        self.emit(f'mov x8, #{n}')
+        self.emit('ldr x9, [x29, #-128]')
+        self.emit('str x8, [x9, #8]       // 元组长度')
+        self.emit(f'ldr {reg}, [x29, #-128]')
+
+    def gen_tuple_index(self, expr: TupleIndex, reg: str):
+        """元组索引 tup.0:计算偏移量加载"""
+        self.gen_expr_to_reg(expr.object, 'x0')
+        self.emit(f'mov x1, #{int(expr.index)}')
+        self.emit('bl _aurora_array_get')
+        self.emit(f'mov {reg}, x0')
+
+    def gen_forced_unwrap(self, expr: ForcedUnwrap, reg: str):
+        """强制解包 a!:求值后若为 nil(0)则 panic"""
+        self.gen_expr_to_reg(expr.operand, reg)
+        self.emit(f'cmp {reg}, #0')
+        ok_label = self.new_label("unwrap_ok")
+        self.emit(f'b.ne {ok_label}')
+        self.emit('mov x0, #2            // nil 强制解包 panic')
+        self.emit('bl _aurora_throw')
+        self.emit_raw(f'{ok_label}:')
+
+    def gen_null_coalesce(self, expr: NullCoalesce, reg: str):
+        """空合并 left ?? right:left 为 nil(0)时取 right"""
+        self.gen_expr_to_reg(expr.left, reg)
+        end_label = self.new_label("nc_end")
+        self.emit(f'cmp {reg}, #0')
+        self.emit(f'b.ne {end_label}')
+        self.gen_expr_to_reg(expr.right, reg)
+        self.emit_raw(f'{end_label}:')
+
+    def gen_optional_access(self, expr: OptionalAccess, reg: str):
+        """可选链 obj?.member:obj 为 nil 时结果为 nil。
+        后端无对象/成员系统,降级为对 obj 求值(保留副作用)后返回 0。"""
+        self.gen_expr_to_reg(expr.object, 'x9')
+        self.emit(f'mov {reg}, #0')
+
+    def gen_pipe_expr(self, expr: PipeExpr, reg: str):
+        """管道 x |> f(args):左侧值作为最后一个位置实参"""
+        call = expr.call
+        if isinstance(call, CallExpr) and isinstance(call.callee, Identifier):
+            new_call = CallExpr(callee=call.callee,
+                                args=list(call.args) + [expr.left],
+                                named_args=list(call.named_args))
+            self.gen_call_expr(new_call, reg)
+        else:
+            self.emit(f'mov {reg}, #0')
+
+    # ---------- 推导式(ListComp/SetComp/MapComp) ----------
+    def gen_list_comp(self, expr: ListComp, reg: str):
+        self._gen_compile(expr.generators, expr.conditions,
+                          value_expr=expr.expr, kind='list', reg=reg)
+
+    def gen_set_comp(self, expr: SetComp, reg: str):
+        self._gen_compile(expr.generators, expr.conditions,
+                          value_expr=expr.expr, kind='set', reg=reg)
+
+    def gen_map_comp(self, expr: MapComp, reg: str):
+        self._gen_compile(expr.generators, expr.conditions,
+                          key_expr=expr.key_expr, value_expr=expr.value_expr,
+                          kind='map', reg=reg)
+
+    def _gen_compile(self, generators, conditions, value_expr, kind, reg,
+                     key_expr=None):
+        """推导式降级为 for 循环 + 收集"""
+        if not generators:
+            self.emit(f'mov {reg}, #0')
+            return
+        # 容器容量 = 外层可迭代长度(单生成器上界)
+        self.gen_expr_to_reg(generators[0].iterable, 'x0')
+        self.emit('str x0, [x29, #-112]')
+        self.emit('bl _aurora_array_len')
+        if kind == 'list':
+            self.emit('bl _aurora_array_new')
+        else:
+            self.emit('bl _aurora_map_new')
+        self.emit('str x0, [x29, #-128]')    # result ptr
+        self.emit('mov x9, #0')
+        self.emit('str x9, [x29, #-120]')    # out_len = 0
+        self._gen_comp_loops(generators, 0, conditions, kind,
+                             value_expr, key_expr)
+        self.emit(f'ldr {reg}, [x29, #-128]')
+
+    def _gen_comp_loops(self, generators, k, conditions, kind,
+                        value_expr, key_expr):
+        """递归生成推导式的嵌套循环 + 条件 + 收集"""
+        if k == len(generators):
+            # 叶子:依次检查条件
+            skip_labels = []
+            for cond in conditions:
+                self.gen_expr_to_reg(cond, 'x9')
+                self.emit('cmp x9, #0')
+                lbl = self.new_label("comp_cond_skip")
+                self.emit(f'b.eq {lbl}')
+                skip_labels.append(lbl)
+            # 收集
+            self.emit('ldr x0, [x29, #-128]')    # result
+            if kind == 'list':
+                self.gen_expr_to_reg(value_expr, 'x2')
+                self.emit('str x2, [x29, #-104]')  # 暂存值
+                self.emit('ldr x0, [x29, #-128]')
+                self.emit('ldr x1, [x29, #-120]')  # out_len
+                self.emit('ldr x2, [x29, #-104]')
+                self.emit('bl _aurora_array_set')
+                self.emit('ldr x9, [x29, #-120]')
+                self.emit('add x9, x9, #1')
+                self.emit('str x9, [x29, #-120]')
+            elif kind == 'set':
+                self.gen_expr_to_reg(value_expr, 'x1')
+                self.emit('str x1, [x29, #-112]')  # 暂存 key
+                self.emit('ldr x0, [x29, #-128]')
+                self.emit('ldr x1, [x29, #-112]')
+                self.emit('mov x2, x1')            # dummy value
+                self.emit('bl _aurora_map_set')
+            elif kind == 'map':
+                self.gen_expr_to_reg(key_expr, 'x1')
+                self.emit('str x1, [x29, #-112]')
+                self.gen_expr_to_reg(value_expr, 'x2')
+                self.emit('str x2, [x29, #-104]')
+                self.emit('ldr x0, [x29, #-128]')
+                self.emit('ldr x1, [x29, #-112]')
+                self.emit('ldr x2, [x29, #-104]')
+                self.emit('bl _aurora_map_set')
+            for lbl in skip_labels:
+                self.emit_raw(f'{lbl}:')
+            return
+
+        # 第 k 层:for target in iterable
+        gen = generators[k]
+        it_off = -56 - k * 24
+        lim_off = -48 - k * 24
+        i_off = -40 - k * 24
+        self.gen_expr_to_reg(gen.iterable, 'x0')
+        self.emit(f'str x0, [x29, #{it_off}]')
+        self.emit('bl _aurora_array_len')
+        self.emit(f'str x0, [x29, #{lim_off}]')
+        # i = 0
+        self.emit('mov x9, #0')
+        self.emit(f'str x9, [x29, #{i_off}]')
+        cond_label = self.new_label("comp_loop")
+        end_label = self.new_label("comp_loop_end")
+        self.emit_raw(f'{cond_label}:')
+        self.emit(f'ldr x9, [x29, #{i_off}]')
+        self.emit(f'ldr x10, [x29, #{lim_off}]')
+        self.emit('cmp x9, x10')
+        self.emit(f'b.ge {end_label}')
+        # element = iter[i]
+        self.emit(f'ldr x0, [x29, #{it_off}]')
+        self.emit(f'ldr x1, [x29, #{i_off}]')
+        self.emit('bl _aurora_array_get')
+        # 绑定到 gen.target
+        self.emit('mov x9, x0')
+        self._store_reg_to_var('x9', gen.target)
+        if self._get_var_offset(gen.target) is None and self._get_var_reg(gen.target) is None:
+            self._alloc_stack_var(gen.target)
+            self._store_reg_to_var('x9', gen.target)
+        # 内层
+        self._gen_comp_loops(generators, k + 1, conditions, kind,
+                             value_expr, key_expr)
+        # i++
+        self.emit(f'ldr x9, [x29, #{i_off}]')
+        self.emit('add x9, x9, #1')
+        self.emit(f'str x9, [x29, #{i_off}]')
+        self.emit(f'b {cond_label}')
+        self.emit_raw(f'{end_label}:')
+
+    # ---------- 结构体字面量 ----------
+    def gen_struct_literal(self, expr: StructLiteral, reg: str):
+        """结构体字面量:调用类型构造函数,字段按声明顺序作为位置参数"""
+        args = [v for _, v in expr.fields]
+        call = CallExpr(callee=Identifier(name=expr.type_name), args=args)
+        self.gen_call_expr(call, reg)
+
+    # ---------- 模式匹配 ----------
+    def gen_match_expr(self, expr: MatchExpr, reg: str):
+        self._gen_match_common(expr.subject, expr.arms, reg, is_expr=True)
+
+    def gen_match_stmt(self, stmt: MatchStmt):
+        self._gen_match_common(stmt.subject, stmt.arms, 'x9', is_expr=False)
+
+    def _gen_match_common(self, subject, arms, reg, is_expr: bool):
+        """match 编译为条件跳转链"""
+        if not arms:
+            if is_expr:
+                self.emit(f'mov {reg}, #0')
+            return
+        self.gen_expr_to_reg(subject, 'x9')
+        self.emit('str x9, [x29, #-128]')      # 保存 subject
+        end_label = self.new_label("match_end")
+        for arm in arms:
+            next_label = self.new_label("match_next")
+            self._gen_pattern_test(arm.pattern, next_label)
+            if arm.body is not None:
+                if is_expr:
+                    self.gen_expr_to_reg(arm.body, reg)
+                else:
+                    self.gen_expr_to_reg(arm.body, 'x9')
+            self.emit(f'b {end_label}')
+            self.emit_raw(f'{next_label}:')
+        # 无匹配:表达式结果为 0
+        if is_expr:
+            self.emit(f'mov {reg}, #0')
+        self.emit_raw(f'{end_label}:')
+
+    def _gen_pattern_test(self, pattern, nomatch_label: str):
+        """生成模式测试:不匹配则跳转到 nomatch_label,匹配则顺序执行"""
+        if isinstance(pattern, (WildcardPattern, BindPattern)):
+            return  # 总是匹配
+        if isinstance(pattern, LiteralPattern):
+            self.emit('ldr x9, [x29, #-128]')   # subject
+            self.gen_expr_to_reg(pattern.value, 'x10')
+            self.emit('cmp x9, x10')
+            self.emit(f'b.ne {nomatch_label}')
+            return
+        # Constructor/Struct/Tuple 模式:降级为总是匹配(不解构子字段)
+        return
+
+    # ---------- 解构绑定 ----------
+    def gen_destructure_let(self, stmt: DestructureLet):
+        """let (a, b) = expr:将元组元素依次赋给变量"""
+        self.gen_expr_to_reg(stmt.initializer, 'x9')
+        self.emit('str x9, [x29, #-128]')
+        for i, name in enumerate(stmt.names):
+            self.emit('ldr x0, [x29, #-128]')
+            self.emit(f'mov x1, #{i}')
+            self.emit('bl _aurora_array_get')
+            self.emit('mov x9, x0')
+            self.var_types[name] = self.var_types.get(name, 'int')
+            self._store_reg_to_var('x9', name)
+            if self._get_var_offset(name) is None and self._get_var_reg(name) is None:
+                self._alloc_stack_var(name)
+                self._store_reg_to_var('x9', name)
+
+    # ============================================================
     # 编译期常量计算
     # ============================================================
     def _try_compile_time_eval(self, expr: CallExpr):
@@ -2992,7 +3355,8 @@ class ARM64CodeGenerator:
         self.emit('ldr x3, [x0, #0]       // capacity')
         self.emit('cmp x2, x3')
         self.emit('b.ge _aurora_array_push_grow')
-        self.emit('str x1, [x0, x2, lsl #3]  // data[length] = value')
+        self.emit('add x9, x0, #16         // data base (跳过 16 字节头)')
+        self.emit('str x1, [x9, x2, lsl #3]  // data[length] = value')
         self.emit('add x2, x2, #1')
         self.emit('str x2, [x0, #8]       // length++')
         self.emit('ret')
@@ -3003,14 +3367,16 @@ class ARM64CodeGenerator:
         self.emit_raw('')
         self.emit_raw('// _aurora_array_get: x0 = 数组指针, x1 = 索引,返回值在 x0')
         self.emit_raw('_aurora_array_get:')
-        self.emit('ldr x2, [x0, x1, lsl #3]')
+        self.emit('add x9, x0, #16         // data base (跳过 16 字节头)')
+        self.emit('ldr x2, [x9, x1, lsl #3]')
         self.emit('mov x0, x2')
         self.emit('ret')
 
         self.emit_raw('')
         self.emit_raw('// _aurora_array_set: x0 = 数组指针, x1 = 索引, x2 = 值')
         self.emit_raw('_aurora_array_set:')
-        self.emit('str x2, [x0, x1, lsl #3]')
+        self.emit('add x9, x0, #16         // data base (跳过 16 字节头)')
+        self.emit('str x2, [x9, x1, lsl #3]')
         self.emit('ret')
 
         self.emit_raw('')

@@ -17,6 +17,39 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Callable
 
+# ── Aurora AI 引擎集成（v3.0.0）──────────────────────────────────────
+# 以延迟/容错方式导入 AI 模块。ai/ 不依赖 stdlib，正常情况下可直接导入；
+# 若未来出现循环依赖或可选依赖缺失，这里的 try/except 保证 stdlib 仍可加载，
+# 对应 std.* AI 模块在 STDLIB_MODULES 中退化为空占位（不影响其他功能）。
+try:
+    from aurora.ai.tensor import Tensor as _AuroraTensor
+    from aurora.ai.autograd import (
+        Variable as _AuroraVariable,
+        SGD as _AuroraSGD,
+        Adam as _AuroraAdam,
+    )
+    from aurora.ai import nn as _aurora_nn
+    from aurora.ai.data import (
+        DataFrame as _AuroraDataFrame,
+        Dataset as _AuroraDataset,
+        DataLoader as _AuroraDataLoader,
+    )
+    from aurora.ai.agent import (
+        Agent as _AuroraAgent,
+        LLM as _AuroraLLM,            # 工厂函数：根据 provider 创建 OpenAI/Anthropic/local 后端
+        PromptTemplate as _AuroraPromptTemplate,
+        LLMChain as _AuroraLLMChain,
+    )
+    from aurora.ai.inference import (
+        InferenceEngine as _AuroraInferenceEngine,
+        InferenceServer as _AuroraInferenceServer,
+    )
+    from aurora.ai.decorators import ai as _AuroraAIDecorator
+    _AURORA_AI_AVAILABLE = True
+except Exception as _ai_import_err:  # pragma: no cover - 容错降级
+    _AURORA_AI_AVAILABLE = False
+    _ai_import_err = _ai_import_err
+
 
 class AuroraError(Exception):
     """Aurora 运行时异常基类"""
@@ -553,6 +586,679 @@ class AuroraFFI:
     def cstr(s: str) -> bytes:
         """把 Aurora 字符串转成 C 字符串(用于 str 参数)"""
         return s.encode('utf-8')
+
+    @staticmethod
+    def struct(name: str, fields: list):
+        """定义 C 结构体类型,fields 为 [(字段名, C类型字符串), ...],返回 ctypes.Structure 子类"""
+        try:
+            return type(name, (ctypes.Structure,), {
+                '_fields_': [(fn, AuroraFFI._TYPES.get(ft, ctypes.c_void_p)) for fn, ft in fields],
+            })
+        except Exception as e:
+            raise AuroraError("FFIError", f"定义结构体 {name}: {e}")
+
+    @staticmethod
+    def callback(ret_type: str, arg_types: list):
+        """创建 C 回调函数类型,返回 CFUNCTYPE 工厂,用于把 Python 函数传给 C 库"""
+        try:
+            ret = AuroraFFI._TYPES.get(ret_type, ctypes.c_void_p)
+            args = [AuroraFFI._TYPES.get(t, ctypes.c_void_p) for t in arg_types]
+            return ctypes.CFUNCTYPE(ret, *args)
+        except Exception as e:
+            raise AuroraError("FFIError", f"创建回调类型: {e}")
+
+    @staticmethod
+    def string_array(strings: list):
+        """把 Python 字符串列表转成 C 字符串数组(char*[])"""
+        try:
+            arr_type = ctypes.c_char_p * len(strings)
+            return arr_type(*[s.encode('utf-8') for s in strings])
+        except Exception as e:
+            raise AuroraError("FFIError", f"创建字符串数组: {e}")
+
+    @staticmethod
+    def ptr(value, c_type: str = 'i32'):
+        """创建指向值的指针,返回 ctypes.pointer 对象"""
+        try:
+            ctor = AuroraFFI._TYPES.get(c_type, ctypes.c_void_p)
+            return ctypes.pointer(ctor(value))
+        except Exception as e:
+            raise AuroraError("FFIError", f"创建指针: {e}")
+
+    @staticmethod
+    def deref(ptr_obj):
+        """解引用指针,返回指向的值"""
+        try:
+            return ptr_obj.contents.value
+        except Exception as e:
+            raise AuroraError("FFIError", f"解引用指针: {e}")
+
+    @staticmethod
+    def gen_bindings(lang: str, functions: list, output_path: str = None) -> str:
+        """为 Rust/C++/Go 生成 FFI 绑定模板代码
+        functions: [{"name": "add", "args": ["i32","i32"], "ret": "i32"}, ...]
+        返回生成的代码字符串;若提供 output_path 则同时写入文件"""
+        c_types = {
+            'i8': 'int8_t', 'i16': 'int16_t', 'i32': 'int32_t', 'i64': 'int64_t',
+            'u8': 'uint8_t', 'u16': 'uint16_t', 'u32': 'uint32_t', 'u64': 'uint64_t',
+            'f32': 'float', 'f64': 'double', 'bool': 'bool', 'void': 'void',
+        }
+        rust_types = {
+            'i8': 'i8', 'i16': 'i16', 'i32': 'i32', 'i64': 'i64',
+            'u8': 'u8', 'u16': 'u16', 'u32': 'u32', 'u64': 'u64',
+            'f32': 'f32', 'f64': 'f64', 'bool': 'bool', 'void': '()',
+        }
+        go_types = {
+            'i8': 'int8', 'i16': 'int16', 'i32': 'int32', 'i64': 'int64',
+            'u8': 'uint8', 'u16': 'uint16', 'u32': 'uint32', 'u64': 'uint64',
+            'f32': 'float32', 'f64': 'float64', 'bool': 'bool', 'void': '',
+        }
+        try:
+            if lang == "rust":
+                lines = ["#![allow(non_snake_case)]", ""]
+                for f in functions:
+                    name = f["name"]
+                    args = ", ".join(
+                        f"a{i}: {rust_types.get(t, 'i64')}" for i, t in enumerate(f["args"])
+                    )
+                    ret_key = f.get("ret", "void")
+                    ret = rust_types.get(ret_key, "i64")
+                    ret_sig = f" -> {ret}" if ret_key != "void" else ""
+                    lines.append("#[no_mangle]")
+                    lines.append(f'pub extern "C" fn {name}({args}){ret_sig} {{')
+                    lines.append("    unimplemented!()")
+                    lines.append("}")
+                    lines.append("")
+                code = "\n".join(lines)
+            elif lang == "cpp":
+                lines = ['#include <stdint.h>', '#include <stdbool.h>', '', 'extern "C" {', '']
+                for f in functions:
+                    name = f["name"]
+                    ret = c_types.get(f.get("ret", "i32"), "int64_t")
+                    args = ", ".join(
+                        f"{c_types.get(t, 'int64_t')} a{i}" for i, t in enumerate(f["args"])
+                    )
+                    args = args if args else "void"
+                    lines.append(f'extern "C" {ret} {name}({args}) {{')
+                    lines.append(f"    // TODO: 实现 {name}")
+                    lines.append(f"    return ({ret})0;")
+                    lines.append("}")
+                    lines.append("")
+                lines.append("}")
+                code = "\n".join(lines)
+            elif lang == "go":
+                lines = ['package main', '', 'import "C"', '']
+                for f in functions:
+                    name = f["name"]
+                    ret_key = f.get("ret", "void")
+                    ret = go_types.get(ret_key, "int64")
+                    args = ", ".join(
+                        f"a{i} {go_types.get(t, 'int64')}" for i, t in enumerate(f["args"])
+                    )
+                    ret_sig = f" {ret}" if ret_key != "void" else ""
+                    lines.append(f"//export {name}")
+                    lines.append(f"func {name}({args}){ret_sig} {{")
+                    lines.append(f"    // TODO: 实现 {name}")
+                    if ret_key != "void":
+                        lines.append(f"    return {ret}(0)")
+                    lines.append("}")
+                    lines.append("")
+                lines.append("func main() {}")
+                code = "\n".join(lines)
+            else:
+                raise AuroraError("FFIError", f"不支持的绑定语言: {lang}")
+            if output_path:
+                with open(output_path, 'w', encoding='utf-8') as fh:
+                    fh.write(code)
+            return code
+        except AuroraError:
+            raise
+        except Exception as e:
+            raise AuroraError("FFIError", f"生成绑定: {e}")
+
+
+class AuroraJS:
+    """JavaScript/TypeScript 桥:通过 Node.js 子进程执行 JS/TS 代码
+    安全提示:js.eval 可执行任意代码,仅用于本地可信环境"""
+
+    @staticmethod
+    def _run(args_list: list, timeout: float) -> subprocess.CompletedProcess:
+        """内部:运行 Node.js 子进程并处理超时/异常"""
+        try:
+            return subprocess.run(args_list, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise AuroraError("TimeoutError", f"JS 执行超时({timeout}s)")
+        except FileNotFoundError:
+            raise AuroraError("JSError", "未找到 node 可执行文件")
+        except Exception as e:
+            raise AuroraError("JSError", str(e))
+
+    @staticmethod
+    def _parse_stderr(text: str) -> str:
+        """解析 JS 错误输出(优先取 JSON 中的 error/message)"""
+        text = (text or "").strip()
+        if not text:
+            return "未知错误"
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict) and 'error' in obj:
+                stack = obj.get('stack', '')
+                return f"{obj['error']}\n{stack}" if stack else str(obj['error'])
+        except Exception:
+            pass
+        return text
+
+    @staticmethod
+    def _json_out(stdout: str):
+        """把 stdout 解析为 JSON,失败时返回原始文本"""
+        out = (stdout or "").strip()
+        try:
+            return json.loads(out)
+        except Exception:
+            return out
+
+    @staticmethod
+    def eval(code: str, timeout: float = 30.0):
+        """通过 node -e 执行 JS 表达式,用 JSON.stringify 包装返回值并解析"""
+        script = (
+            "try { console.log(JSON.stringify(eval(%s))) } "
+            "catch(e) { console.error(JSON.stringify({error: e.message, stack: e.stack})); process.exit(1) }"
+        ) % json.dumps(code, ensure_ascii=False)
+        proc = AuroraJS._run(["node", "-e", script], timeout)
+        if proc.returncode != 0:
+            raise AuroraError("JSError", AuroraJS._parse_stderr(proc.stderr))
+        return AuroraJS._json_out(proc.stdout)
+
+    @staticmethod
+    def call(fn_name: str, *args, timeout: float = 30.0):
+        """调用全局 JS 函数,args 通过 JSON 序列化传入"""
+        args_json = json.dumps(list(args), ensure_ascii=False)
+        script = (
+            "try { console.log(JSON.stringify(globalThis[%s](...%s))) } "
+            "catch(e) { console.error(JSON.stringify({error: e.message, stack: e.stack})); process.exit(1) }"
+        ) % (json.dumps(fn_name, ensure_ascii=False), args_json)
+        proc = AuroraJS._run(["node", "-e", script], timeout)
+        if proc.returncode != 0:
+            raise AuroraError("JSError", AuroraJS._parse_stderr(proc.stderr))
+        return AuroraJS._json_out(proc.stdout)
+
+    @staticmethod
+    def require(module: str, timeout: float = 30.0):
+        """require Node.js 模块,返回数据属性(函数无法序列化,标记为 [Function])"""
+        script = (
+            "const m = require(%s); "
+            "console.log(JSON.stringify(m, (k,v)=>typeof v==='function'?'[Function]':v))"
+        ) % json.dumps(module, ensure_ascii=False)
+        proc = AuroraJS._run(["node", "-e", script], timeout)
+        if proc.returncode != 0:
+            raise AuroraError("JSError", AuroraJS._parse_stderr(proc.stderr))
+        return AuroraJS._json_out(proc.stdout)
+
+    @staticmethod
+    def run_file(path: str, args: list = None, timeout: float = 30.0):
+        """运行 .js/.ts 文件,返回 {code, out, err}
+        .ts 自动检测:优先 ts-node,其次 npx ts-node,最后 tsc 编译到临时目录"""
+        import shutil
+        args = list(args or [])
+        apath = os.path.abspath(path)
+        ext = os.path.splitext(apath)[1].lower()
+        try:
+            if ext == '.ts':
+                return AuroraJS._run_ts(apath, args, timeout)
+            proc = subprocess.run(["node", apath] + args, capture_output=True, text=True, timeout=timeout)
+            return {"code": proc.returncode, "out": proc.stdout, "err": proc.stderr}
+        except subprocess.TimeoutExpired:
+            raise AuroraError("TimeoutError", f"JS 文件执行超时({timeout}s)")
+        except FileNotFoundError:
+            raise AuroraError("JSError", "未找到 node 可执行文件")
+        except AuroraError:
+            raise
+        except Exception as e:
+            raise AuroraError("JSError", str(e))
+
+    @staticmethod
+    def _run_ts(path: str, args: list, timeout: float) -> dict:
+        """内部:运行 TS 文件,依次尝试 ts-node / npx ts-node / tsc 编译"""
+        import shutil
+        import tempfile
+        # 优先本地 ts-node
+        if shutil.which("ts-node"):
+            proc = subprocess.run(["ts-node", path] + args,
+                                  capture_output=True, text=True, timeout=timeout)
+            return {"code": proc.returncode, "out": proc.stdout, "err": proc.stderr}
+        # 其次 npx ts-node
+        try:
+            proc = subprocess.run(["npx", "-y", "ts-node", path] + args,
+                                  capture_output=True, text=True, timeout=timeout)
+            return {"code": proc.returncode, "out": proc.stdout, "err": proc.stderr}
+        except Exception:
+            pass
+        # 最后 tsc 编译到临时目录再用 node 运行
+        tmpdir = tempfile.mkdtemp(prefix="aurora_ts_")
+        try:
+            cproc = subprocess.run(["tsc", path, "--outDir", tmpdir, "--target", "ES2019"],
+                                   capture_output=True, text=True, timeout=timeout)
+            if cproc.returncode != 0:
+                raise AuroraError("JSError", f"tsc 编译失败: {cproc.stderr}")
+            js_name = os.path.splitext(os.path.basename(path))[0] + ".js"
+            js_path = os.path.join(tmpdir, js_name)
+            proc = subprocess.run(["node", js_path] + args,
+                                  capture_output=True, text=True, timeout=timeout)
+            return {"code": proc.returncode, "out": proc.stdout, "err": proc.stderr}
+        except subprocess.TimeoutExpired:
+            raise AuroraError("TimeoutError", f"TS 执行超时({timeout}s)")
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    @staticmethod
+    def version() -> str:
+        """返回 Node.js 版本字符串"""
+        try:
+            proc = subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=10)
+            return (proc.stdout or proc.stderr).strip()
+        except Exception as e:
+            raise AuroraError("JSError", f"获取 Node 版本: {e}")
+
+    @staticmethod
+    def available() -> bool:
+        """检测 node 是否可用"""
+        import shutil
+        if shutil.which("node"):
+            return True
+        try:
+            subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=10)
+            return True
+        except Exception:
+            return False
+
+
+class AuroraJava:
+    """Java 桥:通过 java/jshell 子进程调用 Java 代码
+    支持 .class / .jar 文件,类路径配置"""
+
+    @staticmethod
+    def _java_arg(v) -> str:
+        """把 Python 值转成 Java 表达式字符串(类型自动推断)"""
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if isinstance(v, int):
+            return f"(long) {v}"
+        if isinstance(v, float):
+            return f"(double) {repr(v)}"
+        if isinstance(v, str):
+            return json.dumps(v, ensure_ascii=False)
+        if isinstance(v, (list, tuple)):
+            if not v:
+                return "new String[0]"
+            first = v[0]
+            if isinstance(first, bool):
+                return "new boolean[]{" + ",".join("true" if x else "false" for x in v) + "}"
+            if isinstance(first, int):
+                return "new long[]{" + ",".join(str(int(x)) for x in v) + "}"
+            if isinstance(first, float):
+                return "new double[]{" + ",".join(repr(float(x)) for x in v) + "}"
+            return "new String[]{" + ",".join(json.dumps(str(x), ensure_ascii=False) for x in v) + "}"
+        return json.dumps(str(v), ensure_ascii=False)
+
+    @staticmethod
+    def _parse_json_output(text: str):
+        """解析 Java 输出为 Python 值,失败时返回原始文本"""
+        text = (text or "").strip()
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except Exception:
+            return text
+
+    @staticmethod
+    def call(class_name: str, method_name: str, *args, classpath: str = None, timeout: float = 30.0):
+        """调用 Java 静态方法,参数类型按 Python 类型推断,返回反序列化后的结果"""
+        import shutil
+        import tempfile
+        arg_exprs = ", ".join(AuroraJava._java_arg(a) for a in args)
+        # 注意:此处使用原始字符串保留 Java 转义,通过 %s 注入类名/方法名/实参
+        src = r'''import java.util.Arrays;
+public class AuroraCallMain {
+  public static void main(String[] argv) {
+    Object result = %s.%s(%s);
+    AuroraCallMain.printJson(result);
+  }
+  static void printJson(Object r) {
+    if (r == null) { System.out.println("null"); return; }
+    if (r instanceof Number) { System.out.println(r.toString()); return; }
+    if (r instanceof Boolean) { System.out.println(Boolean.toString((Boolean)r)); return; }
+    if (r instanceof String) { System.out.println("\"" + ((String)r).replace("\\", "\\\\").replace("\"", "\\\"") + "\""); return; }
+    if (r.getClass().isArray()) { System.out.println(Arrays.toString((Object[])r)); return; }
+    System.out.println("\"" + r.toString().replace("\\", "\\\\").replace("\"", "\\\"") + "\"");
+  }
+}
+''' % (class_name, method_name, arg_exprs)
+        tmpdir = tempfile.mkdtemp(prefix="aurora_java_")
+        try:
+            src_path = os.path.join(tmpdir, "AuroraCallMain.java")
+            with open(src_path, 'w', encoding='utf-8') as f:
+                f.write(src)
+            cp_parts = [tmpdir]
+            if classpath:
+                cp_parts.append(classpath)
+            cp = os.pathsep.join(cp_parts)
+            cproc = subprocess.run(["javac", src_path], capture_output=True, text=True, timeout=timeout)
+            if cproc.returncode != 0:
+                raise AuroraError("JavaError", f"编译失败: {cproc.stderr}")
+            rproc = subprocess.run(["java", "-cp", cp, "AuroraCallMain"],
+                                   capture_output=True, text=True, timeout=timeout)
+            if rproc.returncode != 0:
+                raise AuroraError("JavaError", f"运行失败: {rproc.stderr}")
+            return AuroraJava._parse_json_output(rproc.stdout)
+        except subprocess.TimeoutExpired:
+            raise AuroraError("TimeoutError", f"Java 调用超时({timeout}s)")
+        except FileNotFoundError:
+            raise AuroraError("JavaError", "未找到 java/javac 可执行文件")
+        except AuroraError:
+            raise
+        except Exception as e:
+            raise AuroraError("JavaError", str(e))
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    @staticmethod
+    def run(main_class: str, args: list = None, classpath: str = None, timeout: float = 30.0):
+        """运行已编译的 Java 主类(class 或 jar 中的 main 类),返回 {code, out, err}"""
+        args = list(args or [])
+        cp = classpath or "."
+        try:
+            proc = subprocess.run(["java", "-cp", cp, main_class] + args,
+                                  capture_output=True, text=True, timeout=timeout)
+            return {"code": proc.returncode, "out": proc.stdout, "err": proc.stderr}
+        except subprocess.TimeoutExpired:
+            raise AuroraError("TimeoutError", f"Java 运行超时({timeout}s)")
+        except FileNotFoundError:
+            raise AuroraError("JavaError", "未找到 java 可执行文件")
+        except Exception as e:
+            raise AuroraError("JavaError", str(e))
+
+    @staticmethod
+    def _clean_jshell(text: str) -> str:
+        """清理 jshell 输出:去掉欢迎信息、-> 与 $N ==> 前缀"""
+        lines = []
+        for ln in (text or "").splitlines():
+            s = ln.strip()
+            if not s:
+                continue
+            if s.startswith("Welcome") or s.startswith("|") or s.startswith("jshell>"):
+                continue
+            if s.startswith("$") and "==>" in s:
+                s = s.split("==>", 1)[1].strip()
+            if s.startswith("->"):
+                s = s[2:].strip()
+            if s:
+                lines.append(s)
+        return "\n".join(lines)
+
+    @staticmethod
+    def eval(code: str, timeout: float = 30.0):
+        """通过 jshell 执行 Java 代码片段;jshell 不可用时回退到临时类编译运行"""
+        import shutil
+        if shutil.which("jshell"):
+            try:
+                proc = subprocess.run(["jshell", "-s"], input=code,
+                                      capture_output=True, text=True, timeout=timeout)
+                out = AuroraJava._clean_jshell(proc.stdout)
+                if proc.returncode != 0 and not out:
+                    raise AuroraError("JavaError", (proc.stderr or "jshell 执行失败").strip())
+                return out
+            except subprocess.TimeoutExpired:
+                raise AuroraError("TimeoutError", f"jshell 超时({timeout}s)")
+            except AuroraError:
+                raise
+            except Exception as e:
+                raise AuroraError("JavaError", str(e))
+        return AuroraJava._eval_fallback(code, timeout)
+
+    @staticmethod
+    def _eval_fallback(code: str, timeout: float):
+        """内部回退:把代码包进临时 Java 类编译运行"""
+        import shutil
+        import tempfile
+        src = (
+            "public class AuroraEvalMain {\n"
+            "  public static void main(String[] argv) {\n"
+            + code + "\n"
+            "  }\n"
+            "}\n"
+        )
+        tmpdir = tempfile.mkdtemp(prefix="aurora_javaeval_")
+        try:
+            src_path = os.path.join(tmpdir, "AuroraEvalMain.java")
+            with open(src_path, 'w', encoding='utf-8') as f:
+                f.write(src)
+            subprocess.run(["javac", src_path], capture_output=True, text=True, timeout=timeout)
+            proc = subprocess.run(["java", "-cp", tmpdir, "AuroraEvalMain"],
+                                  capture_output=True, text=True, timeout=timeout)
+            if proc.returncode != 0:
+                raise AuroraError("JavaError", proc.stderr)
+            return proc.stdout.strip()
+        except subprocess.TimeoutExpired:
+            raise AuroraError("TimeoutError", f"Java 编译运行超时({timeout}s)")
+        except FileNotFoundError:
+            raise AuroraError("JavaError", "未找到 java/javac")
+        except AuroraError:
+            raise
+        except Exception as e:
+            raise AuroraError("JavaError", str(e))
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    @staticmethod
+    def compile(source_path: str, classpath: str = None, output_dir: str = None, timeout: float = 30.0) -> str:
+        """编译 Java 源文件(javac),返回输出目录路径"""
+        import tempfile
+        out_dir = output_dir or tempfile.mkdtemp(prefix="aurora_javac_")
+        os.makedirs(out_dir, exist_ok=True)
+        cmd = ["javac", "-d", out_dir]
+        if classpath:
+            cmd += ["-cp", classpath]
+        cmd.append(source_path)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            if proc.returncode != 0:
+                raise AuroraError("JavaError", f"编译 {source_path}: {proc.stderr}")
+            return out_dir
+        except subprocess.TimeoutExpired:
+            raise AuroraError("TimeoutError", f"Java 编译超时({timeout}s)")
+        except FileNotFoundError:
+            raise AuroraError("JavaError", "未找到 javac")
+        except AuroraError:
+            raise
+        except Exception as e:
+            raise AuroraError("JavaError", str(e))
+
+    @staticmethod
+    def version() -> str:
+        """返回 Java 版本字符串(java -version 的 stderr 第一行)"""
+        try:
+            proc = subprocess.run(["java", "-version"], capture_output=True, text=True, timeout=10)
+            lines = (proc.stderr or proc.stdout or "").splitlines()
+            return lines[0].strip() if lines else ""
+        except Exception as e:
+            raise AuroraError("JavaError", f"获取 Java 版本: {e}")
+
+    @staticmethod
+    def available() -> bool:
+        """检测 java 是否可用"""
+        import shutil
+        if shutil.which("java"):
+            return True
+        try:
+            subprocess.run(["java", "-version"], capture_output=True, text=True, timeout=10)
+            return True
+        except Exception:
+            return False
+
+
+class AuroraInterop:
+    """统一多语言互操作层:一个 API 调用所有支持的语言
+    自动选择最佳调用方式(直连/FFI/子进程),类型自动转换"""
+
+    @staticmethod
+    def call(lang: str, code_or_fn: str, *args, **kwargs):
+        """统一调用入口:lang ∈ python/js/java/c/cpp/rust/go"""
+        if lang == "python":
+            return AuroraPython.eval(code_or_fn)
+        if lang == "js":
+            if args:
+                return AuroraJS.call(code_or_fn, *args, timeout=kwargs.get("timeout", 30.0))
+            return AuroraJS.eval(code_or_fn, timeout=kwargs.get("timeout", 30.0))
+        if lang == "java":
+            if "." in code_or_fn:
+                cls, method = code_or_fn.rsplit(".", 1)
+                return AuroraJava.call(cls, method, *args,
+                                       classpath=kwargs.get("classpath"),
+                                       timeout=kwargs.get("timeout", 30.0))
+            raise AuroraError("InteropError",
+                              f"Java 调用需 ClassName.methodName 格式,收到: {code_or_fn}")
+        if lang in ("c", "rust", "go", "cpp"):
+            if ":" not in code_or_fn:
+                raise AuroraError("InteropError",
+                                  f"{lang} 调用需 libpath:symbol 格式,收到: {code_or_fn}")
+            libpath, symbol = code_or_fn.split(":", 1)
+            lib = AuroraFFI.load(libpath)
+            arg_types = kwargs.get("arg_types")
+            if arg_types is None:
+                arg_types = ["i64"] * len(args)
+            ret_type = kwargs.get("ret_type", "i64")
+            fn = AuroraFFI.func(lib, symbol, arg_types, ret_type)
+            return fn(*args)
+        raise AuroraError("InteropError", f"不支持的语言: {lang}")
+
+    @staticmethod
+    def _import(lang: str, module: str):
+        """统一导入模块"""
+        if lang == "python":
+            return AuroraPython.import_module(module)
+        if lang == "js":
+            return AuroraJS.require(module)
+        if lang == "java":
+            return {"class": module, "loaded": True}
+        raise AuroraError("InteropError", f"不支持的语言导入: {lang}")
+
+    @staticmethod
+    def eval(lang: str, code: str, **kwargs):
+        """统一求值代码"""
+        if lang == "python":
+            return AuroraPython.eval(code)
+        if lang == "js":
+            return AuroraJS.eval(code, timeout=kwargs.get("timeout", 30.0))
+        if lang == "java":
+            return AuroraJava.eval(code, timeout=kwargs.get("timeout", 30.0))
+        raise AuroraError("InteropError", f"不支持的语言求值: {lang}")
+
+    @staticmethod
+    def languages() -> list:
+        """返回所有支持语言的列表"""
+        return ["python", "js", "java", "c", "cpp", "rust", "go"]
+
+    @staticmethod
+    def status() -> dict:
+        """返回各语言桥的可用状态(python 恒为 True;c/cpp/rust/go 依赖 FFI 共享库)"""
+        return {
+            "python": True,
+            "js": AuroraJS.available(),
+            "java": AuroraJava.available(),
+            "c": "ffi",
+            "cpp": "ffi",
+            "rust": "ffi",
+            "go": "ffi",
+        }
+
+
+class AuroraWASM:
+    """WebAssembly 桥:加载并调用 .wasm 模块
+    通过 Node.js WebAssembly API 实现,是连接 Rust/Go/C++ 编译为 WASM 的桥梁"""
+
+    @staticmethod
+    def _node_run(script: str, timeout: float) -> subprocess.CompletedProcess:
+        """内部:运行 Node.js 脚本并处理超时/异常"""
+        try:
+            return subprocess.run(["node", "-e", script],
+                                   capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise AuroraError("TimeoutError", f"WASM 执行超时({timeout}s)")
+        except FileNotFoundError:
+            raise AuroraError("WASMError", "未找到 node 可执行文件")
+        except Exception as e:
+            raise AuroraError("WASMError", str(e))
+
+    @staticmethod
+    def load(path: str, timeout: float = 30.0) -> dict:
+        """加载 .wasm 模块,返回 {path, exports, loaded};exports 为 {函数名: 类型}"""
+        apath = os.path.abspath(path)
+        safe_path = json.dumps(apath, ensure_ascii=False)
+        script = (
+            "const fs = require('fs');\n"
+            f"const bytes = fs.readFileSync({safe_path});\n"
+            "WebAssembly.instantiate(bytes).then(result => {\n"
+            "  const exports = {};\n"
+            "  for (const k of Object.keys(result.instance.exports)) {\n"
+            "    const v = result.instance.exports[k];\n"
+            "    exports[k] = typeof v === 'function' ? 'function' : typeof v;\n"
+            "  }\n"
+            "  console.log(JSON.stringify({exports}));\n"
+            "}).catch(e => { console.error(JSON.stringify({error: e.message})); process.exit(1); });\n"
+        )
+        proc = AuroraWASM._node_run(script, timeout)
+        if proc.returncode != 0:
+            raise AuroraError("WASMError", (proc.stderr or "").strip() or "加载 wasm 失败")
+        try:
+            data = json.loads(proc.stdout)
+        except Exception:
+            raise AuroraError("WASMError", f"解析 wasm 输出失败: {proc.stdout!r}")
+        return {"path": apath, "exports": data.get("exports", {}), "loaded": True}
+
+    @staticmethod
+    def call(module: dict, fn_name: str, *args, timeout: float = 30.0):
+        """调用 WASM 导出函数,args 必须是数字(i32/i64/f32/f64)"""
+        apath = os.path.abspath(module.get("path", ""))
+        safe_path = json.dumps(apath, ensure_ascii=False)
+        safe_fn = json.dumps(fn_name, ensure_ascii=False)
+        args_json = json.dumps(list(args), ensure_ascii=False)
+        script = (
+            "const fs = require('fs');\n"
+            f"const bytes = fs.readFileSync({safe_path});\n"
+            "WebAssembly.instantiate(bytes).then(inst => {\n"
+            f"  const fn = inst.instance.exports[{safe_fn}];\n"
+            "  if (typeof fn !== 'function') { console.error(JSON.stringify({error: '导出不是函数'})); process.exit(1); }\n"
+            f"  const retval = fn(...{args_json});\n"
+            "  console.log(JSON.stringify(retval));\n"
+            "}).catch(e => { console.error(JSON.stringify({error: e.message})); process.exit(1); });\n"
+        )
+        proc = AuroraWASM._node_run(script, timeout)
+        if proc.returncode != 0:
+            raise AuroraError("WASMError", (proc.stderr or "").strip() or "调用 wasm 函数失败")
+        out = (proc.stdout or "").strip()
+        try:
+            return json.loads(out)
+        except Exception:
+            return out
+
+    @staticmethod
+    def exports(path: str, timeout: float = 30.0) -> list:
+        """列出 .wasm 模块的导出函数名列表"""
+        info = AuroraWASM.load(path, timeout=timeout)
+        return list(info.get("exports", {}).keys())
+
+    @staticmethod
+    def available() -> bool:
+        """检测 node 是否可用(WASM 通过 Node.js 实现)"""
+        import shutil
+        if shutil.which("node"):
+            return True
+        try:
+            subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=10)
+            return True
+        except Exception:
+            return False
 
 
 class AuroraHtml:
@@ -1159,6 +1865,66 @@ class AuroraCollections:
 
 # ── 标准库注册表 ────────────────────────────────────────
 
+# v3.0.0 AI 引擎模块注册表。仅当 ai/ 成功导入时填充真实对象；
+# 否则退化为空字典，保证其他 std.* 模块与解释器功能完全不受影响。
+if _AURORA_AI_AVAILABLE:
+    _AI_EXTRA_MODULES = {
+        'std.tensor': {
+            'Tensor': _AuroraTensor,
+            'zeros': _AuroraTensor.zeros,
+            'ones': _AuroraTensor.ones,
+            'randn': _AuroraTensor.randn,
+            'eye': _AuroraTensor.eye,
+            'arange': _AuroraTensor.arange,
+            'from_numpy': _AuroraTensor.from_numpy,
+        },
+        'std.autograd': {
+            'Variable': _AuroraVariable,
+            'SGD': _AuroraSGD,
+            'Adam': _AuroraAdam,
+        },
+        'std.nn': {
+            'Linear': _aurora_nn.Linear,
+            'ReLU': _aurora_nn.ReLU,
+            'Sigmoid': _aurora_nn.Sigmoid,
+            'Tanh': _aurora_nn.Tanh,
+            'Softmax': _aurora_nn.Softmax,
+            'LeakyReLU': _aurora_nn.LeakyReLU,
+            'Conv2d': _aurora_nn.Conv2d,
+            'LSTM': _aurora_nn.LSTM,
+            'Dropout': _aurora_nn.Dropout,
+            'Flatten': _aurora_nn.Flatten,
+            'BatchNorm1d': _aurora_nn.BatchNorm1d,
+            'Sequential': _aurora_nn.Sequential,
+            'MSELoss': _aurora_nn.MSELoss,
+            'CrossEntropyLoss': _aurora_nn.CrossEntropyLoss,
+            'BCELoss': _aurora_nn.BCELoss,
+            'one_hot': _aurora_nn.one_hot,
+        },
+        'std.data': {
+            'DataFrame': _AuroraDataFrame,
+            'Dataset': _AuroraDataset,
+            'DataLoader': _AuroraDataLoader,
+            'read_csv': _AuroraDataFrame.read_csv,
+        },
+        'std.agent': {
+            'Agent': _AuroraAgent,
+            'LLM': _AuroraLLM,
+            'PromptTemplate': _AuroraPromptTemplate,
+            'LLMChain': _AuroraLLMChain,
+        },
+        'std.inference': {
+            'InferenceEngine': _AuroraInferenceEngine,
+            'InferenceServer': _AuroraInferenceServer,
+        },
+    }
+else:
+    # AI 引擎不可用：登记同名空模块，`import std.tensor` 不报错但成员为空。
+    _AI_EXTRA_MODULES = {
+        'std.tensor': {}, 'std.autograd': {}, 'std.nn': {},
+        'std.data': {}, 'std.agent': {}, 'std.inference': {},
+    }
+
 STDLIB_MODULES = {
     'std.io': {
         'read_file': AuroraIO.read_file,
@@ -1224,6 +1990,41 @@ STDLIB_MODULES = {
         'load': AuroraFFI.load,
         'func': AuroraFFI.func,
         'cstr': AuroraFFI.cstr,
+        'struct': AuroraFFI.struct,
+        'callback': AuroraFFI.callback,
+        'string_array': AuroraFFI.string_array,
+        'ptr': AuroraFFI.ptr,
+        'deref': AuroraFFI.deref,
+        'gen_bindings': AuroraFFI.gen_bindings,
+    },
+    'std.js': {
+        'eval': AuroraJS.eval,
+        'call': AuroraJS.call,
+        'require': AuroraJS.require,
+        'run_file': AuroraJS.run_file,
+        'version': AuroraJS.version,
+        'available': AuroraJS.available,
+    },
+    'std.java': {
+        'call': AuroraJava.call,
+        'run': AuroraJava.run,
+        'eval': AuroraJava.eval,
+        'compile': AuroraJava.compile,
+        'version': AuroraJava.version,
+        'available': AuroraJava.available,
+    },
+    'std.interop': {
+        'call': AuroraInterop.call,
+        'import': AuroraInterop._import,
+        'eval': AuroraInterop.eval,
+        'languages': AuroraInterop.languages,
+        'status': AuroraInterop.status,
+    },
+    'std.wasm': {
+        'load': AuroraWASM.load,
+        'call': AuroraWASM.call,
+        'exports': AuroraWASM.exports,
+        'available': AuroraWASM.available,
     },
     'std.html': {
         'escape': AuroraHtml.escape,
@@ -1241,11 +2042,22 @@ STDLIB_MODULES = {
         'wait': AuroraWeb.wait,
     },
     'std.ai': {
+        # 原有 LLM 对话能力（向后兼容，保持不变）
         'configure': AuroraAI.configure,
         'chat': AuroraAI.chat,
         'messages': AuroraAI.messages,
         'agent': AuroraAI.agent,
+        # v3.0.0 新增：AI 引擎高级能力（AI 不可用时为 None 占位）
+        'ai_decorator': (_AuroraAIDecorator if _AURORA_AI_AVAILABLE else None),
+        'Agent': (_AuroraAgent if _AURORA_AI_AVAILABLE else None),
+        'LLM': (_AuroraLLM if _AURORA_AI_AVAILABLE else None),
+        'PromptTemplate': (_AuroraPromptTemplate if _AURORA_AI_AVAILABLE else None),
+        'LLMChain': (_AuroraLLMChain if _AURORA_AI_AVAILABLE else None),
+        'InferenceEngine': (_AuroraInferenceEngine if _AURORA_AI_AVAILABLE else None),
+        'InferenceServer': (_AuroraInferenceServer if _AURORA_AI_AVAILABLE else None),
     },
+    # v3.0.0 AI 引擎细分模块（张量 / 自动微分 / 神经网络 / 数据 / Agent / 推理）
+    **_AI_EXTRA_MODULES,
     'std.collections': {
         'HashMap': HashMap,
         'HashSet': HashSet,

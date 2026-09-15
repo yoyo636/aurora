@@ -1,0 +1,29 @@
+// src/main.aur — 大型项目入口
+// 演示：多模块导入、pub 导出、条件编译、async/await、defer、错误处理
+
+import utils.module
+import auth.module
+import db.module
+import api.module
+
+fn main() {
+    println(utils.module.greet("developer"))
+
+    // 认证模块：pub User 结构体可见，私有 _sessions 不可见
+    let user = auth.login("Ada", "ada@example.com")
+    println("Logged in: " + user.name)
+
+    // 数据库：条件编译选择的路径
+    let conn = db.connect(db.DB_PATH)
+    defer { db.close(conn) }
+
+    // 异步 API：EventLoop 驱动
+    let users = event_loop.run(api.list_users())
+    for u in users {
+        println("  - " + u.name)
+    }
+
+    println(utils.APP_NAME + " v" + utils.VERSION + " booted OK")
+}
+
+main()

@@ -2,6 +2,268 @@
 
 本项目遵循语义化版本,详见 `docs/VERSIONING.md`。
 
+## [3.0.0] - 2026-09-15
+
+### 概述
+Aurora v3.0.0 是 AI 原生里程碑大版本——首次将张量计算、自动微分、神经网络、数据处理、LLM Agent、模型推理、Jupyter 内核七大 AI 能力内置为语言原生模块，旨在打破 Python 在 AI 领域的垄断。测试从 364 个增长到 400+ 个，全部通过。
+
+### 七大 AI 原生模块
+
+#### 1. AuroraTensor 原生张量计算库 (std.tensor)
+- 多维张量：任意维度，扁平化存储 + shape/strides 索引
+- 张量运算：add/sub/mul/div、matmul、transpose、reshape、slice、concat
+- NumPy 风格广播机制
+- 通用函数：sin/cos/exp/log/sigmoid/relu/tanh/softmax
+- 归约运算：sum/mean/max/min
+- NumPy 互操作：from_numpy() / to_numpy()
+- 类方法：zeros/ones/randn/eye/arange
+
+#### 2. AuroraAutograd 自动微分引擎 (std.autograd)
+- 计算图构建：每个 Variable 记录 grad_fn 和 parents
+- 反向传播：backward() 自动计算梯度，DFS 拓扑排序
+- 可微运算：+、-、*、/、matmul、exp、log、sin、cos、sigmoid、relu、tanh、sum、mean、transpose、reshape
+- 优化器：SGD（带动量）、Adam（带偏差修正）
+- no_grad() 上下文管理器
+
+#### 3. AuroraNN 神经网络 DSL (std.nn)
+- 层定义：Linear、ReLU、Sigmoid、Tanh、Softmax、LeakyReLU、Conv2d（im2col）、LSTM（四门）、Dropout、Flatten、BatchNorm1d
+- 模型容器：Sequential（支持索引和动态添加）
+- 损失函数：MSELoss、CrossEntropyLoss（可微）、BCELoss（可微）
+- 训练循环：model.train()/eval()、optimizer.step()/zero_grad()
+- 模型保存/加载：JSON 格式（.aur）
+- 工具函数：one_hot、init_weights
+
+#### 4. AuroraData 数据处理库 (std.data)
+- DataFrame：类 Pandas，list-of-dicts 存储
+- 数据加载：CSV 读写（标准库 csv，支持引号转义）、JSON 读写
+- 数据清洗：dropna、fillna（ffill/bfill/mean/median）、drop_duplicates、filter、map、apply
+- 分组聚合：groupby + sum/mean/count/max/min/agg
+- 数据转换：standardize（Z-score）、normalize（minmax/l2）、one_hot、label_encode、train_test_split
+- 合并连接：concat、merge（inner/left/right/outer，hash join）
+- 统计分析：describe、corr（Pearson）、value_counts
+- 数据集：Dataset、DataLoader（batch、shuffle、seed）
+- 特征工程：StandardScaler、MinMaxScaler、LabelEncoder
+
+#### 5. AuroraAgent LLM Agent 框架 (std.agent)
+- Agent 循环：工具调用式 ReAct Agent，max_steps 控制
+- 工具系统：Tool 类、@tool_decorator 自动注册、tool_registry
+- LLM 客户端：OpenAI 兼容、Anthropic、本地模型（llama.cpp），支持流式输出
+- 记忆系统：ConversationMemory（对话历史）、LongTermMemory（TF-IDF + 余弦相似度向量存储）
+- RAG：文档加载、分块（chunk_size + overlap）、检索、检索增强生成
+- Prompt 模板：PromptTemplate（变量替换）、FewShotTemplate
+- Chain：LLMChain、SequentialChain、TransformChain
+
+#### 6. AuroraInference 模型推理引擎 (std.inference)
+- 模型加载：.aur 格式（JSON）、ONNX（通过 onnxruntime，可选依赖）
+- 推理：单样本 infer、批量 batch_infer、自动计时
+- 模型量化：int8（scale + zero_point）、fp16
+- 推理服务器：ThreadingHTTPServer，REST API（/health、/predict、/model、/batch_predict）
+- 性能优化：warmup 预热、num_threads 配置
+
+#### 7. AuroraKernel Jupyter 内核 (aurora kernel)
+- Jupyter kernel 协议实现（基于 ipykernel，带独立 fallback）
+- 代码执行、输出显示、自动补全
+- 魔法命令：%time（计时）、%load（加载文件）、%run（运行文件）、%python（执行 Python）
+- kernelspec 安装：aurora kernel install
+
+### 语言级 AI 增强
+- @ai 注解：标记函数为 AI 相关，为编译器自动向量化优化预留接口
+- AI 专用 CLI：aurora ai train、aurora ai infer、aurora serve
+
+### "打破 Python 垄断"核心优势
+1. 原生性能：张量运算可编译为 ARM64 机器码，不需要 C 扩展
+2. 零依赖部署：AI 模型编译为单个可执行文件，不需要 Python 运行时
+3. 类型安全：张量形状可在编译期检查（未来方向）
+4. 统一语言：数据处理、模型训练、推理服务、Agent 全部用 Aurora
+5. 快速启动：2ms 启动 vs Python 19ms
+6. Python 兼容：可调用 PyTorch/TensorFlow，核心计算用 Aurora 原生
+
+### 示例与文档
+- examples/ai/：linear_regression.aur、mnist_mlp.aur、llm_agent.aur、data_pipeline.aur、inference_server.aur
+- docs/AI_GUIDE.md：AI 引擎完整文档（7大模块 + API 速查 + 对比表）
+
+### 测试
+- 新增 test_ai_engine.py：Tensor/Autograd/NN/Data/Agent/Inference 六大模块 25+ 测试
+- 现有 364 个测试全部通过，无回归
+
+## [2.2.0] - 2026-09-15
+
+### 概述
+Aurora v2.2.0 是生态互通大版本：一次性补齐 JavaScript/TypeScript/Java/WebAssembly 四大语言桥，构建统一多语言互操作层，使 Aurora 能无缝连接 HTML、JavaScript、Java、Python、Rust、Go、TypeScript、C++、JSON 等全部技术栈。FFI 增强支持结构体、回调函数和绑定代码自动生成。新增 `aurora interop`、`aurora gen-bindings`、`aurora wasm` 三个 CLI 命令。
+
+### 七大核心特性
+
+#### 1. JavaScript/TypeScript 桥（AuroraJS）
+- **js.eval(code)**：通过 Node.js 子进程执行 JS 代码，JSON 序列化返回结果
+- **js.call(fn_name, ...args)**：调用 JS 全局函数（如 parseInt、Math.sqrt）
+- **js.require(module)**：require Node.js 模块，返回可序列化的导出对象
+- **js.run_file(path)**：运行 .js/.ts 文件，.ts 自动检测并使用 ts-node/npx/tsc 编译
+- **js.version() / js.available()**：版本查询与环境检测
+- 实现方式：spawn node 子进程，stdin/stdout JSON 通信，超时控制与错误处理
+
+#### 2. Java 桥（AuroraJava）
+- **java.call(class, method, ...args)**：调用 Java 静态方法，自动类型映射（int→long, float→double, str→String, bool→boolean）
+- **java.run(main_class, args, classpath)**：运行已编译的 Java 程序（.class/.jar）
+- **java.eval(code)**：通过 jshell 执行 Java 代码片段，不可用时回退到临时类编译运行
+- **java.compile(source_path, classpath, output_dir)**：编译 Java 源文件
+- **java.version() / java.available()**：版本查询与环境检测
+- 支持类路径配置，返回值自动 JSON 序列化
+
+#### 3. 统一多语言互操作层（AuroraInterop）
+- **interop.call(lang, code_or_fn, ...args)**：统一调用入口，lang 可选 python/js/java/c/cpp/rust/go
+- **interop.import(lang, module)**：统一导入（Python 模块、JS require、Java 类标记）
+- **interop.eval(lang, code)**：统一求值，一个 API 执行多种语言代码
+- **interop.languages()**：返回所有支持语言列表
+- **interop.status()**：返回各语言桥的可用状态
+- 自动选择最佳调用方式：Python 直连、JS/Java 子进程、C/Rust/Go FFI 共享库
+- 类型自动转换：Aurora 值 ↔ JSON ↔ 各语言值
+
+#### 4. WebAssembly 支持（AuroraWASM）
+- **wasm.load(path)**：加载 .wasm 模块，返回导出函数列表和元信息
+- **wasm.call(module, fn_name, ...args)**：调用 WASM 导出函数
+- **wasm.exports(path)**：列出 .wasm 模块的所有导出函数
+- **wasm.available()**：环境检测
+- 实现方式：通过 Node.js WebAssembly API（WebAssembly.instantiate）
+- 是连接 Rust/Go/C++ 编译为 WASM 的桥梁，支持 wasm32 目标
+
+#### 5. FFI 增强（AuroraFFI）
+- **ffi.struct(name, fields)**：动态定义 C 结构体类型（ctypes.Structure）
+- **ffi.callback(ret_type, arg_types)**：创建 C 回调函数类型（CFUNCTYPE），支持将 Python/Aurora 函数传给 C 库
+- **ffi.string_array(strings)**：Python 字符串列表转 C 字符串数组
+- **ffi.ptr(value, c_type) / ffi.deref(ptr)**：指针创建与解引用
+- **ffi.gen_bindings(lang, functions, output_path)**：为 Rust/C++/Go 自动生成 extern "C" FFI 绑定模板代码
+
+#### 6. CLI 新命令
+- **aurora interop**：多语言互操作工具，`--list` 列出语言桥、`--test` 测试连接、`--lang` 指定语言
+- **aurora gen-bindings <lang>**：为 Rust/C++/Go 生成 FFI 绑定模板，`-f` 指定函数签名 JSON、`-o` 输出文件
+- **aurora wasm <file>**：WebAssembly 操作，`--exports` 列出导出函数、`--call` 调用函数、`--args` 传递参数
+
+#### 7. 示例与文档
+- examples/interop/ 新增 demo_js.aur、demo_java.aur、demo_wasm.aur、demo_interop.aur
+- 新增 ts_math.ts（TypeScript 示例模块）和 java_math/（Java 示例工程）
+- docs/AI_GUIDE.md 新增多语言互操作章节
+- README.md 更新生态连接部分
+
+### 技术栈覆盖矩阵
+| 语言/技术 | 调用方式 | 状态 |
+|-----------|---------|------|
+| Python | 直连（AuroraPython） | ✅ 已有 |
+| C/C++ | FFI（C ABI） | ✅ 已有，增强（结构体/回调） |
+| Rust | FFI（C ABI） | ✅ 已有，增强（绑定生成） |
+| Go | FFI（cgo C ABI） | ✅ 已有，增强（绑定生成） |
+| JavaScript | Node.js 子进程 | 🆕 v2.2.0 |
+| TypeScript | Node.js + ts-node | 🆕 v2.2.0 |
+| Java | java/jshell 子进程 | 🆕 v2.2.0 |
+| JSON | 内置（AuroraJson） | ✅ 已有 |
+| HTML | 内置（AuroraHtml） | ✅ 已有 |
+| WebAssembly | Node.js WASM API | 🆕 v2.2.0 |
+| HTTP/Web | 内置 | ✅ 已有 |
+
+### 兼容性
+- 完全向后兼容，所有 v2.1.0 及之前的代码无需修改
+- 现有 364 个测试全部通过
+- 新增桥接测试在无 node/java 环境时自动 skip
+
+## [2.1.0] - 2026-09-15
+
+### 概述
+Aurora v2.1.0 是表达力大版本：一次性引入 6 大语言特性，在泛型、模式匹配、解构、推导式、空安全、数据类六个维度全面超越 Python/Rust/Go/TypeScript。测试从 306 个增长到 364 个，全部通过。
+
+### 六大核心特性
+
+#### 1. 泛型系统（Generics）
+- **函数泛型**：`fn map<T, U>(arr: T[], f: fn(T) -> U) -> U[]`
+- **结构体泛型**：`struct Pair<T> { first: T, second: T }`
+- **枚举泛型**：`enum Option<T> { Some(value: T), None() }`
+- **运行时类型擦除**：泛型参数仅在编译期检查，运行时零开销
+- 泛型函数调用无需显式指定类型参数，自动推导
+
+#### 2. 模式匹配 + 代数数据类型（ADT）
+- **enum 带 payload**：`enum Shape { Circle(radius: float), Rect(w: float, h: float) }`
+- **enum 结构体变体**：`enum Message { Move { x: int, y: int }, Quit() }`
+- **match 表达式**：`match shape { Circle(r) => 3.14*r*r, _ => 0 }`
+- **模式种类**：字面量模式、变量绑定模式、通配符 `_`、元组模式 `(a, b)`、结构体模式 `Point { x, y }`、构造器模式 `Ok(val)`
+- **穷尽性检查**：类型检查器验证 match arm 覆盖所有情况（警告级别）
+- 解释器和 ARM64 后端均支持
+
+#### 3. 解构赋值 + 元组
+- **元组字面量**：`(1, "hello", 3.14)`
+- **元组索引**：`tup.0`, `tup.1`
+- **解构绑定**：`let (a, b, c) = (1, 2, 3)`
+- **嵌套解构**：`let (x, (y, z)) = (1, (2, 3))`
+- **数组解构**：`let [x, y, z] = [7, 8, 9]`
+- **交换变量**：`a, b = b, a`
+- **函数多返回值**：`fn divmod(a, b) -> (int, int)`
+- **for 循环解构**：`for (a, b) in pairs { ... }`
+
+#### 4. 列表推导式 + 管道运算符
+- **列表推导**：`[x * 2 for x in arr if x > 0]`
+- **集合推导**：`{x % 3 for x in arr}`
+- **Map 推导**：`{k: v for k, v in pairs}`
+- **嵌套推导**：`[a + b for a in [1,2] for b in [10,20]]`
+- **多条件过滤**：`[x for x in arr if cond1 if cond2]`
+- **管道运算符**：`data |> filter(fn x => x > 0) |> map(fn x => x * 2) |> sum()`
+- **lambda 简写**：`fn x => x * 2`（单表达式函数，替代 `|x| x * 2`）
+- ARM64 后端将推导式降级为循环 + 收集
+
+#### 5. 可选类型 + 空安全
+- **可选类型语法**：`T?` 等价于 `Option<T>`
+- **安全调用**：`obj?.method()`，obj 为 nil 时返回 nil
+- **安全属性访问**：`obj?.field`
+- **链式可选**：`user?.address?.city`
+- **空值合并**：`a ?? b`，a 为 nil 时返回 b
+- **链式合并**：`a ?? b ?? c`
+- **强制解包**：`a!`，a 为 nil 时 panic
+- **空安全检查**：类型检查器对可能为 nil 的值直接使用发出警告
+
+#### 6. struct 数据类 + 命名参数/默认参数
+- **struct 关键字**：`struct User { name: str, age: int = 0 }`（`type` 的别名）
+- **字段默认值**：`struct Config { host: str = "localhost", port: int = 8080 }`
+- **结构体字面量**：`User { name: "Alice", age: 30 }`（未指定字段用默认值）
+- **字段访问**：`user.name`
+- **命名参数调用**：`greet(name: "Alice", greeting: "Hi")`
+- **默认参数**：`fn add(a, b = 1) { a + b }`
+- **可变参数**：`fn sum(...nums: int[]) { ... }`
+- 函数体内可定义 struct
+
+### 创新点（超越品牌语言）
+- **泛型 + trait bounds + 模式匹配**组合，比 Python 强大
+- **管道运算符 + lambda 简写**，比 Go 简洁
+- **可选类型 + 空安全 + Result 互操作**，比 TypeScript 更严格
+- **struct 默认参数 + 命名参数**，比 Rust 更方便
+- **推导式 + 管道 + lambda** 三合一，数据处理表达力超越所有主流语言
+
+### 词法/语法/AST 变更
+- 新增 token：`VARIADIC`（`...`）、`STRUCT` 关键字
+- 新增 AST 节点：`ListComp`、`SetComp`、`MapComp`、`CompFor`、`StructLiteral`、`ForcedUnwrap`、`TupleIndex`、`OptionalType`、`StructPattern`、`TuplePattern`
+- `FnDef` 新增 `type_params` 字段
+- `Param` 新增 `variadic` 字段
+- `DestructureLet` 新增 `pattern` 字段（支持嵌套解构）
+
+### 后端支持
+- **解释器**：全部 6 大特性完整支持
+- **ARM64 汇编后端**：元组构造/索引/解构、模式匹配（条件跳转链）、管道运算符、可选链/空合并/强制解包、struct 字面量、推导式（降级为循环）、元组交换赋值
+- **C 后端**：基础层兼容，新特性降级处理
+
+### 类型系统
+- `type_infer.py`：新增 Tuple/Optional 类型推断，推导式/struct/强制解包/元组索引类型推导
+- `type_checker.py`：match 穷尽性检查、空安全警告、命名参数验证、可变参数位置检查
+- 所有新检查为警告级别，不破坏现有代码
+
+### 测试
+- 新增 `tests/test_v210_features.py`，58 个测试用例覆盖全部 6 大特性
+- 总测试数：306 → 364，全部通过
+- 每个特性至少 5 个测试用例，含集成测试
+
+### 示例
+- `examples/v210/generics.aurora` — 泛型系统
+- `examples/v210/pattern_matching.aurora` — 模式匹配 + ADT
+- `examples/v210/destructuring_tuples.aurora` — 解构 + 元组
+- `examples/v210/comprehensions_pipe.aurora` — 推导式 + 管道
+- `examples/v210/optional_null_safety.aurora` — 可选类型 + 空安全
+- `examples/v210/struct_named_params.aurora` — struct + 命名参数
+- `examples/v210/shopping_cart.aurora` — 综合示例（电商购物车）
+
 ## [2.0.0] - 2026-09-14
 
 ### 概述

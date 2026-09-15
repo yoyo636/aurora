@@ -1,0 +1,13 @@
+[project]
+name = "aurora-windows-demo"
+version = "1.0.0"
+description = "Aurora v3.1.0 Windows 应用示例（Win32 绑定）"
+author = "Aurora Team"
+
+[build]
+entry = "win_app.aur"
+
+[package]
+platform = "windows"
+publisher = "Aurora"
+product_name = "Aurora Windows Demo"

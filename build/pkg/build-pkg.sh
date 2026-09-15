@@ -1,7 +1,7 @@
 #!/bin/bash
 # Aurora 编程语言 macOS 安装器构建脚本
 # 用法: ./build-pkg.sh
-# 输出: releases/Aurora-Installer-v2.0.0.pkg
+# 输出: releases/Aurora-Installer-v3.1.0.pkg
 
 set -e
 
@@ -12,7 +12,7 @@ PAYLOAD="$PKG_DIR/payload"
 RESOURCES="$PKG_DIR/resources"
 SCRIPTS="$PKG_DIR/scripts"
 BUILD_DIR="$PROJECT_ROOT/releases"
-VERSION="2.0.0"
+VERSION="3.1.0"
 
 echo "=== Aurora 安装器构建 ==="
 echo "项目根: $PROJECT_ROOT"
@@ -33,12 +33,29 @@ CORE_FILES=(
     "interpreter.py" "stdlib.py" "codegen.py" "asmgen.py" "repl.py"
     "formatter.py" "profiler.py" "debugger.py" "lsp.py" "pkg.py"
     "incremental_cache.py"
+    "benchmark.py" "browser_engine.py" "build_engine.py" "dep_graph.py"
+    "memory_manager.py" "module_system.py" "native_bindings.py" "optimizer.py"
+    "packaging.py" "parallel_compiler.py" "persistent_cache.py"
+    "project_index.py" "refactor_engine.py" "web_runtime.py" "workspace_manager.py"
 )
 for f in "${CORE_FILES[@]}"; do
     if [ -f "$PROJECT_ROOT/$f" ]; then
         cp "$PROJECT_ROOT/$f" "$PAYLOAD/usr/local/lib/aurora/"
     fi
 done
+
+# 复制 aurora-run 启动脚本
+cp "$PROJECT_ROOT/aurora-run" "$PAYLOAD/usr/local/lib/aurora/"
+chmod +x "$PAYLOAD/usr/local/lib/aurora/aurora-run"
+
+# 复制 AI 引擎模块目录
+cp -r "$PROJECT_ROOT/ai" "$PAYLOAD/usr/local/lib/aurora/"
+
+# 复制 AuroraUI GUI 框架目录
+cp -r "$PROJECT_ROOT/ui" "$PAYLOAD/usr/local/lib/aurora/"
+
+# 复制 runtime 目录(如果存在)
+cp -r "$PROJECT_ROOT/runtime" "$PAYLOAD/usr/local/lib/aurora/" 2>/dev/null || true
 
 # 复制文档
 mkdir -p "$PAYLOAD/usr/local/lib/aurora/docs"
@@ -59,6 +76,9 @@ mkdir -p "$PAYLOAD/usr/local/lib/aurora/examples"
 cp -r "$PROJECT_ROOT/examples/benchmarks" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
 cp -r "$PROJECT_ROOT/examples/largeapp" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
 cp -r "$PROJECT_ROOT/examples/fullstack" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
+cp -r "$PROJECT_ROOT/examples/ai" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
+cp -r "$PROJECT_ROOT/examples/interop" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
+cp -r "$PROJECT_ROOT/examples/v210" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
 
 # 3. 设置权限
 echo "[3/5] 设置权限..."

@@ -15,14 +15,18 @@ class TypeKind(Enum):
     STRING = "string"
     ARRAY = "array"
     MAP = "map"
+    TUPLE = "tuple"
     NIL = "nil"
+    OPTIONAL = "optional"
 
 
 class InferType:
     """推断出的类型"""
-    def __init__(self, kind=TypeKind.UNKNOWN, elem_type=None):
+    def __init__(self, kind=TypeKind.UNKNOWN, elem_type=None, tuple_types=None):
         self.kind = kind
         self.elem_type = elem_type  # 用于 ARRAY 的元素类型
+        # 用于 TUPLE 的元素类型列表；OPTIONAL 时 elem_type 为内部类型
+        self.tuple_types = tuple_types or []
 
     def is_int(self):
         return self.kind == TypeKind.INT
@@ -45,6 +49,10 @@ class InferType:
     def __repr__(self):
         if self.kind == TypeKind.ARRAY and self.elem_type:
             return f"[{self.elem_type}]"
+        if self.kind == TypeKind.TUPLE:
+            return "(" + ", ".join(repr(t) for t in self.tuple_types) + ")"
+        if self.kind == TypeKind.OPTIONAL and self.elem_type:
+            return f"{self.elem_type}?"
         return self.kind.value
 
 
@@ -68,7 +76,20 @@ def merge_types(t1: InferType, t2: InferType) -> InferType:
         if t1.kind == TypeKind.ARRAY:
             elem = merge_types(t1.elem_type or TYPE_UNKNOWN, t2.elem_type or TYPE_UNKNOWN)
             return InferType(TypeKind.ARRAY, elem)
+        # 元组逐元素合并
+        if t1.kind == TypeKind.TUPLE and len(t1.tuple_types) == len(t2.tuple_types):
+            merged = [merge_types(a, b) for a, b in zip(t1.tuple_types, t2.tuple_types)]
+            return InferType(TypeKind.TUPLE, tuple_types=merged)
+        # 可选类型合并内部类型
+        if t1.kind == TypeKind.OPTIONAL:
+            inner = merge_types(t1.elem_type or TYPE_UNKNOWN, t2.elem_type or TYPE_UNKNOWN)
+            return InferType(TypeKind.OPTIONAL, inner)
         return t1
+    # 可选类型与内部类型合并为内部类型（解包语义）
+    if t1.kind == TypeKind.OPTIONAL and t2.kind != TypeKind.OPTIONAL:
+        return merge_types(t1.elem_type or TYPE_UNKNOWN, t2)
+    if t2.kind == TypeKind.OPTIONAL and t1.kind != TypeKind.OPTIONAL:
+        return merge_types(t1, t2.elem_type or TYPE_UNKNOWN)
     # int 和 float 合并为 float
     if t1.is_numeric() and t2.is_numeric():
         return TYPE_FLOAT
@@ -203,6 +224,34 @@ class TypeInferer:
             for key, value in expr.entries:
                 self._infer_call_sites_in_expr(key)
                 self._infer_call_sites_in_expr(value)
+        elif isinstance(expr, TupleLiteral):
+            for elem in expr.elements:
+                self._infer_call_sites_in_expr(elem)
+        elif isinstance(expr, (ListComp, SetComp)):
+            self._infer_call_sites_in_expr(expr.expr)
+            for gen in expr.generators:
+                self._infer_call_sites_in_expr(gen.iterable)
+            for cond in expr.conditions:
+                self._infer_call_sites_in_expr(cond)
+        elif isinstance(expr, MapComp):
+            self._infer_call_sites_in_expr(expr.key_expr)
+            self._infer_call_sites_in_expr(expr.value_expr)
+            for gen in expr.generators:
+                self._infer_call_sites_in_expr(gen.iterable)
+            for cond in expr.conditions:
+                self._infer_call_sites_in_expr(cond)
+        elif isinstance(expr, StructLiteral):
+            for _, value in expr.fields:
+                self._infer_call_sites_in_expr(value)
+        elif isinstance(expr, (ForcedUnwrap, TupleIndex)):
+            self._infer_call_sites_in_expr(expr.operand if isinstance(expr, ForcedUnwrap) else expr.object)
+        elif isinstance(expr, MatchExpr):
+            self._infer_call_sites_in_expr(expr.subject)
+            for arm in expr.arms:
+                self._infer_call_sites_in_expr(arm.body)
+        elif isinstance(expr, PipeExpr):
+            self._infer_call_sites_in_expr(expr.left)
+            self._infer_call_sites_in_expr(expr.call)
 
     def _infer_function(self, name: str) -> bool:
         """推断单个函数的类型,返回是否有变化"""
@@ -545,6 +594,54 @@ class TypeInferer:
         elif isinstance(expr, TryExpr):
             # expr? 解包 Result：传播成功分支的内部类型
             return self._infer_expr(expr.expr)
+
+        elif isinstance(expr, TupleLiteral):
+            # 元组字面量：逐元素推断
+            elem_types = [self._infer_expr(e) for e in expr.elements]
+            return InferType(TypeKind.TUPLE, tuple_types=elem_types)
+
+        elif isinstance(expr, TupleIndex):
+            # 元组索引 tup.0：返回对应位置的元素类型
+            obj_type = self._infer_expr(expr.object)
+            if obj_type.kind == TypeKind.TUPLE:
+                if 0 <= expr.index < len(obj_type.tuple_types):
+                    return obj_type.tuple_types[expr.index]
+            return TYPE_UNKNOWN
+
+        elif isinstance(expr, (ListComp, SetComp)):
+            # 列表/集合推导式：元素类型为 expr 的推断类型
+            elem_type = self._infer_expr(expr.expr)
+            # 注册生成器绑定到临时变量类型（宽松：按 unknown 处理）
+            for gen in expr.generators:
+                iter_t = self._infer_expr(gen.iterable)
+                if iter_t.kind == TypeKind.ARRAY:
+                    self.variable_types.setdefault(self.current_function, {})[gen.target] = iter_t.elem_type or TYPE_UNKNOWN
+            for cond in expr.conditions:
+                self._infer_expr(cond)
+            return InferType(TypeKind.ARRAY, elem_type)
+
+        elif isinstance(expr, MapComp):
+            # Map 推导式：key/value 类型分别推断
+            k = self._infer_expr(expr.key_expr)
+            v = self._infer_expr(expr.value_expr)
+            for gen in expr.generators:
+                self._infer_expr(gen.iterable)
+            for cond in expr.conditions:
+                self._infer_expr(cond)
+            return InferType(TypeKind.MAP)
+
+        elif isinstance(expr, StructLiteral):
+            # 结构体字面量：类型由类型名决定，推断为 unknown（具体字段信息由类型检查器处理）
+            for _, value in expr.fields:
+                self._infer_expr(value)
+            return TYPE_UNKNOWN
+
+        elif isinstance(expr, ForcedUnwrap):
+            # 强制解包 a!：去掉 OptionalType 包装
+            inner = self._infer_expr(expr.operand)
+            if inner.kind == TypeKind.OPTIONAL:
+                return inner.elem_type or TYPE_UNKNOWN
+            return inner
 
         return TYPE_UNKNOWN
 

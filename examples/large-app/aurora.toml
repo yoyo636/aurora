@@ -1,0 +1,23 @@
+[workspace]
+members = ["server", "cli"]
+
+[project]
+name = "aurora-large-app"
+version = "1.0.0"
+description = "Aurora v3.1.0 大型项目结构示例 — 多模块 / pub 导出 / 条件编译"
+author = "Aurora Team"
+
+[build]
+# 多入口：workspace 可同时构建 CLI 与 server 两个二进制
+entries = ["src/main.aur"]
+
+[dependencies]
+# 第三方依赖声明（aurora index / aurora deps 管理）
+# "http" = "^1.2.0"
+# "json" = "^0.9.0"
+
+[features]
+default = ["cli"]
+cli = []
+server = []
+gui = []
