@@ -48,10 +48,11 @@ v2.0.0 是里程碑大版本,P0–P3 全部规划完成,包含三大创新特性
 | v2.0.0 | 2026-09-14 | 里程碑大版本:P0–P3 全部完成;三大创新特性(ARM64 后端、@perf 注解、Result 互操作);增量编译缓存;测试 161→306 全通过 |
 | v3.0.0 | 2026-09-15 | AI 原生引擎:七大 AI 模块(std.tensor/autograd/nn/data/agent/inference/kernel);@ai 注解;aurora ai train/infer、aurora serve、aurora kernel;测试 364→400+ 全通过 |
 | v3.1.0 | 2026-09-15 | 全平台企业级引擎:性能革命(并行编译/增量编译增强/图着色寄存器分配/指令调度/LICM/CSE/NEON SIMD/逃逸分析);模块化系统(pub/import/循环依赖检测);构建系统(#[cfg]/工作区 Monorepo/依赖图);LSP 企业级增强;调试器增强;AuroraUI 跨平台 GUI 框架;macOS/Windows/Web 原生绑定;全平台打包;新关键字 pub/async/await/defer/unsafe/extern "C"/#[cfg];测试 400+→509 全通过 |
+| v3.2.0 | 2026-09-16 | 全栈开发引擎:五大模块(全栈 Web 框架 web_framework.py 1261行/数据库 ORM db_orm.py 1385行/CLI-TUI 框架 cli_tui.py 1539行/Git 绑定 git_bindings.py 602行/代码生成器 codegen.py);新内置模块 std.web(40成员)/std.db/std.cli/std.tui/std.git;新 CLI 命令 aurora new {fullstack,cli,tui,microservice,webapp}、aurora generate {controller,model,component,service}、aurora db {migrate,rollback,seed}、aurora dev、aurora deploy;语言级增强(自动导入/属性简写/展开运算符/字典解构/解构默认值);4 个示例项目(fullstack-blog/cli-tool/tui-editor/claude-code-like);新增 4,787 行代码 + 172 个新测试;测试 509→825+ 全通过;无破坏性变更 |
 
 ## 发布流程
 
-1. 所有变更必须通过测试套件:`python3 -m unittest discover -s aurora/tests`(当前 509 项);
+1. 所有变更必须通过测试套件:`python3 -m unittest discover -s aurora/tests`(当前 825+ 项);
 2. 破坏性变更须同时更新 `docs/SPEC.md`、`CHANGELOG.md` 与示例;
 3. 版本号同步更新于:`aurora/__init__.py`、`ide/static/index.html`(状态栏)、`vscode-aurora/package.json`、`pyproject.toml`、`build-pkg.sh`、`build-vsix.py`;
 4. 发布同时产出:CLI 安装脚本 `install.sh`、VSCode 插件 `.vsix`、`.app`。

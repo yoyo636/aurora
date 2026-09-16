@@ -1,0 +1,92 @@
+# ─────────────────────────────────────────────────────────────
+# main.aur — TUI 文本编辑器示例 (类 nano) (Aurora v3.2.0)
+#
+# 基于 std.tui 终端 UI 框架, 演示:
+#   · 应用框架      tui.App("标题")
+#   · 垂直布局      tui.VBox(x, y, w, h) + add(控件)
+#   · 文本显示      tui.Text("...", x, y)
+#   · 多行编辑区    tui.TextArea(x, y, w, h)
+#   · 输入框        tui.Input(x, y, w)
+#   · 按钮          tui.Button("文本", x, y)
+#   · 事件处理      控件的 on_key / on_click 回调
+#
+# 运行:
+#   cd examples/tui-editor
+#   ../../aurora-run run main.aur
+# ─────────────────────────────────────────────────────────────
+import std.tui
+
+# ── 编辑器状态 ──
+var filename = "untitled.txt"   # 当前文件名
+var modified = false            # 是否已修改
+
+# 保存按钮的处理: 把编辑区内容写到文件
+fn on_save(app, editor) {
+    let content = editor.text()
+    # 演示文件写入 (实际运行由 std.fs 提供)
+    # fs.write_file(filename, content)
+    modified = false
+    app.set_status("已保存到 " + filename)
+}
+
+# 打开按钮的处理: 弹出文件名输入框
+fn on_open(app, name_input) {
+    let new_name = name_input.text()
+    if new_name != "" {
+        filename = new_name
+        app.set_status("已打开 " + filename)
+    }
+}
+
+# ── 主函数: 组装 TUI 界面 ──
+fn main() {
+    # 1. 创建 TUI 应用, 标题显示在顶部
+    let app = tui.App("Aurora Editor — " + filename)
+
+    # 2. 根容器: 占满整个终端 (左上角 0,0, 宽 80, 高 24)
+    let root = tui.VBox(0, 0, 80, 24)
+
+    # 3. 顶部标题条
+    root.add(tui.Text("── Aurora 文本编辑器 ──", 0, 0))
+
+    # 4. 文件名输入框 (第二行, 宽 30)
+    let name_input = tui.Input(0, 1, 30)
+    root.add(name_input)
+
+    # 5. 中间主编辑区: TextArea, 占满剩余高度
+    let editor = tui.TextArea(0, 3, 80, 16)
+    editor.set_text("# 欢迎使用 Aurora 编辑器\n\n在这里输入文字...\n")
+    # 输入任意键都标记为"已修改"
+    editor.on_key(fn(key) {
+        modified = true
+    })
+    root.add(editor)
+
+    # 6. 底部按钮栏: 保存 / 打开 / 退出
+    let btn_save = tui.Button("保存 (Ctrl+S)", 0, 20)
+    btn_save.on_click(fn() { on_save(app, editor) })
+    root.add(btn_save)
+
+    let btn_open = tui.Button("打开 (Ctrl+O)", 16, 20)
+    btn_open.on_click(fn() { on_open(app, name_input) })
+    root.add(btn_open)
+
+    let btn_quit = tui.Button("退出 (Ctrl+Q)", 32, 20)
+    btn_quit.on_click(fn() { app.quit() })
+    root.add(btn_quit)
+
+    # 7. 状态栏 (最底行)
+    let status = tui.Text("就绪", 0, 23)
+    root.add(status)
+
+    # 8. 快捷键帮助
+    root.add(tui.Text("Ctrl+S 保存 | Ctrl+O 打开 | Ctrl+Q 退出", 48, 23))
+
+    # 把根容器挂到应用上
+    app.add(root)
+
+    # 9. 进入事件循环
+    app.run()
+}
+
+main()

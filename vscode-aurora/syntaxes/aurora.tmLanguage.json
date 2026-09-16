@@ -5,8 +5,11 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#strings" },
+    { "include": "#destructuring" },
     { "include": "#annotations" },
     { "include": "#keywords" },
+    { "include": "#cliCommands" },
+    { "include": "#modules" },
     { "include": "#builtins" },
     { "include": "#numbers" },
     { "include": "#operators" }
@@ -58,6 +61,39 @@
       "match": "\\b(fn|let|var|const|if|elif|else|for|while|return|type|enum|impl|match|trait|true|false|nil|in|break|continue|import|from|as|spawn|chan|select|default|try|catch|finally|panic|self|std|and|or|not|loop|pub|mut|defer|yield|async|await|unsafe|extern|cfg|tensor|struct)\\b",
       "name": "keyword.control.aurora"
     },
+    "destructuring": {
+      "begin": "\\b(let|var|const)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.aurora" },
+        "2": { "name": "punctuation.destructuring.begin.aurora" }
+      },
+      "end": "\\}(?=\\s*=)",
+      "endCaptures": {
+        "0": { "name": "punctuation.destructuring.end.aurora" }
+      },
+      "patterns": [
+        { "include": "#strings" },
+        { "match": "\\.\\.\\.", "name": "keyword.operator.spread.aurora" },
+        { "match": "\\b([A-Za-z_]\\w*)\\b\\s*(:)", "captures": {
+          "1": { "name": "variable.other.destructured.aurora" },
+          "2": { "name": "punctuation.separator.aurora" }
+        } },
+        { "match": "\\b([A-Za-z_]\\w*)\\b\\s*(=)", "captures": {
+          "1": { "name": "variable.other.destructured.aurora" },
+          "2": { "name": "keyword.operator.assignment.aurora" }
+        } },
+        { "match": ",", "name": "punctuation.separator.aurora" }
+      ],
+      "name": "meta.destructuring.aurora"
+    },
+    "cliCommands": {
+      "match": "\\b(new|generate|db|dev|deploy|webapp)\\b",
+      "name": "keyword.other.cli.aurora"
+    },
+    "modules": {
+      "match": "\\bstd\\.(web|db|cli|tui|git)\\b",
+      "name": "support.module.aurora"
+    },
     "annotations": {
       "patterns": [
         {
@@ -104,7 +140,7 @@
     },
     "operators": {
       "patterns": [
-        { "match": "&&|\\|\\||<<|>>|<=|>=|==|!=|\\+=|-=|\\*=|/=|\\*\\*|->|=>|<-|\\?\\?|\\?\\.|\\|>|\\.\\.", "name": "keyword.operator.aurora" },
+        { "match": "&&|\\|\\||<<|>>|<=|>=|==|!=|\\+=|-=|\\*=|/=|\\*\\*|->|=>|<-|\\?\\?|\\?\\.|\\|>|\\.\\.\\.|\\.\\.", "name": "keyword.operator.aurora" },
         { "match": "\\?(?![?.])", "name": "keyword.operator.aurora" },
         { "match": "[+\\-*/%<>=!&|^~]", "name": "keyword.operator.aurora" }
       ]

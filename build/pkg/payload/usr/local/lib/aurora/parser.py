@@ -487,8 +487,8 @@ class Parser:
             mutable = True
         tok = self._current()
 
-        # 模式解构: let (a, b) = expr / let (x, (y, z)) = expr / let [a, b] = expr
-        if tok.type in (TokenType.LPAREN, TokenType.LBRACKET):
+        # 模式解构: let (a, b) = expr / let (x, (y, z)) = expr / let [a, b] = expr / let {a, b} = expr
+        if tok.type in (TokenType.LPAREN, TokenType.LBRACKET, TokenType.LBRACE):
             pattern = self._parse_pattern()
             # 扁平化收集所有绑定名
             names = []
@@ -700,6 +700,26 @@ class Parser:
         if tok.value == '_':
             self._advance()
             return WildcardPattern()
+        # v3.2.0: 字典解构模式 {a, b = 1, c: x}
+        if tok.type == TokenType.LBRACE:
+            self._advance()
+            fields = []
+            while not self._at(TokenType.RBRACE):
+                fname = self._expect(TokenType.IDENTIFIER).value
+                sub = None
+                if self._match(TokenType.COLON):
+                    sub = self._parse_pattern()
+                # v3.2.0: 解构默认值 { name = "default" }
+                default = None
+                if self._match(TokenType.ASSIGN):
+                    default = self._parse_expr()
+                if sub is None:
+                    sub = BindPattern(name=fname, default=default)
+                fields.append((fname, sub))
+                if not self._match(TokenType.COMMA):
+                    break
+            self._expect(TokenType.RBRACE)
+            return StructPattern(name="", fields=fields)
         if tok.type == TokenType.IDENTIFIER:
             name = self._advance().value
             # 构造器模式: Ok(val), Err(msg)
@@ -719,12 +739,22 @@ class Parser:
                     sub = None
                     if self._match(TokenType.COLON):
                         sub = self._parse_pattern()
+                    # v3.2.0: 解构默认值
+                    default = None
+                    if self._match(TokenType.ASSIGN):
+                        default = self._parse_expr()
+                    if sub is None:
+                        sub = BindPattern(name=fname, default=default)
                     fields.append((fname, sub))
                     if not self._match(TokenType.COMMA):
                         break
                 self._expect(TokenType.RBRACE)
                 return StructPattern(name=name, fields=fields)
-            return BindPattern(name=name)
+            # v3.2.0: 绑定默认值 let x = 1 in pattern context (a = 1, b)
+            default = None
+            if self._match(TokenType.ASSIGN):
+                default = self._parse_expr()
+            return BindPattern(name=name, default=default)
         # 元组模式: (a, b, c)
         if tok.type == TokenType.LPAREN:
             self._advance()
@@ -1183,8 +1213,11 @@ class Parser:
                 fields = []
                 while not self._at(TokenType.RBRACE):
                     fname = self._expect(TokenType.IDENTIFIER).value
-                    self._expect(TokenType.COLON)
-                    fval = self._parse_expr()
+                    # v3.2.0: 属性简写 { name, age } 等价于 { name: name, age: age }
+                    if self._match(TokenType.COLON):
+                        fval = self._parse_expr()
+                    else:
+                        fval = Identifier(name=fname, line=tok.line, column=tok.column)
                     fields.append((fname, fval))
                     if not self._match(TokenType.COMMA):
                         break
@@ -1205,7 +1238,11 @@ class Parser:
             if self._at(TokenType.RBRACKET):
                 self._advance()
                 return ArrayLiteral(elements=[], line=tok.line, column=tok.column)
-            first = self._parse_expr()
+            # v3.2.0: 展开运算符 [...arr, 4]
+            if self._match(TokenType.VARIADIC):
+                first = SpreadExpr(expr=self._parse_expr(), line=tok.line, column=tok.column)
+            else:
+                first = self._parse_expr()
             # 列表推导式: [expr for x in arr if cond]
             if self._at(TokenType.FOR):
                 gens, conds = self._parse_comprehension_clauses()
@@ -1216,7 +1253,11 @@ class Parser:
             while self._match(TokenType.COMMA):
                 if self._at(TokenType.RBRACKET):
                     break
-                elems.append(self._parse_expr())
+                # v3.2.0: 展开运算符
+                if self._match(TokenType.VARIADIC):
+                    elems.append(SpreadExpr(expr=self._parse_expr(), line=tok.line, column=tok.column))
+                else:
+                    elems.append(self._parse_expr())
             self._expect(TokenType.RBRACKET)
             return ArrayLiteral(elements=elems, line=tok.line, column=tok.column)
 
@@ -1227,31 +1268,40 @@ class Parser:
             if self._at(TokenType.RBRACE):
                 self._advance()
                 return MapLiteral(entries=[], line=tok.line, column=tok.column)
-            first_key = self._parse_expr()
-            # 集合推导式: {expr for x in arr}
-            if self._at(TokenType.FOR):
-                gens, conds = self._parse_comprehension_clauses()
-                self._expect(TokenType.RBRACE)
-                return SetComp(expr=first_key, generators=gens, conditions=conds,
-                               line=tok.line, column=tok.column)
-            # Map 字面量或 Map 推导式
-            self._expect(TokenType.COLON)
-            first_val = self._parse_expr()
-            # Map 推导式: {k: v for k, v in pairs}
-            if self._at(TokenType.FOR):
-                gens, conds = self._parse_comprehension_clauses()
-                self._expect(TokenType.RBRACE)
-                return MapComp(key_expr=first_key, value_expr=first_val,
-                               generators=gens, conditions=conds,
-                               line=tok.line, column=tok.column)
-            entries = [(first_key, first_val)]
+            # v3.2.0: 展开运算符 {...obj, b: 2}
+            if self._match(TokenType.VARIADIC):
+                spread = SpreadExpr(expr=self._parse_expr(), line=tok.line, column=tok.column)
+                entries = [(spread, None)]
+            else:
+                first_key = self._parse_expr()
+                # 集合推导式: {expr for x in arr}
+                if self._at(TokenType.FOR):
+                    gens, conds = self._parse_comprehension_clauses()
+                    self._expect(TokenType.RBRACE)
+                    return SetComp(expr=first_key, generators=gens, conditions=conds,
+                                   line=tok.line, column=tok.column)
+                # Map 字面量或 Map 推导式
+                self._expect(TokenType.COLON)
+                first_val = self._parse_expr()
+                # Map 推导式: {k: v for k, v in pairs}
+                if self._at(TokenType.FOR):
+                    gens, conds = self._parse_comprehension_clauses()
+                    self._expect(TokenType.RBRACE)
+                    return MapComp(key_expr=first_key, value_expr=first_val,
+                                   generators=gens, conditions=conds,
+                                   line=tok.line, column=tok.column)
+                entries = [(first_key, first_val)]
             while self._match(TokenType.COMMA):
                 if self._at(TokenType.RBRACE):
                     break
-                k = self._parse_expr()
-                self._expect(TokenType.COLON)
-                v = self._parse_expr()
-                entries.append((k, v))
+                # v3.2.0: 展开运算符
+                if self._match(TokenType.VARIADIC):
+                    entries.append((SpreadExpr(expr=self._parse_expr(), line=tok.line, column=tok.column), None))
+                else:
+                    k = self._parse_expr()
+                    self._expect(TokenType.COLON)
+                    v = self._parse_expr()
+                    entries.append((k, v))
             self._expect(TokenType.RBRACE)
             return MapLiteral(entries=entries, line=tok.line, column=tok.column)
 

@@ -1,7 +1,7 @@
-# Aurora 语言规范 v3.1.0
+# Aurora 语言规范 v3.2.0
 
 > 状态: **Stable(稳定)** — 自 v2.0.0 起,本规范描述的语言行为受语义化版本约束,破坏性变更须进入下一主版本。
-> 实现: ARM64 原生汇编后端 + 解释器双模式 + AI 原生引擎 + 全平台企业级引擎,位于 `aurora/` 包;CLI 入口 `aurora`。
+> 实现: ARM64 原生汇编后端 + 解释器双模式 + AI 原生引擎 + 全平台企业级引擎 + 全栈开发引擎,位于 `aurora/` 包;CLI 入口 `aurora`。
 
 ---
 
@@ -178,7 +178,11 @@ std.html    escape render page write open link list json_script   # HTML 前端�
 std.proc    run call spawn run_args call_args     # 进程编排(多程序协同)
 std.http    get get_json post                     # HTTP/API
 std.vex     export python cpp                     # VEXcode 工程导出
-std.web     serve static wait                     # Web 后端(HTTP 服务)
+std.web     40 成员:App/Router/get/post/put/delete/use/middleware/render/static/ws/WebSocket(v3.2.0 扩展)
+std.db      Model/migrate/rollback/seed/QueryBuilder/connect/where/order_by(v3.2.0)
+std.cli     App/command/argument/option/print/error(v3.2.0)
+std.tui     Terminal/Panel/List/Input/ProgressBar/Table/Box(v3.2.0)
+std.git     Repository/init/clone/add/commit/branch/checkout/diff/log/status(v3.2.0)
 std.ai      configure chat messages agent         # AI Agent(大模型对话/工具调用)
 ```
 
@@ -232,6 +236,116 @@ fn debug_log(msg) { ... }         // 仅 Debug 构建编译
 ```
 
 支持的 cfg 谓词:`target: "macos" | "windows" | "linux" | "web"`, `debug`, `release`, `feature: "..."`。
+
+### 6.3 v3.2.0 语言级增强规范
+
+v3.2.0 新增五项语法糖,均为向后兼容的纯加法特性,不改变既有语义。
+
+#### 6.3.1 属性简写
+
+**语法**:在对象/类型字面量中,若字段名与局部变量同名,可省略冒号与值。
+
+```python
+let name = "Aurora"
+let age = 3
+let user = User { name, age }              # 等价 User { name: name, age: age }
+let cfg = { port: 8080, host, debug: true }  # 混合:简写 + 完整键值对
+```
+
+**语义**:
+- 编译器将 `{ name }` 展开为 `{ name: name }`;
+- 简写标识符必须在当前作用域已绑定,否则报 `NameError`;
+- 可与完整键值对混用,出现在同一字面量任意位置。
+
+#### 6.3.2 展开运算符
+
+**数组展开**:在数组字面量中用 `...expr` 将可迭代对象展开为多个元素。
+
+```python
+let arr = [1, 2, 3]
+let extended = [...arr, 4, 5]              # [1, 2, 3, 4, 5]
+let merged = [...arr, ...[6, 7]]           # [1, 2, 3, 6, 7]
+let copy = [...arr]                         # 浅拷贝
+```
+
+**字典展开**:在字典字面量中用 `...expr` 展开另一个字典的所有键值对。
+
+```python
+let base = { port: 8080, host: "0.0.0.0" }
+let config = { ...base, debug: true }      # { port: 8080, host: "0.0.0.0", debug: true }
+let override = { ...base, port: 3000 }     # 后面的键覆盖前面的同名键
+```
+
+**语义**:
+- 数组展开的右侧必须是可迭代值(列表/元组/区间/字符串),否则报 `TypeError`;
+- 字典展开的右侧必须是字典,否则报 `TypeError`;
+- 字典展开中,后出现的键覆盖先出现的同名键(后者优先);
+- 展开在编译期不做扁平化,运行时按需迭代。
+
+#### 6.3.3 字典解构
+
+**语法**:`let { k1, k2, ... } = dict` 将字典的指定键绑定为同名局部变量。
+
+```python
+let user = { name: "Aurora", age: 3, email: "hi@aurora.dev" }
+let { name, age } = user                   # name="Aurora", age=3
+
+// 重命名:let { 源键: 新名 } = dict
+let { name: n, age: a } = user             # n="Aurora", a=3
+
+// 混合:部分重命名 + 部分省略
+let { name, email: e } = user              # name="Aurora", e="hi@aurora.dev"
+```
+
+**语义**:
+- 解构表达式右侧必须是字典,否则报 `TypeError`;
+- 每个键按声明顺序从字典取值并绑定;
+- 重命名语法 `{ 源键: 新名 }` 从字典取 `源键`,绑定到变量 `新名`;
+- 缺失键在未提供默认值时报 `KeyError`(见 6.3.4)。
+
+#### 6.3.4 解构默认值
+
+**语法**:在字典解构中,键后跟 `= 默认值`,当字典缺失该键时使用默认值。
+
+```python
+let user = { name: "Aurora" }
+let { name, age = 18 } = user              # name="Aurora", age=18(缺失键取默认)
+
+let { title = "未命名", author = "匿名" } = user
+// title="未命名", author="匿名"
+
+// 默认值可以是任意表达式
+let { port = get_default_port() } = config
+```
+
+**语义**:
+- 仅当目标字典中不存在该键时才取默认值;键存在但值为 `nil` 时仍绑定为 `nil`(不触发默认值);
+- 默认值表达式在解构失败时(键缺失)才求值,惰性计算;
+- 位置参数默认值与解构默认值相互独立,不共享。
+
+#### 6.3.5 自动导入
+
+**语义**:v3.2.0 起,以下常用标准库模块在任何 `.aur` 文件中自动可用,无需 `import`:
+
+| 短名 | 自动映射到 |
+| --- | --- |
+| `web` | `std.web` |
+| `db` | `std.db` |
+| `cli` | `std.cli` |
+| `tui` | `std.tui` |
+| `git` | `std.git` |
+
+```python
+// 无需 import std.web,直接使用 web
+let app = web.App()
+app.get("/", fn(req) { return {"hello": "world"} })
+```
+
+**命名冲突处理**:
+- 若用户手动 `import std.web as web`,以用户的显式导入为准(覆盖自动导入);
+- 若用户在当前作用域定义了同名变量(如 `let web = 42`),局部绑定优先于自动导入;
+- 自动导入仅在文件顶层生效,函数内局部 `web` 变量不影响其他函数;
+- 其他模块名(如 `std.io`、`std.math`)仍需手动 `import`,不在自动导入列表内。
 
 ## 7. 并发
 
@@ -384,6 +498,11 @@ aurora package           跨平台打包(v3.1.0)
 aurora interop           语言互操作(v2.2.0)
 aurora gen-bindings      绑定代码生成(v2.2.0)
 aurora wasm              WebAssembly(v2.2.0)
+aurora new {fullstack,cli,tui,microservice,webapp}   模板化脚手架(v3.2.0)
+aurora generate {controller,model,component,service}  代码生成器(v3.2.0)
+aurora db {migrate,rollback,seed}                    数据库迁移/回滚/种子(v3.2.0)
+aurora dev               开发服务器:热重载(v3.2.0)
+aurora deploy            生产部署(v3.2.0)
 aurora --version      版本
 ```
 
@@ -413,6 +532,7 @@ entry = "main.aur"
 - v2.0.0 新增稳定内容:ARM64 原生汇编后端、@perf 性能注解、Result[T,E]/`?` 互操作、函数级增量编译缓存、P2 工具链(fmt/profile/debug/lsp)、P3 包管理器与标准库扩充;
 - v3.0.0 新增稳定内容:AI 原生引擎七模块(std.tensor/autograd/nn/data/agent/inference/kernel)、@ai 注解、aurora ai/serve/kernel 命令;
 - v3.1.0 新增稳定内容:并行编译、增量编译增强、图着色寄存器分配、指令调度、LICM、CSE、NEON SIMD、逃逸分析、模块化系统(pub/import/循环依赖检测)、#[cfg] 条件编译、工作区 Monorepo、LSP 企业级增强、调试器增强、AuroraUI 跨平台 GUI 框架、macOS/Windows/Web 原生绑定、全平台打包、新关键字 pub/async/await/defer/unsafe/extern "C";
+- v3.2.0 新增稳定内容:全栈 Web 框架(std.web 40 成员,路由/中间件/模板/静态/WebSocket)、数据库 ORM(std.db,模型/迁移/查询构建器/种子)、CLI/TUI 框架(std.cli/std.tui)、Git 绑定(std.git)、代码生成器(aurora generate)、模板化脚手架(aurora new fullstack/cli/tui/microservice/webapp)、aurora db/dev/deploy 命令;语言级增强:属性简写、展开运算符(数组/字典)、字典解构(含重命名)、解构默认值、自动导入(web/db/cli/tui/git);
 - 破坏性变更(如 `let` 语义)仅允许在 MAJOR 版本发布;
 - 详细策略见 `VERSIONING.md`,历史见 `CHANGELOG.md`。
 

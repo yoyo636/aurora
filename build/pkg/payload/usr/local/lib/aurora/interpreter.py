@@ -257,6 +257,36 @@ class Interpreter:
     def _load_builtins(self):
         for name, val in BUILTIN_GLOBALS.items():
             self.global_env.define(name, val)
+        # v3.2.0: 自动导入常用标准库模块（无需手动 import）
+        self._auto_import_modules()
+
+    def _auto_import_modules(self):
+        """v3.2.0: 自动导入常用模块，避免与内置名冲突"""
+        auto = ['std.io', 'std.math', 'std.json', 'std.time',
+                'std.proc', 'std.http', 'std.collections',
+                'std.web', 'std.db', 'std.cli', 'std.tui', 'std.git']
+        for path in auto:
+            module = STDLIB_MODULES.get(path)
+            if module is None:
+                continue
+            parts = path.split('.')
+            # 建立命名空间链 std.io
+            root = parts[0]
+            existing = self.global_env.get(root)
+            ns = existing if isinstance(existing, dict) else {}
+            node = ns
+            for seg in parts[1:]:
+                nxt = node.get(seg)
+                if not isinstance(nxt, dict):
+                    nxt = {}
+                    node[seg] = nxt
+                node = nxt
+            node.update(module)
+            self.global_env.define(root, ns)
+            # 叶模块快捷名（不覆盖已有内置）
+            short = parts[-1]
+            if not self.global_env.has(short):
+                self.global_env.define(short, module)
 
     def _get_cache(self):
         """惰性创建函数级增量编译缓存（进程内 + 磁盘持久化）"""
@@ -366,16 +396,18 @@ class Interpreter:
 
         if isinstance(stmt, DestructureLet):
             val = self._eval(stmt.initializer, env)
-            # 嵌套模式解构：let (x, (y, z)) = (1, (2, 3))
-            if stmt.pattern is not None and isinstance(val, (tuple, list)):
-                bindings = self._match_pattern(stmt.pattern, val)
-                if bindings is None:
-                    raise AuroraError(
-                        "ValueError",
-                        f"解构模式与值不匹配: 期望 {type(val).__name__} 结构")
-                for name, v in bindings.items():
-                    env.define(name, v, mutable=stmt.mutable)
-                return val
+            # v3.2.0: 模式解构（含字典解构 {a, b = 1} 和默认值）
+            if stmt.pattern is not None:
+                from .ast_nodes import StructPattern
+                if isinstance(val, (tuple, list, dict)):
+                    bindings = self._match_pattern(stmt.pattern, val)
+                    if bindings is None:
+                        raise AuroraError(
+                            "ValueError",
+                            f"解构模式与值不匹配: 期望 {type(val).__name__} 结构")
+                    for name, v in bindings.items():
+                        env.define(name, v, mutable=stmt.mutable)
+                    return val
             if isinstance(val, (tuple, list)):
                 if len(val) < len(stmt.names):
                     raise AuroraError(
@@ -884,10 +916,34 @@ class Interpreter:
             return val
 
         if isinstance(expr, ArrayLiteral):
-            return [self._eval(e, env) for e in expr.elements]
+            # v3.2.0: 支持展开运算符 [...arr, 4]
+            from .ast_nodes import SpreadExpr
+            result = []
+            for e in expr.elements:
+                if isinstance(e, SpreadExpr):
+                    val = self._eval(e.expr, env)
+                    if isinstance(val, (list, tuple)):
+                        result.extend(val)
+                    else:
+                        raise AuroraError("TypeError", f"展开运算符需要列表/元组,得到 {type(val).__name__}")
+                else:
+                    result.append(self._eval(e, env))
+            return result
 
         if isinstance(expr, MapLiteral):
-            return {self._eval(k, env): self._eval(v, env) for k, v in expr.entries}
+            # v3.2.0: 支持展开运算符 {...obj, b: 2}
+            from .ast_nodes import SpreadExpr
+            result = {}
+            for k, v in expr.entries:
+                if isinstance(k, SpreadExpr):
+                    val = self._eval(k.expr, env)
+                    if isinstance(val, dict):
+                        result.update(val)
+                    else:
+                        raise AuroraError("TypeError", f"展开运算符需要字典,得到 {type(val).__name__}")
+                else:
+                    result[self._eval(k, env)] = self._eval(v, env)
+            return result
 
         if isinstance(expr, TupleLiteral):
             return tuple(self._eval(e, env) for e in expr.elements)
@@ -1745,6 +1801,9 @@ class Interpreter:
                 return {}
             return None
         if isinstance(pattern, BindPattern):
+            # v3.2.0: 解构默认值 let { x = 1 } = obj
+            if value is None and pattern.default is not None:
+                return {pattern.name: self._eval(pattern.default, self.global_env)}
             return {pattern.name: value}
         if isinstance(pattern, TuplePattern):
             # 元组/列表模式：(a, b, c) / [a, b, c]
@@ -1762,6 +1821,23 @@ class Interpreter:
         if isinstance(pattern, StructPattern):
             # 结构体模式：Point { x, y } / User { name: n, age: a }
             bindings = {}
+            # v3.2.0: 纯字典解构 {a, b = 1}（name 为空）
+            if pattern.name == "" and isinstance(value, dict):
+                for fname, sub in pattern.fields:
+                    if fname in value:
+                        field_val = value[fname]
+                    elif sub is not None and isinstance(sub, BindPattern) and sub.default is not None:
+                        field_val = self._eval(sub.default, self.global_env)
+                    else:
+                        return None
+                    if sub is None:
+                        bindings[fname] = field_val
+                    else:
+                        sub_bindings = self._match_pattern(sub, field_val)
+                        if sub_bindings is None:
+                            return None
+                        bindings.update(sub_bindings)
+                return bindings
             if isinstance(value, AuroraEnumVariant):
                 # 枚举结构体变体：字段在 _fields 中
                 if value._name != pattern.name:

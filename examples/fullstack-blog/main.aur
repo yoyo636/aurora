@@ -1,0 +1,114 @@
+# ─────────────────────────────────────────────────────────────
+# main.aur — 全栈博客应用入口 (Aurora v3.2.0)
+#
+# 基于 std.web 全栈 Web 框架, 演示:
+#   · REST 风格路由注册 (app.router.add_route)
+#   · JSON 响应 (web.Response.json)
+#   · HTML 响应 (web.Response.html)
+#   · 路径参数 (req.params) 与查询参数 (req.query)
+#   · POST 请求体解析 (req.json)
+#
+# 路由清单:
+#   GET  /            首页 (HTML)
+#   GET  /posts       文章列表 (JSON, 支持 ?tag= 过滤)
+#   GET  /posts/:id   单篇文章详情 (JSON)
+#   POST /posts       新建文章 (JSON)
+#
+# 运行:
+#   cd examples/fullstack-blog
+#   ../../aurora-run run main.aur
+# 浏览器/命令行访问 http://127.0.0.1:8080/
+# ─────────────────────────────────────────────────────────────
+import std.web
+import models
+
+# ── 内存中的"数据库"(演示用, 重启即清空) ──
+var posts = [
+    {"id": 1, "title": "Hello Aurora", "content": "Aurora v3.2.0 发布啦!", "author_id": 1, "tags": ["announce"], "published": true},
+    {"id": 2, "title": "全栈开发入门", "content": "一行 std.web 起一个服务器", "author_id": 2, "tags": ["tutorial", "web"], "published": true},
+    {"id": 3, "title": "草稿: TUI 设计", "content": "还没写完...", "author_id": 1, "tags": ["draft"], "published": false},
+]
+var next_id = 4
+
+# ── 路由处理函数 ──
+
+# GET / —— 返回一个简单 HTML 首页
+fn handle_index(req) {
+    let html = "<h1>Aurora Blog</h1>" +
+        "<p>试试这些接口:</p>" +
+        "<ul>" +
+        "<li>GET /posts</li>" +
+        "<li>GET /posts/1</li>" +
+        "<li>GET /posts?tag=web</li>" +
+        "<li>POST /posts</li>" +
+        "</ul>"
+    return web.Response.html(html)
+}
+
+# GET /posts —— 文章列表, 支持 ?tag=xxx 查询参数过滤
+fn handle_list_posts(req) {
+    # req.query 是查询参数字典, 例如 ?tag=web -> {"tag": "web"}
+    let tag = req.query["tag"]
+    let result = []
+    for p in posts {
+        # 没有 tag 过滤条件就全部返回; 有则按标签匹配
+        if tag == "" or tag in p["tags"] {
+            result.push(p)
+        }
+    }
+    return web.Response.json({"posts": result, "total": result.len()})
+}
+
+# GET /posts/:id —— 路径参数 :id 会被解析到 req.params
+fn handle_get_post(req) {
+    # req.params["id"] 来自 URL 路径中的 :id
+    let id = req.params["id"]
+    for p in posts {
+        if p["id"] == id {
+            return web.Response.json({"post": p})
+        }
+    }
+    # 找不到时返回 404 与 JSON 错误信息
+    return web.Response.json({"error": "post not found", "id": id})
+}
+
+# POST /posts —— 读取 JSON 请求体, 创建新文章
+fn handle_create_post(req) {
+    # req.json 已自动把请求体解析成字典
+    let body = req.json
+    let post = {
+        "id": next_id,
+        "title": body["title"],
+        "content": body["content"],
+        "author_id": body["author_id"],
+        "tags": body["tags"],
+        "published": true,
+    }
+    posts.push(post)
+    next_id = next_id + 1
+    return web.Response.json({"created": post, "id": post["id"]})
+}
+
+# ── 应用启动 ──
+fn main() {
+    # 创建应用实例
+    let app = web.App("aurora-blog")
+
+    # 注册路由: add_route(方法, 路径, 处理函数)
+    app.router.add_route("GET", "/", handle_index)
+    app.router.add_route("GET", "/posts", handle_list_posts)
+    app.router.add_route("GET", "/posts/:id", handle_get_post)
+    app.router.add_route("POST", "/posts", handle_create_post)
+
+    println("Aurora 博客服务已启动: http://127.0.0.1:8080/")
+    println("  GET  /            首页")
+    println("  GET  /posts       文章列表")
+    println("  GET  /posts/:id   文章详情")
+    println("  POST /posts       新建文章")
+    println("Ctrl-C 停止服务")
+
+    # 监听 8080 端口
+    app.run(port=8080)
+}
+
+main()

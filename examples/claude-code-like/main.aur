@@ -1,0 +1,116 @@
+# ─────────────────────────────────────────────────────────────
+# main.aur — 类 Claude Code 的 AI 编程助手 (Aurora v3.2.0)
+#
+# 把 std.tui + std.git + 文件系统 + AI 引擎四者组合在一起:
+#   · TUI 界面    顶部 git 状态 / 文件列表 / AI 回复区 / 底部聊天输入框
+#   · Git 绑定    git.Repo(".") -> status() / add() / commit() / log()
+#   · 文件操作    列出当前目录文件
+#   · AI 调用     占位:把用户输入发给 AI, 把回复渲染到对话区
+#
+# 运行:
+#   cd examples/claude-code-like
+#   ../../aurora-run run main.aur
+# ─────────────────────────────────────────────────────────────
+import std.tui
+import std.git
+
+# ── 1. 打开当前目录的 Git 仓库 ──
+fn load_git_info() {
+    let repo = git.Repo(".")
+    let status = repo.status()        # 工作区状态
+    let log = repo.log(max_count=5)   # 最近 5 条提交
+    return {"status": status, "log": log, "repo": repo}
+}
+
+# ── 2. 列出当前目录文件 (文件系统操作) ──
+fn list_files() {
+    # 实际运行时由 std.fs 提供目录遍历, 这里返回概念列表
+    return ["main.aur", "models.aur", "README.md", "tests/", ".git/"]
+}
+
+# ── 3. 调用 AI (占位): 真实场景会把上下文发给大模型 ──
+fn ask_ai(question, git_info, files) {
+    # 组装发给 AI 的上下文: 当前 git 状态 + 文件列表 + 用户问题
+    let context = "用户问题: " + question + "\n" +
+                  "当前文件: " + files.join(", ") + "\n" +
+                  "git 状态: " + git_info["status"].summary()
+    # 实际调用: let resp = std.ai.chat(context)
+    let resp = "[AI] 收到问题: " + question + " (此处为占位回复, 配置 AI 后返回真实答案)"
+    return resp
+}
+
+# ── 4. 一键提交: add + commit ──
+fn quick_commit(repo, message) {
+    repo.add(".")
+    let c = repo.commit(message)
+    return "已提交: " + c.short_id() + " " + message
+}
+
+# ── 主函数: 组装 TUI 界面 ──
+fn main() {
+    let git_info = load_git_info()
+    let files = list_files()
+
+    # 创建 TUI 应用
+    let app = tui.App("Aurora Code — AI 编程助手")
+
+    # 根布局
+    let root = tui.VBox(0, 0, 80, 24)
+
+    # 顶部: Git 状态栏
+    root.add(tui.Text("── Git 状态 ──", 0, 0))
+    root.add(tui.Text("分支: " + git_info["status"].branch(), 0, 1))
+    root.add(tui.Text("变更: " + git_info["status"].summary(), 0, 2))
+
+    # 左侧: 最近提交 (git log)
+    root.add(tui.Text("── 最近提交 ──", 0, 4))
+    let i = 0
+    for entry in git_info["log"] {
+        root.add(tui.Text(entry.short_id() + " " + entry.message(), 0, 5 + i))
+        i = i + 1
+    }
+
+    # 右侧: 文件列表
+    root.add(tui.Text("── 文件 ──", 40, 4))
+    let j = 0
+    for f in files {
+        root.add(tui.Text(f, 40, 5 + j))
+        j = j + 1
+    }
+
+    # 中部: AI 对话回复区
+    root.add(tui.Text("── AI 对话 ──", 0, 12))
+    let chat_view = tui.TextArea(0, 13, 80, 6)
+    chat_view.set_text("> 你好, 我是 Aurora Code 助手。输入问题, 我会结合 git 与文件作答。\n")
+    root.add(chat_view)
+
+    # 底部: 用户输入框
+    let input = tui.Input(0, 21, 70)
+    root.add(input)
+
+    # 发送按钮: 读取输入 -> 调用 AI -> 追加到对话区
+    let btn_send = tui.Button("发送", 72, 21)
+    btn_send.on_click(fn() {
+        let q = input.text()
+        if q != "" {
+            let reply = ask_ai(q, git_info, files)
+            chat_view.append_text("\n> " + q + "\n" + reply)
+            input.set_text("")
+        }
+    })
+    root.add(btn_send)
+
+    # 快捷提交按钮: 演示 git add + commit
+    let btn_commit = tui.Button("提交", 72, 22)
+    btn_commit.on_click(fn() {
+        let msg = quick_commit(git_info["repo"], "wip: 通过 Aurora Code 自动提交")
+        chat_view.append_text("\n" + msg)
+    })
+    root.add(btn_commit)
+
+    # 挂到应用并启动
+    app.add(root)
+    app.run()
+}
+
+main()

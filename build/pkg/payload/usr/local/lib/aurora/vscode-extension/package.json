@@ -1,8 +1,8 @@
 {
   "name": "aurora-ide",
   "displayName": "Aurora Language (v3)",
-  "description": "Aurora 编程语言支持 v3.1.0:语法高亮、一键运行、静态检查、行内诊断,内置格式化、性能分析、调试、LSP、包管理、AI 引擎与全平台开发工具",
-  "version": "3.1.0",
+  "description": "Aurora 编程语言支持 v3.2.0:语法高亮、一键运行、静态检查、行内诊断,内置格式化、性能分析、调试、LSP、包管理、AI 引擎与全平台开发工具;新增全栈开发脚手架、代码生成、数据库管理、开发模式与部署",
+  "version": "3.2.0",
   "publisher": "aurora",
   "license": "MIT",
   "icon": "icons/aurora.png",
@@ -37,7 +37,13 @@
     "onCommand:aurora.kernel",
     "onCommand:aurora.serve",
     "onCommand:aurora.interop",
-    "onCommand:aurora.wasm"
+    "onCommand:aurora.wasm",
+    "onCommand:aurora.new",
+    "onCommand:aurora.generate",
+    "onCommand:aurora.db",
+    "onCommand:aurora.dev",
+    "onCommand:aurora.deploy",
+    "onCommand:aurora.webapp"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -153,6 +159,36 @@
         "command": "aurora.wasm",
         "title": "Aurora: 编译 WebAssembly",
         "icon": "$(cloud)"
+      },
+      {
+        "command": "aurora.new",
+        "title": "Aurora: 创建项目 (new)",
+        "icon": "$(add)"
+      },
+      {
+        "command": "aurora.generate",
+        "title": "Aurora: 代码生成 (generate)",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "aurora.db",
+        "title": "Aurora: 数据库管理 (db)",
+        "icon": "$(database)"
+      },
+      {
+        "command": "aurora.dev",
+        "title": "Aurora: 开发模式 (dev)",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "aurora.deploy",
+        "title": "Aurora: 部署 (deploy)",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "aurora.webapp",
+        "title": "Aurora: Web应用脚手架 (webapp)",
+        "icon": "$(globe)"
       }
     ],
     "keybindings": [
@@ -257,6 +293,36 @@
           "command": "aurora.package",
           "when": "editorLangId == aurora",
           "group": "aurora@11"
+        },
+        {
+          "command": "aurora.new",
+          "when": "editorLangId == aurora",
+          "group": "aurora@12"
+        },
+        {
+          "command": "aurora.generate",
+          "when": "editorLangId == aurora",
+          "group": "aurora@13"
+        },
+        {
+          "command": "aurora.db",
+          "when": "editorLangId == aurora",
+          "group": "aurora@14"
+        },
+        {
+          "command": "aurora.dev",
+          "when": "editorLangId == aurora",
+          "group": "aurora@15"
+        },
+        {
+          "command": "aurora.deploy",
+          "when": "editorLangId == aurora",
+          "group": "aurora@16"
+        },
+        {
+          "command": "aurora.webapp",
+          "when": "editorLangId == aurora",
+          "group": "aurora@17"
         }
       ]
     },

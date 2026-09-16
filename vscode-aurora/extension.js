@@ -1,7 +1,9 @@
-// Aurora Language —— VSCode 扩展 (v3.1.0)
+// Aurora Language —— VSCode 扩展 (v3.2.0)
 // 功能:运行 .aur 文件(集成终端)、静态检查(行内诊断)、运行选中代码
 // v3.1.0 新增:AI 引擎、基准测试、工作区/依赖管理、GUI、跨平台打包、
 //            Jupyter 内核、HTTP 推理服务、语言互操作、WebAssembly 编译
+// v3.2.0 新增:全栈脚手架(new)、代码生成(generate)、数据库管理(db)、
+//            开发模式(dev)、部署(deploy)、Web 应用脚手架(webapp)
 "use strict";
 
 const vscode = require("vscode");
@@ -322,6 +324,86 @@ function activate(context) {
       const ed = await activeAuroraFile();
       if (!ed) return;
       termCli(["wasm", ed.document.fileName], "Aurora WASM", path.dirname(ed.document.fileName));
+    })
+  );
+
+  // ── v3.2.0 新命令:全栈开发工具链 ──────────────────────
+  function workspaceDir() {
+    const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+    return folder ? folder.uri.fsPath : auroraDir();
+  }
+
+  // 创建项目:aurora new <type> [name]
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.new", async () => {
+      const pick = await vscode.window.showQuickPick(
+        ["fullstack", "cli", "tui", "microservice", "webapp"],
+        { placeHolder: "选择 aurora new 项目类型" }
+      );
+      if (!pick) return;
+      const name = await vscode.window.showInputBox({
+        prompt: "输入项目名称 (可选)",
+        placeHolder: "my-app",
+      });
+      const args = ["new", pick];
+      if (name) args.push(name);
+      termCli(args, "Aurora 创建项目", workspaceDir());
+    })
+  );
+
+  // 代码生成:aurora generate <kind> <name>
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.generate", async () => {
+      const pick = await vscode.window.showQuickPick(
+        ["controller", "model", "component", "service"],
+        { placeHolder: "选择 aurora generate 生成类型" }
+      );
+      if (!pick) return;
+      const name = await vscode.window.showInputBox({
+        prompt: "输入要生成的名称",
+        placeHolder: "User",
+      });
+      if (!name) return;
+      termCli(["generate", pick, name], "Aurora 代码生成", workspaceDir());
+    })
+  );
+
+  // 数据库管理:aurora db <sub>
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.db", async () => {
+      const pick = await vscode.window.showQuickPick(
+        ["migrate", "rollback", "seed"],
+        { placeHolder: "选择 aurora db 子命令" }
+      );
+      if (!pick) return;
+      termCli(["db", pick], "Aurora 数据库", workspaceDir());
+    })
+  );
+
+  // 开发模式:aurora dev
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.dev", async () => {
+      termCli(["dev"], "Aurora 开发模式", workspaceDir());
+    })
+  );
+
+  // 部署:aurora deploy
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.deploy", async () => {
+      termCli(["deploy"], "Aurora 部署", workspaceDir());
+    })
+  );
+
+  // Web 应用脚手架:aurora webapp [name]
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.webapp", async () => {
+      const name = await vscode.window.showInputBox({
+        prompt: "输入 Web 应用名称 (可选)",
+        placeHolder: "my-webapp",
+      });
+      const args = ["webapp"];
+      if (name) args.push(name);
+      termCli(args, "Aurora Web 脚手架", workspaceDir());
     })
   );
 

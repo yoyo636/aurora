@@ -51,6 +51,63 @@ except Exception as _ai_import_err:  # pragma: no cover - 容错降级
     _ai_import_err = _ai_import_err
 
 
+# ── Aurora v3.2.0 新模块注册（std.db / std.cli / std.tui / std.git）────
+# 与 AI 引擎同理：延迟 + 容错导入。任一模块失败仅使其对应 std.* 退化为空，
+# 不影响其余标准模块加载。db_orm / cli_tui 自带 STDLIB_REGISTRATION，直接合并；
+# tui.py 用于补充 std.tui 的组件，git.py 手动映射顶层导出。
+_V320_EXTRA_MODULES: Dict[str, Dict[str, Any]] = {}
+
+try:
+    from aurora.db_orm import STDLIB_REGISTRATION as _db_orm_reg
+    _V320_EXTRA_MODULES.update(_db_orm_reg)
+except Exception:  # pragma: no cover - 容错降级
+    pass
+
+try:
+    from aurora.cli_tui import STDLIB_REGISTRATION as _cli_tui_reg
+    _V320_EXTRA_MODULES.update(_cli_tui_reg)
+except Exception:  # pragma: no cover - 容错降级
+    pass
+
+# 用 tui.py 的组件进一步丰富 std.tui（EventLoop / Panel / ListBox 等）
+try:
+    from aurora import tui as _aurora_tui
+    _tui_extra = {
+        'EventLoop': _aurora_tui.EventLoop,
+        'Panel': _aurora_tui.Panel,
+        'ListBox': _aurora_tui.ListBox,
+        'TextBox': _aurora_tui.TextBox,
+        'Tree': _aurora_tui.Tree,
+        'Spinner': _aurora_tui.Spinner,
+        'Table': _aurora_tui.Table,
+        'ProgressBar': _aurora_tui.ProgressBar,
+        'Key': _aurora_tui.Key,
+        'Style': _aurora_tui.Style,
+    }
+    _V320_EXTRA_MODULES.setdefault('std.tui', {}).update(_tui_extra)
+except Exception:  # pragma: no cover - 容错降级
+    pass
+
+# std.git：git.py 无自带 STDLIB_REGISTRATION，手动映射顶层导出。
+# open / init / clone 为 Repository 上的类方法，直接暴露为模块级函数。
+try:
+    from aurora import git as _aurora_git
+    _V320_EXTRA_MODULES['std.git'] = {
+        'Repository': _aurora_git.Repository,
+        'Commit': _aurora_git.Commit,
+        'Diff': _aurora_git.Diff,
+        'Status': _aurora_git.Status,
+        'BlameHunk': _aurora_git.BlameHunk,
+        'MergeResult': _aurora_git.MergeResult,
+        'GitError': _aurora_git.GitError,
+        'open': _aurora_git.Repository.open,
+        'init': _aurora_git.Repository.init,
+        'clone': _aurora_git.Repository.clone,
+    }
+except Exception:  # pragma: no cover - 容错降级
+    pass
+
+
 class AuroraError(Exception):
     """Aurora 运行时异常基类"""
     def __init__(self, kind: str, message: str, line: int = 0, column: int = 0):
@@ -2058,6 +2115,8 @@ STDLIB_MODULES = {
     },
     # v3.0.0 AI 引擎细分模块（张量 / 自动微分 / 神经网络 / 数据 / Agent / 推理）
     **_AI_EXTRA_MODULES,
+    # v3.2.0 新模块（std.db / std.cli / std.tui / std.git，容错导入，失败则为空）
+    **_V320_EXTRA_MODULES,
     'std.collections': {
         'HashMap': HashMap,
         'HashSet': HashSet,
@@ -3368,3 +3427,39 @@ class AuroraNet:
             return True
         except Exception as e:
             raise AuroraError("NetError", str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  v3.2.0 全栈开发模块注册（延迟导入，避免循环依赖）
+# ═══════════════════════════════════════════════════════════════════
+
+def _register_v320_modules():
+    """注册 v3.2.0 新增的全栈开发模块到 STDLIB_MODULES。
+
+    每个模块文件末尾定义 STDLIB_REGISTRATION 字典，格式为
+    {'std.xxx': {'name': obj, ...}}。此处统一合并，模块缺失时静默跳过。
+    """
+    module_files = [
+        'web_framework',   # 全栈 Web 框架（后端+前端+全栈集成）
+        'db_orm',          # 数据库 ORM
+        'cli_tui',         # CLI 工具 + TUI 框架
+        'git_bindings',    # Git 绑定
+        'codegen',         # 代码生成器（可选注册）
+    ]
+    for mod_name in module_files:
+        try:
+            import importlib
+            mod = importlib.import_module(f'aurora.{mod_name}')
+            reg = getattr(mod, 'STDLIB_REGISTRATION', None)
+            if not reg:
+                continue
+            for std_path, members in reg.items():
+                if std_path not in STDLIB_MODULES:
+                    STDLIB_MODULES[std_path] = {}
+                # std.web 特殊处理：保留原有 serve/static/wait，合并新成员
+                STDLIB_MODULES[std_path].update(members)
+        except Exception:
+            # 模块缺失或导入失败时静默跳过，不影响核心功能
+            pass
+
+_register_v320_modules()

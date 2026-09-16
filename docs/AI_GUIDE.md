@@ -1,8 +1,8 @@
-# Aurora v3.1.0 AI 原生引擎开发指南
+# Aurora v3.2.0 AI 原生引擎 + 全栈开发指南
 
-> **Aurora 是首个 AI 原生编程语言——张量计算、自动微分、神经网络、数据处理、Agent 框架、模型推理全部内置,不需要 Python。**
+> **Aurora 是首个 AI 原生 + 全栈编程语言——AI 引擎、Web 框架、数据库 ORM、CLI/TUI、Git 绑定全部内置,一套语言搞定从前端到后端、从 CLI 到 AI 助手。**
 >
-> 版本:v3.1.0 | 模块目录:`ai/` | 示例:`examples/ai/` | CLI:`aurora ai ...`
+> 版本:v3.2.0 | AI 模块:`ai/` | 全栈模块:`web_framework.py` / `db_orm.py` / `cli_tui.py` / `git_bindings.py` / `codegen.py` | 示例:`examples/`
 
 ---
 
@@ -616,7 +616,284 @@ aurora wasm build model.aur           # 编译为 WebAssembly
 
 ---
 
-## 14. 下一步
+## 14. v3.2.0 全栈开发
+
+Aurora v3.2.0 新增五大全栈开发模块,让你用**一套语言**完成从数据库到前端、从 CLI 到 AI 编程助手的全部开发。
+
+### 14.1 五大模块总览
+
+| 模块 | import | 角色 | 核心类 |
+|---|---|---|---|
+| AuroraWeb | `import std.web` | 全栈 Web 框架(后端+前端+SSR) | `App`, `Router`, `Request`, `Response`, `Component`, `VNode` |
+| AuroraORM | `import std.db` | 数据库 ORM | `Model`, `Field`, `Query`, `Connection`, `Migration`, `Transaction` |
+| AuroraCLI | `import std.cli` | CLI 工具库 | `color`, `Spinner`, `ProgressBar`, `Table`, `TreeNode`, `confirm`, `select` |
+| AuroraTUI | `import std.tui` | TUI 交互框架 | `App`, `Box`, `VBox`, `Text`, `Input`, `List`, `Button`, `TextArea` |
+| AuroraGit | `import std.git` | Git 绑定 | `Repo`, `GitError` |
+
+### 14.2 全栈 Web 框架(std.web)
+
+#### 后端:路由 + 中间件 + JSON API
+
+```aurora
+import std.web
+
+// 创建应用
+let app = web.App("blog")
+
+// 路由(支持路径参数 :id)
+fn list_posts(req) {
+    return web.Response.json({"posts": [{"id": 1, "title": "Hello"}]})
+}
+
+fn get_post(req) {
+    let id = req.params["id"]
+    return web.Response.json({"id": id, "title": "Post " + id})
+}
+
+fn create_post(req) {
+    let data = req.json
+    return web.Response.json({"created": true, "post": data})
+}
+
+app.router.add_route("GET", "/posts", list_posts)
+app.router.add_route("GET", "/posts/:id", get_post)
+app.router.add_route("POST", "/posts", create_post)
+
+// 中间件
+app.use(web.logger_middleware())
+app.use(web.cors_middleware(["*"]))
+
+// 启动服务
+app.run(port=8080)
+```
+
+#### 前端:组件 + 虚拟 DOM + 响应式状态
+
+```aurora
+import std.web
+
+// 组件定义(生命周期 mount/update/unmount)
+struct Counter extends web.Component {
+    fn mount() {
+        self.set_state({"count": 0})
+    }
+    fn render() {
+        return web.create_element("div", {"class": "counter"},
+            web.create_element("h1", null, "Count: " + str(self.state["count"])),
+            web.create_element("button", {"onclick": "increment"}, "+1")
+        )
+    }
+}
+
+// 响应式状态
+let state = web.reactive({"count": 0})
+let doubled = web.computed(fn() { return state["count"] * 2 })
+web.watch(state, fn(key, val) { println(key + " = " + val) })
+```
+
+#### 全栈集成:类型共享 + API 客户端自动生成
+
+```aurora
+// 定义共享类型(前后端共用)
+let types = web.define_types({
+    "User": {"id": "int", "name": "str", "email": "str"},
+    "Post": {"id": "int", "title": "str", "content": "text", "author": "User"}
+})
+
+// 自动生成 TypeScript 类型定义
+let ts_code = web.generate_typescript(types)
+// 自动生成前端 API 客户端(JS fetch 封装)
+let api_client = web.generate_client(app.router.routes, "/api")
+```
+
+### 14.3 数据库 ORM(std.db)
+
+```aurora
+import std.db
+
+// 连接数据库
+let conn = db.Connection("sqlite:///blog.db")
+
+// 模型定义(Python 层面使用 db.Model 基类)
+// struct User extends db.Model {
+//     id = db.Field(type="int", primary_key=True, autoincrement=True)
+//     name = db.Field(type="str", unique=True)
+//     email = db.Field(type="str")
+// }
+
+// 查询构建器(链式调用)
+// let users = User.filter(name__contains="li")
+//                  .order_by("-id")
+//                  .limit(10)
+//                  .all()
+
+// 事务
+// with db.Transaction(conn) as tx {
+//     User.create(name="Alice", email="a@b.com")
+//     User.create(name="Bob", email="b@b.com")
+// }
+
+// 迁移
+// aurora db migrate          # 执行迁移
+// aurora db generate model Post title:str content:text  # 生成模型+迁移
+```
+
+### 14.4 CLI/TUI 框架(std.cli / std.tui)
+
+#### CLI 工具
+
+```aurora
+import std.cli
+
+// 彩色输出
+println(cli.color.fg("成功!", "green"))
+println(cli.bold("粗体"))
+println(cli.underline("下划线"))
+
+// 表格
+let table = cli.Table(
+    ["名称", "年龄", "状态"],
+    [["Alice", "30", cli.color.fg("活跃", "green")],
+     ["Bob", "25", cli.color.fg("离线", "red")]]
+)
+println(table.render())
+
+// 进度条
+let bar = cli.ProgressBar(100, "下载中")
+for i in 0..100 {
+    bar.update(i)
+}
+bar.finish()
+
+// 交互提示
+let ok = cli.confirm("确认执行?")
+let choice = cli.select("选择操作:", ["查看", "编辑", "删除"])
+```
+
+#### TUI 应用(类 Claude Code 界面)
+
+```aurora
+import std.tui
+
+let app = tui.App("Aurora Code")
+
+// 布局
+let main = tui.VBox(0, 0, 120, 40)
+main.add(tui.Text("=== Aurora Code ===", 0, 0))
+main.add(tui.TextArea(0, 1, 120, 30, ""))      // 代码编辑区
+main.add(tui.Input(0, 32, 100, "> "))            // 命令输入
+main.add(tui.Button("执行", 102, 32))             // 执行按钮
+
+app.add(main)
+app.run()
+```
+
+### 14.5 Git 绑定(std.git)
+
+```aurora
+import std.git
+
+let repo = git.Repo(".")
+
+// 查看状态
+let status = repo.status()
+println("分支: " + status["branch"])
+println("暂存: " + str(status["staged"]))
+
+// 提交
+repo.add(".")
+let hash = repo.commit("feat: 添加新功能")
+println("提交: " + hash)
+
+// 历史
+let logs = repo.log(max_count=10)
+for log in logs {
+    println(log["short_hash"] + " " + log["message"])
+}
+
+// 分支
+repo.create_branch("feature/x")
+repo.checkout("feature/x")
+```
+
+### 14.6 代码生成器(aurora new / generate)
+
+```bash
+# 项目脚手架
+aurora new fullstack myblog      # 全栈项目(后端+前端+数据库)
+aurora new cli mytool            # CLI 工具
+aurora new tui myeditor          # TUI 应用
+aurora new microservice myapi    # 微服务(含 Dockerfile)
+
+# 代码生成
+aurora generate controller Post   # 生成控制器
+aurora generate model User name:str email:str  # 生成模型+迁移
+aurora generate component Header  # 生成前端组件
+aurora generate service Auth      # 生成服务层
+
+# 开发与部署
+aurora dev                        # 开发模式(热重载)
+aurora deploy --docker            # Docker 部署
+```
+
+### 14.7 语言级简洁性(v3.2.0)
+
+```aurora
+// 自动导入:常用模块无需 import
+println(math.abs(-5))             // std.math 自动可用
+println(io.exists("file.txt"))    // std.io 自动可用
+
+// 属性简写
+let name = "Alice"
+let age = 30
+let u = User { name, age }        // 等价于 User { name: name, age: age }
+
+// 展开运算符
+let a = [1, 2, 3]
+let b = [...a, 4, 5]              // [1, 2, 3, 4, 5]
+let c = {...u, "role": "admin"}   // 合并字典
+
+// 字典解构 + 默认值
+let {name, age = 18} = user       // 缺失键用默认值
+
+// 可选链 + 空值合并
+let city = user?.address?.city ?? "未知"
+```
+
+### 14.8 构建 AI 编程助手(类 Claude Code)
+
+组合 TUI + Git + AI 引擎 + 文件系统,30 行代码搭建 AI 编程助手骨架:
+
+```aurora
+import std.tui
+import std.git
+import std.ai
+import std.io
+
+let repo = git.Repo(".")
+let ai = std.ai.LLM()
+
+let app = tui.App("Aurora Code")
+let layout = tui.VBox(0, 0, 120, 40)
+
+// Git 状态面板
+let status = repo.status()
+layout.add(tui.Text("分支: " + status["branch"], 0, 0))
+
+// AI 对话区
+layout.add(tui.TextArea(0, 1, 120, 30, ""))
+
+// 输入区
+let input = tui.Input(0, 32, 100, "> ")
+layout.add(input)
+
+app.add(layout)
+app.run()
+```
+
+---
+
+## 15. 下一步
 
 - 阅读 `examples/ai/` 下 5 个完整示例
 - 用 `std.python` 桥接现有 PyTorch 代码,逐步迁移

@@ -1,0 +1,50 @@
+# ─────────────────────────────────────────────────────────────
+# models.aur — 全栈博客的数据模型定义
+#
+# 本文件定义博客应用用到的两个结构体:
+#   · User  —— 作者信息
+#   · Post  —— 博客文章
+#
+# Aurora 用 struct 描述数据形状; 在实际运行时,
+# 这些结构体会被 std.db / std.web 自动序列化为 JSON。
+# ─────────────────────────────────────────────────────────────
+
+# User 结构体: 一位博客作者
+struct User {
+    id: int        # 作者 ID
+    name: str      # 作者昵称
+    email: str     # 联系邮箱
+    bio: str       # 个人简介
+}
+
+# Post 结构体: 一篇博客文章
+struct Post {
+    id: int          # 文章 ID
+    title: str       # 文章标题
+    content: str     # 正文内容
+    author_id: int   # 作者 ID(关联 User.id)
+    tags: [str]      # 标签列表
+    published: bool  # 是否已发布
+}
+
+# 把 Post 转成可 JSON 序列化的字典(演示 struct → dict 的手动映射)
+fn post_to_dict(p) {
+    return {
+        "id": p.id,
+        "title": p.title,
+        "content": p.content,
+        "author_id": p.author_id,
+        "tags": p.tags,
+        "published": p.published,
+    }
+}
+
+# 把 User 转成字典
+fn user_to_dict(u) {
+    return {
+        "id": u.id,
+        "name": u.name,
+        "email": u.email,
+        "bio": u.bio,
+    }
+}

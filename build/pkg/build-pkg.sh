@@ -12,7 +12,7 @@ PAYLOAD="$PKG_DIR/payload"
 RESOURCES="$PKG_DIR/resources"
 SCRIPTS="$PKG_DIR/scripts"
 BUILD_DIR="$PROJECT_ROOT/releases"
-VERSION="3.1.0"
+VERSION="3.2.0"
 
 echo "=== Aurora 安装器构建 ==="
 echo "项目根: $PROJECT_ROOT"
@@ -37,6 +37,8 @@ CORE_FILES=(
     "memory_manager.py" "module_system.py" "native_bindings.py" "optimizer.py"
     "packaging.py" "parallel_compiler.py" "persistent_cache.py"
     "project_index.py" "refactor_engine.py" "web_runtime.py" "workspace_manager.py"
+    # v3.2.0 全栈开发模块
+    "web_framework.py" "db_orm.py" "cli_tui.py" "git_bindings.py"
 )
 for f in "${CORE_FILES[@]}"; do
     if [ -f "$PROJECT_ROOT/$f" ]; then
@@ -79,6 +81,11 @@ cp -r "$PROJECT_ROOT/examples/fullstack" "$PAYLOAD/usr/local/lib/aurora/examples
 cp -r "$PROJECT_ROOT/examples/ai" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
 cp -r "$PROJECT_ROOT/examples/interop" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
 cp -r "$PROJECT_ROOT/examples/v210" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
+# v3.2.0 全栈示例
+cp -r "$PROJECT_ROOT/examples/fullstack-blog" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
+cp -r "$PROJECT_ROOT/examples/cli-tool" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
+cp -r "$PROJECT_ROOT/examples/tui-editor" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
+cp -r "$PROJECT_ROOT/examples/claude-code-like" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
 
 # 3. 设置权限
 echo "[3/5] 设置权限..."

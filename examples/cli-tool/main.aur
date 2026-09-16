@@ -1,0 +1,88 @@
+# ─────────────────────────────────────────────────────────────
+# main.aur — Aurora CLI 工具示例 (v3.2.0)
+#
+# 一个类似 git 的命令行小工具, 演示 std.cli 的核心能力:
+#   · 彩色输出   cli.color.fg(text, color) / cli.bold / cli.underline
+#   · 表格渲染   cli.Table(headers, rows) + render()
+#   · 交互确认   cli.confirm("继续吗?")
+#   · 单选菜单   cli.select("选择:", [...])
+#   · 加载动画   cli.Spinner("加载中")
+#
+# 运行:
+#   cd examples/cli-tool
+#   ../../aurora-run run main.aur
+# ─────────────────────────────────────────────────────────────
+import std.cli
+
+# 打印一个带颜色的分节标题
+fn section(title) {
+    println("")
+    println(cli.bold(cli.color.fg("── " + title + " ──", "cyan")))
+}
+
+# 1. 彩色输出: 标题 / 成功 / 警告 / 错误
+fn demo_colors() {
+    section("1. 彩色输出")
+    println(cli.color.fg("✔ 成功: 已提交所有更改", "green"))
+    println(cli.color.fg("⚠ 警告: 有 2 个文件未跟踪", "yellow"))
+    println(cli.color.fg("✘ 错误: 无法连接远程仓库", "red"))
+    println(cli.bold("加粗文本") + " 与 " + cli.underline("下划线文本"))
+}
+
+# 2. 表格渲染: 模拟 git status 的文件列表
+fn demo_table() {
+    section("2. 表格渲染")
+    # Table(表头数组, 数据二维数组)
+    let t = cli.Table(
+        ["状态", "文件", "大小"],
+        [
+            ["M  ", "main.aur", "3.2 KB"],
+            ["A  ", "models.aur", "1.1 KB"],
+            ["?? ", "README.md", "0.0 KB"],
+        ]
+    )
+    println(t.render())
+}
+
+# 3. 加载动画: 模拟"正在克隆仓库"
+fn demo_spinner() {
+    section("3. 加载动画 Spinner")
+    let sp = cli.Spinner("正在克隆远程仓库")
+    sp.start()
+    # 这里用循环模拟耗时操作
+    for i in range(5) {
+        sleep(0.2)
+    }
+    sp.stop()
+    println(cli.color.fg("克隆完成 (12 个对象)", "green"))
+}
+
+# 4. 交互确认 + 单选菜单
+fn demo_interactive() {
+    section("4. 交互式提示")
+
+    # cli.confirm 返回 bool
+    let ok = cli.confirm("是否执行 git push?", default=false)
+    if ok {
+        println(cli.color.fg("已推送 origin/main", "green"))
+    } else {
+        println(cli.color.fg("已取消推送", "yellow"))
+    }
+
+    # cli.select 返回用户选中的字符串
+    let action = cli.select("请选择要执行的操作", ["commit", "push", "pull", "status"])
+    println("你选择了: " + cli.bold(action))
+}
+
+# ── 主流程 ──
+fn main() {
+    println(cli.bold(cli.color.fg("Aurora CLI 工具示例 (v3.2.0)", "magenta")))
+    demo_colors()
+    demo_table()
+    demo_spinner()
+    demo_interactive()
+    println("")
+    println(cli.color.fg("演示结束, 再见!", "green"))
+}
+
+main()

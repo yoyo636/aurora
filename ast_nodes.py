@@ -138,7 +138,13 @@ class ArrayLiteral(Expr):
 
 @dataclass
 class MapLiteral(Expr):
-    entries: List[tuple] = field(default_factory=list)  # [(key, value), ...]
+    entries: List[tuple] = field(default_factory=list)  # [(key, value), ...] 展开项为 (SpreadExpr, None)
+
+
+@dataclass
+class SpreadExpr(Expr):
+    """v3.2.0 展开运算符：...arr / ...obj"""
+    expr: Expr = None
 
 
 @dataclass
@@ -389,6 +395,7 @@ class LiteralPattern(Pattern):
 class BindPattern(Pattern):
     """绑定模式：x => ..."""
     name: str = ""
+    default: Optional[Expr] = None  # v3.2.0: 解构默认值 let { x = 1 } = obj
 
 
 @dataclass

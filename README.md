@@ -1,6 +1,7 @@
-# Aurora 编程语言 v3.1.0
+# Aurora 编程语言 v3.2.0
 
 > 融合 **Rust / Python / Go / TypeScript** 优势的通用编程语言 —— 纯 Python 实现，零第三方依赖。
+> **v3.2.0 里程碑**:全栈开发引擎——全栈 Web 框架、数据库 ORM、CLI/TUI 框架、Git 绑定、代码生成器五大模块;语言级增强(自动导入/属性简写/展开运算符/字典解构/解构默认值);测试增长到 **825+ 个全部通过**。
 > **v3.1.0 里程碑**:全平台企业级引擎——性能革命(并行编译/NEON SIMD/逃逸分析)、模块化系统、AuroraUI 跨平台 GUI 框架、全平台打包(macOS/Windows/Linux/Web)、原生绑定;测试增长到 **509 个全部通过**。
 > **v3.0.0 里程碑**:AI 原生引擎——张量计算、自动微分、神经网络、数据处理、Agent 框架、模型推理全部内置,不再依赖 Python / PyTorch / NumPy。
 > 正式发布:语义化版本 + 完整规范(`docs/SPEC.md`)+ 版本策略(`docs/VERSIONING.md`)+ 变更日志(`CHANGELOG.md`)。
@@ -13,6 +14,14 @@ Aurora 是一个完整的语言工具链:词法分析 → 语法分析 → 类�
 - **Result 类型与异常无缝互操作** —— `?` 操作符自动解包,`Result` 与 `try/catch` 双向贯通
 
 **[历史] v2.2.0 生态互通大版本**:补齐 JavaScript/TypeScript/Java/WebAssembly 四大语言桥,构建 `std.interop` 统一多语言互操作层,FFI 增强结构体/回调/绑定代码自动生成,新增 `aurora interop`、`aurora gen-bindings`、`aurora wasm` 三个 CLI 命令。
+
+**v3.2.0 全栈开发特性**:
+- **全栈 Web 框架** —— `std.web` 扩展为 40 成员:路由、中间件、模板、静态资源、WebSocket
+- **数据库 ORM** —— `std.db`:模型定义、迁移、查询构建器、种子数据、SQLite/PostgreSQL 驱动
+- **CLI/TUI 框架** —— `std.cli`/`std.tui`:命令解析、子命令、参数校验、终端 UI(面板/列表/输入框)
+- **Git 绑定** —— `std.git`:仓库初始化、提交、分支、差异、日志,纯 Python 实现
+- **代码生成器** —— `aurora generate` 一键生成 controller/model/component/service 脚手架
+- **语言级增强** —— 自动导入、属性简写 `User { name, age }`、展开运算符 `[...arr, 4]`/`{...obj, b: 2}`、字典解构 `let { name, age } = user`、解构默认值 `let { name = "Unknown" } = user`
 
 **v3.1.0 企业级特性**:
 - **性能革命** —— 并行编译、增量编译增强、图着色寄存器分配、指令调度、LICM、CSE、NEON SIMD、逃逸分析
@@ -118,12 +127,167 @@ print(math.add(1, 2))               // 3
 - `aurora workspace` 管理 Monorepo 多项目
 - `#[cfg(target: "macos")]` 条件编译平台特定代码
 
+## 全栈开发 (v3.2.0)
+
+Aurora v3.2.0 把单语言扩展为**全栈开发引擎**:一套语言覆盖 Web 后端、数据库、CLI 工具、TUI 应用与 Git 操作,配套代码生成器一键脚手架。
+
+### 全栈 Web 框架 (std.web)
+
+```aurora
+import std.web
+
+let app = web.App()
+
+app.get("/", fn(req) {
+    return web.html("<h1>你好, Aurora</h1>")
+})
+
+app.get("/api/users/:id", fn(req) {
+    let id = req.params["id"]
+    return {"id": id, "name": "用户 " + id}
+})
+
+app.use(web.logger())                  # 中间件
+app.serve(8080)
+```
+
+- **路由**:`get/post/put/delete`,路径参数 `:id`,通配符 `*`
+- **中间件**:日志、CORS、认证、错误处理,`app.use(middleware)`
+- **模板**:`web.render(template, data)`,继承 v3.1.0 `std.html`
+- **静态资源**:`app.static("/static", "./public")`
+- **WebSocket**:`app.ws("/ws", on_message)`
+
+### 数据库 ORM (std.db)
+
+```aurora
+import std.db
+
+type User {
+    db.table("users")
+    db.field("id", type: "int", primary: true)
+    db.field("name", type: "str")
+    db.field("email", type: "str")
+}
+
+db.connect("sqlite://blog.db")
+db.migrate()                           # 自动建表
+
+let user = User(name: "Aurora", email: "hi@aurora.dev")
+user.save()
+
+let admins = db.query("User").where("name", "==", "Aurora").all()
+```
+
+- **模型定义**:`db.table` / `db.field`,自动映射数据库表
+- **迁移**:`aurora db migrate` 自动生成 SQL,`aurora db rollback` 回滚
+- **查询构建器**:`where / order_by / limit / join / first / all / count`
+- **种子数据**:`aurora db seed` 填充测试数据
+- **驱动**:SQLite(内置)、PostgreSQL(扩展)
+
+### CLI/TUI 框架 (std.cli / std.tui)
+
+```aurora
+import std.cli
+import std.tui
+
+// CLI 应用
+let app = cli.App(name: "mycli", version: "1.0.0")
+app.command("greet", fn(args) {
+    cli.print("你好, " + args.get("name", "世界"))
+})
+app.run()
+
+// TUI 应用
+let t = tui.Terminal()
+let panel = tui.Panel(title: "任务列表")
+panel.add(tui.List(["写文档", "跑测试", "发布"]))
+t.render(panel)
+```
+
+- **std.cli**:子命令解析、位置/选项参数、类型校验、`--help` 自动生成
+- **std.tui**:Panel / List / Input / ProgressBar / Table / Box 布局,键盘事件
+
+### Git 绑定 (std.git)
+
+```aurora
+import std.git
+
+let repo = git.Repository.init("./myproject")
+repo.config(user_name: "Aurora", user_email: "hi@aurora.dev")
+
+repo.add("src/main.aur")
+repo.commit("feat: 初始化项目")
+
+let feature = repo.branch("feature/login")
+feature.checkout()
+```
+
+- **纯 Python 实现**,无外部 git 依赖
+- 支持:init / clone / add / commit / branch / checkout / diff / log / status
+- 可用 `aurora new` 创建的项目自动 `git init`
+
+### 代码生成器
+
+```bash
+aurora generate controller UserController   # 生成 HTTP 控制器
+aurora generate model User                  # 生成 ORM 模型
+aurora generate component Header            # 生成 UI 组件
+aurora generate service AuthService          # 生成业务服务类
+```
+
+### 新建项目模板
+
+```bash
+aurora new myblog --template fullstack      # 全栈 Web 项目
+aurora new mytool --template cli            # CLI 工具项目
+aurora new myeditor --template tui          # TUI 终端应用
+aurora new mysvc --template microservice    # 微服务项目
+aurora new mysite --template webapp         # 纯前端 Web 应用
+```
+
+### v3.2.0 语言级增强
+
+```aurora
+// 属性简写:变量名与字段名相同时省略 value
+let name = "Aurora"
+let age = 3
+let user = User { name, age }              // 等价 User { name: name, age: age }
+
+// 展开运算符:数组
+let arr = [1, 2, 3]
+let extended = [...arr, 4, 5]              // [1, 2, 3, 4, 5]
+let merged = [...arr, ...[6, 7]]           // [1, 2, 3, 6, 7]
+
+// 展开运算符:字典
+let base = { port: 8080, host: "0.0.0.0" }
+let config = { ...base, debug: true }      // { port: 8080, host: "0.0.0.0", debug: true }
+
+// 字典解构
+let { name, age } = user                   // name="Aurora", age=3
+let { name: n, age: a } = user             // 重命名:n="Aurora"
+
+// 解构默认值
+let { title = "未命名" } = user            // 缺失键时取默认值 "未命名"
+
+// 自动导入:std.web / std.db / std.cli / std.tui / std.git 等常用模块无需手动 import
+let app = web.App()                        // web 自动可用
+```
+
+### v3.2.0 示例项目
+
+| 示例 | 路径 | 说明 |
+| --- | --- | --- |
+| 全栈博客 | `examples/fullstack-blog/` | Web 框架 + ORM + 模板,完整博客应用 |
+| CLI 工具 | `examples/cli-tool/` | std.cli 子命令 + 参数校验,完整 CLI 工具 |
+| TUI 编辑器 | `examples/tui-editor/` | std.tui 面板/列表/键盘事件,终端文本编辑器 |
+| Claude Code 风格 | `examples/claude-code-like/` | 全栈:CLI 交互 + AI Agent + TUI 界面 |
+
 ## 安装
 
 ```bash
 # macOS 一键安装器(推荐,自动配置运行时 / VSCode 插件 / 环境变量)
-curl -L -o Aurora-Installer-v3.1.0.pkg https://github.com/yoyo636/aurora/releases/download/v3.1.0/Aurora-Installer-v3.1.0.pkg
-installer -pkg Aurora-Installer-v3.1.0.pkg -target /
+curl -L -o Aurora-Installer-v3.2.0.pkg https://github.com/yoyo636/aurora/releases/download/v3.2.0/Aurora-Installer-v3.2.0.pkg
+installer -pkg Aurora-Installer-v3.2.0.pkg -target /
 
 # 或直接使用源码
 bash install.sh          # 安装 aurora 命令到用户 PATH(推荐)
@@ -141,7 +305,7 @@ aurora run                         # 运行项目(读清单入口)
 aurora test                        # 运行测试(*_test.aur / test_* 函数)
 aurora fmt .                       # 格式化整个项目(P2 工具链)
 aurora eval 'println(1 + 2)'       # 执行一行
-aurora --version                   # Aurora v3.1.0
+aurora --version                   # Aurora v3.2.0
 ```
 
 `hello.aur`：
@@ -363,7 +527,11 @@ map.get("key")                     # "value"
 # std.sync        Channel / Mutex / Fiber
 # std.result      Ok / Err / Result
 # std.collections HashMap / HashSet / Vec / hash_map / hash_set / vec
-# std.web         serve / static / wait(HTTP 服务)
+# std.web         40 成员:路由/中间件/模板/静态/WebSocket/serve/static/wait(v3.2.0 扩展)
+# std.db          Model/Migration/QueryBuilder/Seed/数据库驱动(v3.2.0)
+# std.cli         命令解析/子命令/参数校验(v3.2.0)
+# std.tui         面板/列表/输入框/终端UI(v3.2.0)
+# std.git         仓库/提交/分支/差异/日志(v3.2.0)
 # std.ai          configure / chat / messages / agent(AI Agent)
 # std.tensor      Tensor 原生张量计算(v3.0.0)
 # std.autograd    Variable / backward / SGD / Adam(v3.0.0)
@@ -732,6 +900,11 @@ cd aurora/ide && python3 server.py --open
 | `aurora interop` | **(v2.2.0)** 语言互操作 |
 | `aurora gen-bindings <header.h>` | **(v2.2.0)** 自动生成 FFI 绑定代码 |
 | `aurora wasm <file>` | **(v2.2.0)** 编译为 WebAssembly |
+| `aurora new {fullstack,cli,tui,microservice,webapp}` | **(v3.2.0)** 按模板创建全栈/CLI/TUI/微服务/Web 应用脚手架 |
+| `aurora generate {controller,model,component,service}` | **(v3.2.0)** 代码生成器:生成 controller/model/component/service |
+| `aurora db {migrate,rollback,seed}` | **(v3.2.0)** 数据库迁移/回滚/种子数据 |
+| `aurora dev` | **(v3.2.0)** 开发服务器:热重载 + 自动重启 |
+| `aurora deploy` | **(v3.2.0)** 一键部署到生产环境 |
 | `aurora --version` | 版本信息 |
 
 REPL 内建命令：`:type <expr>` 显示类型、`:ast <code>`、`:tokens <code>`、`:env` 查看环境、`:clear`、`:quit`。
@@ -767,10 +940,11 @@ aurora/
 
 ```bash
 python3 -m unittest discover -s aurora/tests -v
-# 509 个用例全部通过,覆盖词法、语法、解释器、类型检查、所有权检查、
+# 825+ 个用例全部通过,覆盖词法、语法、解释器、类型检查、所有权检查、
 # ARM64 后端、@perf 优化 Pass、Result 互操作、增量编译缓存,
 # v3.0.0 AI 引擎(tensor / autograd / nn / data / agent / inference),
-# 以及 v3.1.0 企业级特性(并行编译 / 模块化 / AuroraUI / 打包 / LSP / 调试器)
+# v3.1.0 企业级特性(并行编译 / 模块化 / AuroraUI / 打包 / LSP / 调试器),
+# 以及 v3.2.0 全栈开发特性(Web 框架 / ORM / CLI / TUI / Git 绑定 / 代码生成器 / 语言级增强)
 ```
 
 ## 已知限制

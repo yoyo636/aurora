@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import tempfile
 import threading
 import unittest
@@ -9,7 +10,14 @@ import urllib.request
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from helpers import eval_expr
+# 让 `from helpers import ...` 与 `from aurora.stdlib import ...`
+# 在 `python3 -m pytest tests/test_fullstack.py` 直接运行时都可解析。
+sys_path_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, sys_path_root)                                            # 项目根（aurora 包目录）
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))               # tests/ 目录
+sys.path.insert(0, os.path.dirname(sys_path_root))                            # aurora 包的父目录
+
+from helpers import eval_expr  # noqa: E402
 from aurora.stdlib import (
     AuroraError, AuroraWeb, AuroraAI, AuroraHtml, AuroraIO,
 )

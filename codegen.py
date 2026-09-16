@@ -1615,3 +1615,859 @@ def compile_to_binary(source_path: str, output_path: str = None, runtime_dir: st
         raise RuntimeError(f"编译失败:\n{compile_output}")
 
     return output_path, compile_output
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Aurora v3.2.0 — 代码生成器与项目脚手架工具
+# 对应命令:`aurora new` / `aurora generate` / `aurora dev` / `aurora deploy`
+# 说明:本段为纯标准库实现;开发服务器采用轮询监听(不依赖 watchdog)。
+# ══════════════════════════════════════════════════════════════════════
+
+import sys as _cg_sys
+import json as _cg_json
+import shutil as _cg_shutil
+import subprocess as _cg_subprocess
+
+
+# ------------------------------------------------------------
+# 通用小工具
+# ------------------------------------------------------------
+def _cg_snake(name):
+    """把 PascalCase / camelCase 转换为 snake_case。"""
+    out = []
+    for i, ch in enumerate(name):
+        if ch.isupper() and i > 0 and not name[i - 1].isupper():
+            out.append('_')
+        out.append(ch.lower())
+    return ''.join(out).replace('-', '_')
+
+
+def _cg_kebab(name):
+    """把 PascalCase 转换为 kebab-case(用于 Docker 镜像名等)。"""
+    return _cg_snake(name).replace('_', '-')
+
+
+def _cg_write(path, content, overwrite=None):
+    """
+    写文件(UTF-8)。
+    - 文件不存在:直接写入;
+    - 文件已存在:overwrite=True 覆盖;overwrite=False 跳过;
+      overwrite=None(默认)时交互式询问,非交互(TTY 不可用)自动跳过。
+    返回 True 表示确实写入了文件。
+    """
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    if os.path.exists(path):
+        if overwrite is True:
+            pass  # 明确要求覆盖
+        elif overwrite is False:
+            return False  # 明确跳过
+        else:
+            # 交互模式:TTY 可用才询问,否则视为非交互直接跳过
+            try:
+                if not _cg_sys.stdin or not _cg_sys.stdin.isatty():
+                    return False
+                ans = input("文件已存在 %s,是否覆盖? [y/N] " % path)
+            except (EOFError, KeyboardInterrupt):
+                return False
+            if ans.strip().lower() not in ("y", "yes"):
+                return False
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return True
+
+
+def _cg_mkdirs(root, dirs):
+    """在 root 下批量创建目录。"""
+    for d in dirs:
+        os.makedirs(os.path.join(root, d), exist_ok=True)
+
+
+def _cg_project_root(name, target_dir):
+    """项目根目录 = target_dir/name。"""
+    root = os.path.join(target_dir, name)
+    os.makedirs(root, exist_ok=True)
+    return root
+
+
+# ------------------------------------------------------------
+# 脚手架:项目模板(使用 __NAME__ 占位,避免与 Aurora 的花括号冲突)
+# ------------------------------------------------------------
+_TPL_TOML = '''[project]
+name = "__NAME__"
+version = "0.1.0"
+aurora = ">=3.2.0"
+
+[dependencies]
+
+[scripts]
+dev = "aurora dev src/main.aur"
+build = "aurora build src/main.aur"
+'''
+
+_TPL_README = '''# __NAME__
+
+基于 Aurora v3.2.0 创建的项目。
+
+## 快速开始
+
+```bash
+# 安装依赖(可选)
+aurora install
+
+# 开发模式运行(自动重载)
+aurora dev src/main.aur
+
+# 构建
+aurora build src/main.aur
+```
+
+## 目录结构
+
+- `src/` — 源码
+- `tests/` — 测试
+- `config/` — 多环境配置
+'''
+
+_TPL_FULLSTACK_MAIN = '''// ============================================
+// __NAME__ 全栈应用入口
+// 路由 + 数据库 + 静态资源
+// ============================================
+use std.web.{App, Request, Response};
+use std.db.Connection;
+
+fn main() {
+    // 创建主应用
+    let app = App("__NAME__");
+
+    // 连接数据库(SQLite)
+    let db = Connection("sqlite:///__NAME__.db");
+
+    // 注册路由
+    app.get("/", index);
+    app.get("/api/users", user_list);
+    app.post("/api/users", user_create);
+
+    // 启动 HTTP 服务
+    app.run(port=8080);
+}
+
+// 首页:返回一段 HTML
+fn index(req: Request) -> Response {
+    return Response.html("<h1>欢迎来到 __NAME__</h1>");
+}
+
+// 用户列表接口
+fn user_list(req: Request) -> Response {
+    return Response.json({ "message": "用户列表接口" });
+}
+
+// 创建用户接口
+fn user_create(req: Request) -> Response {
+    return Response.json({ "message": "创建用户成功" });
+}
+'''
+
+_TPL_USER_MODEL = '''// User 模型示例
+// 字段:id / name / email
+use std.db;
+
+struct User extends db.Model {
+    id: int,
+    name: str,
+    email: str
+}
+'''
+
+_TPL_USER_CONTROLLER = '''// User REST 控制器示例
+// 提供标准 CRUD 接口
+use std.web.{Request, Response};
+
+fn index(req: Request) -> Response {
+    // 列表
+    return Response.json({ "action": "index" });
+}
+
+fn show(req: Request) -> Response {
+    // 详情
+    return Response.json({ "action": "show" });
+}
+
+fn create(req: Request) -> Response {
+    // 新建
+    return Response.json({ "action": "create" });
+}
+
+fn update(req: Request) -> Response {
+    // 更新
+    return Response.json({ "action": "update" });
+}
+
+fn destroy(req: Request) -> Response {
+    // 删除
+    return Response.json({ "action": "destroy" });
+}
+'''
+
+_TPL_APP_COMPONENT = '''// 前端根组件示例
+// 演示 mount / render / unmount 生命周期
+use std.web.Component;
+
+struct App extends Component {
+    title: str
+}
+
+fn mount(self: App) {
+    // 组件挂载时调用
+    self.title = "__NAME__";
+}
+
+fn render(self: App) {
+    // 渲染视图
+    return "<h1>" + self.title + "</h1>";
+}
+
+fn unmount(self: App) {
+    // 组件卸载时调用
+}
+'''
+
+_TPL_DEV_TOML = '''[server]
+host = "127.0.0.1"
+port = 8080
+debug = true
+
+[db]
+url = "sqlite:///__NAME__.db"
+'''
+
+_TPL_PROD_TOML = '''[server]
+host = "0.0.0.0"
+port = 8080
+debug = false
+
+[db]
+url = "sqlite:///__NAME___prod.db"
+'''
+
+
+def _tpl(template, name):
+    """模板渲染:替换项目名占位符。"""
+    return template.replace("__NAME__", name)
+
+
+# ------------------------------------------------------------
+# 1. 项目脚手架生成器
+# ------------------------------------------------------------
+def scaffold_fullstack(name, target_dir='.'):
+    """
+    生成全栈项目脚手架。
+    目录:src/{controllers,models,components}、static/、migrations/、tests/、config/
+    """
+    root = _cg_project_root(name, target_dir)
+    _cg_mkdirs(root, [
+        'src', 'src/controllers', 'src/models', 'src/components',
+        'static', 'migrations', 'tests', 'config',
+    ])
+
+    # 项目清单
+    _cg_write(os.path.join(root, 'aurora.toml'), _tpl(_TPL_TOML, name))
+    # 入口与示例代码
+    _cg_write(os.path.join(root, 'src/main.aur'), _tpl(_TPL_FULLSTACK_MAIN, name))
+    _cg_write(os.path.join(root, 'src/models/user.aur'), _TPL_USER_MODEL)
+    _cg_write(os.path.join(root, 'src/controllers/user_controller.aur'), _TPL_USER_CONTROLLER)
+    _cg_write(os.path.join(root, 'src/components/app.aur'), _tpl(_TPL_APP_COMPONENT, name))
+    # 多环境配置
+    _cg_write(os.path.join(root, 'config/dev.toml'), _tpl(_TPL_DEV_TOML, name))
+    _cg_write(os.path.join(root, 'config/prod.toml'), _tpl(_TPL_PROD_TOML, name))
+    # 说明文档
+    _cg_write(os.path.join(root, 'README.md'), _tpl(_TPL_README, name))
+    return root
+
+
+_TPL_CLI_MAIN = '''// ============================================
+// __NAME__ — 命令行工具示例
+// 演示 std.cli 的彩色输出、表格、确认与选择
+// ============================================
+use std.cli;
+
+fn main() {
+    // 彩色欢迎信息
+    cli.println(cli.color.fg("__NAME__", "green"));
+
+    // 子命令:hello
+    // 运行:aurora run src/main.aur hello 世界
+    let args = std.argv();
+    if args.len() > 1 and args[1] == "hello" {
+        let who = args.len() > 2 ? args[2] : "world";
+        cli.println(cli.bold("你好, " + who + "!"));
+        return;
+    }
+
+    // 子命令:table
+    if args.len() > 1 and args[1] == "table" {
+        let t = cli.Table(["姓名", "年龄"], [["Alice", "18"], ["Bob", "20"]]);
+        cli.println(t.render());
+        return;
+    }
+
+    // 交互确认
+    if cli.confirm("继续吗?") {
+        let choice = cli.select("请选择:", ["选项 A", "选项 B"]);
+        cli.println("你选择了: " + choice);
+    }
+}
+'''
+
+
+def scaffold_cli(name, target_dir='.'):
+    """生成 CLI 工具项目脚手架。"""
+    root = _cg_project_root(name, target_dir)
+    _cg_mkdirs(root, ['src'])
+    _cg_write(os.path.join(root, 'aurora.toml'), _tpl(_TPL_TOML, name))
+    _cg_write(os.path.join(root, 'src/main.aur'), _tpl(_TPL_CLI_MAIN, name))
+    _cg_write(os.path.join(root, 'README.md'), _tpl(_TPL_README, name))
+    return root
+
+
+_TPL_TUI_MAIN = '''// ============================================
+// __NAME__ — TUI 应用示例
+// 一个简单的文本编辑器界面
+// ============================================
+use std.tui;
+
+fn main() {
+    // 创建应用与主窗口
+    let app = tui.App("__NAME__");
+
+    // 根布局:纵向盒子(坐标 x=0, y=0, 宽 80, 高 24)
+    let root = tui.VBox(0, 0, 80, 24);
+
+    // 标题
+    root.add(tui.Text("== __NAME__ 文本编辑器 =="));
+
+    // 输入框(编辑区)
+    let input = tui.Input();
+    root.add(input);
+
+    // 文件列表(侧边栏)
+    root.add(tui.List(["main.aur", "README.md", "aurora.toml"]));
+
+    // 底部按钮
+    root.add(tui.Button("保存"));
+    root.add(tui.Button("退出"));
+
+    app.add(root);
+    app.run();
+}
+'''
+
+
+def scaffold_tui(name, target_dir='.'):
+    """生成 TUI 应用项目脚手架。"""
+    root = _cg_project_root(name, target_dir)
+    _cg_mkdirs(root, ['src'])
+    _cg_write(os.path.join(root, 'aurora.toml'), _tpl(_TPL_TOML, name))
+    _cg_write(os.path.join(root, 'src/main.aur'), _tpl(_TPL_TUI_MAIN, name))
+    _cg_write(os.path.join(root, 'README.md'), _tpl(_TPL_README, name))
+    return root
+
+
+_TPL_MICRO_MAIN = '''// ============================================
+// __NAME__ — 微服务示例
+// 提供 HTTP 接口与健康检查端点
+// ============================================
+use std.web.{App, Request, Response};
+
+fn main() {
+    let app = App("__NAME__-service");
+
+    // 业务接口
+    app.get("/api/ping", ping);
+    // 健康检查(容器编排存活探针)
+    app.get("/health", health);
+
+    app.run(port=8080);
+}
+
+fn ping(req: Request) -> Response {
+    return Response.json({ "message": "pong" });
+}
+
+fn health(req: Request) -> Response {
+    return Response.json({ "status": "ok" });
+}
+'''
+
+_TPL_DOCKERFILE = '''# __NAME__ 容器镜像
+FROM aurora/runner:3.2.0
+
+WORKDIR /app
+COPY . /app
+
+EXPOSE 8080
+
+CMD ["aurora", "run", "src/main.aur"]
+'''
+
+
+def scaffold_microservice(name, target_dir='.'):
+    """生成微服务项目脚手架(HTTP 服务 + 健康检查 + Dockerfile + 配置)。"""
+    root = _cg_project_root(name, target_dir)
+    _cg_mkdirs(root, ['src', 'config'])
+    _cg_write(os.path.join(root, 'aurora.toml'), _tpl(_TPL_TOML, name))
+    _cg_write(os.path.join(root, 'src/main.aur'), _tpl(_TPL_MICRO_MAIN, name))
+    _cg_write(os.path.join(root, 'config/prod.toml'), _tpl(_TPL_PROD_TOML, name))
+    _cg_write(os.path.join(root, 'Dockerfile'), _tpl(_TPL_DOCKERFILE, name))
+    _cg_write(os.path.join(root, 'README.md'), _tpl(_TPL_README, name))
+    return root
+
+
+_TPL_WEBAPP_MAIN = '''// ============================================
+// __NAME__ — 纯后端 Web 应用
+// ============================================
+use std.web.{App, Request, Response};
+
+fn main() {
+    let app = App("__NAME__");
+    app.get("/", index);
+    app.get("/api/hello", hello);
+    app.run(port=8080);
+}
+
+fn index(req: Request) -> Response {
+    return Response.html("<h1>__NAME__ 运行中</h1>");
+}
+
+fn hello(req: Request) -> Response {
+    return Response.json({ "message": "hello" });
+}
+'''
+
+
+def scaffold_webapp(name, target_dir='.'):
+    """生成纯后端 Web 应用脚手架(仅 App + 路由)。"""
+    root = _cg_project_root(name, target_dir)
+    _cg_mkdirs(root, ['src'])
+    _cg_write(os.path.join(root, 'aurora.toml'), _tpl(_TPL_TOML, name))
+    _cg_write(os.path.join(root, 'src/main.aur'), _tpl(_TPL_WEBAPP_MAIN, name))
+    return root
+
+
+# ------------------------------------------------------------
+# 2. 代码生成器
+# ------------------------------------------------------------
+def generate_controller(name, actions=None, target_dir='src/controllers'):
+    """
+    生成 REST 控制器文件,包含 CRUD 动作。
+    actions:要生成的动作列表,默认 index/show/create/update/destroy。
+    """
+    if actions is None:
+        actions = ['index', 'show', 'create', 'update', 'destroy']
+    filename = _cg_snake(name) + '_controller.aur'
+    path = os.path.join(target_dir, filename)
+
+    lines = [
+        '// %s 控制器(由 aurora generate 生成)' % name,
+        'use std.web.{Request, Response};',
+        '',
+    ]
+    doc = {
+        'index': '列表', 'show': '详情', 'create': '新建',
+        'update': '更新', 'destroy': '删除',
+    }
+    for act in actions:
+        lines += [
+            '// %s: %s' % (act, doc.get(act, '自定义动作')),
+            'fn %s(req: Request) -> Response {' % act,
+            '    return Response.json({ "action": "%s" });' % act,
+            '}',
+            '',
+        ]
+    _cg_write(path, '\n'.join(lines))
+    return path
+
+
+def generate_model(name, fields=None, target_dir='src/models'):
+    """
+    生成模型文件与迁移文件。
+    fields 格式:[("name", "str"), ("age", "int", {"unique": True})]
+    第三项为字段选项(如 unique/index)。
+    """
+    if fields is None:
+        fields = [("id", "int"), ("name", "str")]
+    snake = _cg_snake(name)
+    model_path = os.path.join(target_dir, snake + '.aur')
+
+    # 组装字段行与迁移列定义
+    field_lines, column_lines = [], []
+    for f in fields:
+        fname, ftype = f[0], f[1]
+        options = f[2] if len(f) > 2 and isinstance(f[2], dict) else {}
+        suffix = ' '.join('%s' % k for k in sorted(options))
+        field_lines.append('    %s: %s%s' % (fname, ftype, ('  # ' + suffix) if suffix else ''))
+        column_lines.append('    %s %s' % (fname, ftype))
+
+    content = (
+        '// %s 模型(由 aurora generate 生成)\n'
+        'use std.db;\n\n'
+        'struct %s extends db.Model {\n' % (name, name) +
+        ',\n'.join(field_lines) + '\n}\n'
+    )
+    _cg_write(model_path, content)
+
+    # 同时生成迁移文件到 migrations/
+    migration_path = os.path.join('migrations', '001_create_%s.aur' % snake)
+    migration = (
+        '// 迁移:创建 %s 表(由 aurora generate 生成)\n'
+        'migration create_%s {\n' % (snake, snake) +
+        '  table "%s" {\n' % snake +
+        ',\n'.join(column_lines) + '\n  }\n'
+        '}\n'
+    )
+    _cg_write(migration_path, migration)
+    return model_path
+
+
+def generate_component(name, props=None, target_dir='src/components'):
+    """生成前端组件文件,包含 props 与 mount/render/unmount 生命周期。"""
+    if props is None:
+        props = [("title", "str"), ("items", "list")]
+    path = os.path.join(target_dir, _cg_snake(name) + '.aur')
+
+    prop_lines = ['    %s: %s' % (p[0], p[1]) for p in props]
+    content = (
+        '// %s 组件(由 aurora generate 生成)\n'
+        'use std.web.Component;\n\n'
+        'struct %s extends Component {\n' % (name, name) +
+        ',\n'.join(prop_lines) + '\n}\n\n'
+        '// 生命周期:挂载\n'
+        'fn mount(self: %s) {\n}\n\n' % name +
+        '// 生命周期:渲染\n'
+        'fn render(self: %s) {\n    return "";\n}\n\n' % name +
+        '// 生命周期:卸载\n'
+        'fn unmount(self: %s) {\n}\n' % name
+    )
+    _cg_write(path, content)
+    return path
+
+
+def generate_service(name, methods=None, target_dir='src/services'):
+    """生成服务层文件,包含业务逻辑方法骨架。"""
+    if methods is None:
+        methods = ['create', 'list', 'get', 'update', 'delete']
+    path = os.path.join(target_dir, _cg_snake(name) + '_service.aur')
+
+    lines = [
+        '// %s 服务层(由 aurora generate 生成)' % name,
+        '// 此处放置与控制器解耦的业务逻辑',
+        '',
+    ]
+    for m in methods:
+        lines += [
+            '// %s 方法骨架' % m,
+            'fn %s(args) {' % m,
+            '    // TODO: 实现业务逻辑',
+            '    return nil;',
+            '}',
+            '',
+        ]
+    _cg_write(path, '\n'.join(lines))
+    return path
+
+
+# ------------------------------------------------------------
+# 3. 开发模式
+# ------------------------------------------------------------
+def _cg_snapshot(entry):
+    """记录入口及其依赖文件的修改时间快照。"""
+    snap = {}
+    if os.path.isdir(entry):
+        roots = [entry]
+    else:
+        roots = [os.path.dirname(os.path.abspath(entry)) or '.']
+    for root in roots:
+        for dirpath, _dirs, files in os.walk(root):
+            if '__pycache__' in dirpath:
+                continue
+            for fn in files:
+                if fn.endswith('.aur'):
+                    fp = os.path.join(dirpath, fn)
+                    try:
+                        snap[fp] = os.path.getmtime(fp)
+                    except OSError:
+                        pass
+    return snap
+
+
+def dev_server(entry='src/main.aur', port=8080, interval=1.0):
+    """
+    开发模式:轮询监听 .aur 文件变化,变化时自动重启进程,
+    控制台输出彩色日志。纯标准库实现(不依赖 watchdog)。
+    """
+    import time
+    _GREEN, _CYAN, _YELLOW, _RESET = '\033[32m', '\033[36m', '\033[33m', '\033[0m'
+
+    def _log(msg, color=_GREEN):
+        print('%s[aurora dev] %s%s' % (color, msg, _RESET))
+
+    _log('监听 %s,端口 %d(轮询间隔 %.1fs)' % (entry, port, interval))
+    snapshot = _cg_snapshot(entry)
+    proc = None
+    try:
+        while True:
+            # 检查文件是否有变化
+            new_snap = _cg_snapshot(entry)
+            if new_snap != snapshot:
+                changed = set(new_snap) ^ set(snapshot) or new_snap
+                snapshot = new_snap
+                _log('检测到文件变化,正在重启...', _YELLOW)
+                if proc is not None:
+                    try:
+                        proc.terminate()
+                    except OSError:
+                        pass
+                # 重启子进程运行入口文件
+                cmd = [_cg_sys.executable, '-m', 'aurora', 'run', entry]
+                proc = _cg_subprocess.Popen(cmd)
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        _log('开发服务器已停止', _CYAN)
+        if proc is not None:
+            proc.terminate()
+
+
+# ------------------------------------------------------------
+# 4. 部署工具
+# ------------------------------------------------------------
+def deploy_docker(project_dir, name, tag='latest'):
+    """生成 Dockerfile 并(尽力)执行 docker build。返回镜像标签。"""
+    dockerfile = os.path.join(project_dir, 'Dockerfile')
+    image = '%s:%s' % (_cg_kebab(name), tag)
+    content = _tpl(_TPL_DOCKERFILE, name)
+    _cg_write(dockerfile, content)
+    # 尝试调用 docker 构建;失败不影响 Dockerfile 的生成
+    try:
+        _cg_subprocess.run(
+            ['docker', 'build', '-t', image, project_dir],
+            capture_output=True,
+        )
+    except Exception:
+        pass
+    return image
+
+
+def deploy_static(project_dir, output_dir='dist'):
+    """把 static/ 下的静态资源导出到 output_dir,并生成清单文件。"""
+    os.makedirs(output_dir, exist_ok=True)
+    src = os.path.join(project_dir, 'static')
+    files = []
+    if os.path.isdir(src):
+        for dirpath, _dirs, names in os.walk(src):
+            for fn in names:
+                sp = os.path.join(dirpath, fn)
+                rel = os.path.relpath(sp, src)
+                dp = os.path.join(output_dir, rel)
+                os.makedirs(os.path.dirname(dp), exist_ok=True)
+                _cg_shutil.copy2(sp, dp)
+                files.append(rel)
+    manifest = {
+        'project': os.path.basename(os.path.abspath(project_dir)),
+        'files': files,
+    }
+    _cg_write(os.path.join(output_dir, 'manifest.json'),
+              _cg_json.dumps(manifest, ensure_ascii=False, indent=2))
+    return output_dir
+
+
+# ------------------------------------------------------------
+# 5. OpenAPI 3.0 文档生成
+# ------------------------------------------------------------
+def _cg_route_to_dict(route):
+    """把路由统一成 dict 形式。兼容 (method, path) 元组与 dict。"""
+    if isinstance(route, dict):
+        return dict(route)
+    if isinstance(route, (list, tuple)) and len(route) >= 2:
+        return {'method': str(route[0]), 'path': str(route[1])}
+    raise ValueError('无法识别的路由定义: %r' % (route,))
+
+
+def generate_openapi(routes, title='Aurora API', version='1.0.0'):
+    """
+    从路由定义生成 OpenAPI 3.0 文档(JSON 字符串)。
+    支持路径参数({id})、查询参数、请求体与响应体。
+    """
+    doc = {
+        'openapi': '3.0.0',
+        'info': {'title': title, 'version': version},
+        'paths': {},
+    }
+    for route in routes:
+        r = _cg_route_to_dict(route)
+        method = r.get('method', 'get').lower()
+        path = r.get('path', '/')
+        # 解析路径参数:/users/{id} -> path 段参数
+        params = []
+        for seg in path.strip('/').split('/'):
+            if seg.startswith('{') and seg.endswith('}'):
+                pname = seg[1:-1]
+                params.append({
+                    'name': pname,
+                    'in': 'path',
+                    'required': True,
+                    'schema': {'type': 'integer' if pname == 'id' else 'string'},
+                })
+        # 查询参数
+        for q in r.get('query_params', r.get('query', [])) or []:
+            if isinstance(q, dict):
+                params.append(dict(q))
+            else:
+                params.append({'name': str(q), 'in': 'query', 'schema': {'type': 'string'}})
+        operation = {
+            'summary': r.get('summary', r.get('name', '%s %s' % (method.upper(), path))),
+            'responses': {
+                '200': {
+                    'description': r.get('response_desc', '成功'),
+                    'content': {'application/json': {'schema': {'type': 'object'}}},
+                }
+            },
+        }
+        if params:
+            operation['parameters'] = params
+        if r.get('body'):
+            operation['requestBody'] = {
+                'required': True,
+                'content': {'application/json': {'schema': r['body']}},
+            }
+        doc['paths'].setdefault(path, {})[method] = operation
+    return _cg_json.dumps(doc, ensure_ascii=False, indent=2)
+
+
+# ------------------------------------------------------------
+# CLI 命令注册
+# ------------------------------------------------------------
+def register_cli(subparsers) -> None:
+    """
+    向 CLI 注册 v3.2.0 脚手架相关命令:
+      aurora new {fullstack|cli|tui|microservice|webapp} <name>
+      aurora generate {controller|model|component|service} ...
+      aurora dev [entry]
+      aurora deploy [--docker] [--static]
+    webapp 若已被 web_framework.py 注册则跳过,避免重复。
+    """
+    def _add(subparsers, name, **kw):
+        """安全添加子解析器,已存在则返回现有解析器。"""
+        existing = getattr(subparsers, '_name_parser_map', {})
+        if name in existing:
+            return existing[name]
+        return subparsers.add_parser(name, **kw)
+
+    existing = getattr(subparsers, '_name_parser_map', {})
+
+    # ---- aurora new <kind> <name> ----
+    p_new = _add(subparsers, 'new', help='创建新 Aurora 项目')
+    # 主 CLI 可能已把 'name' 注册为必填位置参数;改为子命令模式后移除它
+    if hasattr(p_new, '_actions'):
+        for act in list(p_new._actions):
+            if not act.option_strings and act.dest == 'name':
+                p_new._actions.remove(act)
+    if hasattr(p_new, '_defaults') and 'name' in p_new._defaults:
+        p_new._defaults.pop('name', None)
+    new_sub = p_new.add_subparsers(dest='new_kind')
+
+    def _bind_new(kind, fn):
+        p = new_sub.add_parser(kind, help='创建 %s 项目' % kind)
+        p.add_argument('name', help='项目名称')
+        p.set_defaults(func=lambda args: fn(args.name))
+
+    _bind_new('fullstack', scaffold_fullstack)
+    _bind_new('cli', scaffold_cli)
+    _bind_new('tui', scaffold_tui)
+    _bind_new('microservice', scaffold_microservice)
+    # webapp 可能已由 web_framework.py 注册,避免重复
+    if 'webapp' not in existing:
+        _bind_new('webapp', scaffold_webapp)
+
+    # ---- aurora generate <kind> ... ----
+    p_gen = _add(subparsers, 'generate', help='生成代码(控制器/模型/组件/服务)')
+    gen_sub = p_gen.add_subparsers(dest='gen_kind')
+
+    p_c = gen_sub.add_parser('controller', help='生成 REST 控制器')
+    p_c.add_argument('name', help='资源名,如 user')
+    p_c.add_argument('actions', nargs='*', default=None,
+                     help='动作列表,如 index show create(默认全部 CRUD)')
+    p_c.set_defaults(func=lambda a: generate_controller(a.name, a.actions or None))
+
+    p_m = gen_sub.add_parser('model', help='生成模型与迁移')
+    p_m.add_argument('name', help='模型名,如 User')
+    p_m.add_argument('fields', nargs='*', default=None,
+                     help='字段列表,如 name:str age:int')
+    p_m.set_defaults(func=lambda a: generate_model(
+        a.name,
+        [tuple(f.split(':')) for f in a.fields] if a.fields else None,
+    ))
+
+    p_comp = gen_sub.add_parser('component', help='生成前端组件')
+    p_comp.add_argument('name', help='组件名,如 App')
+    p_comp.add_argument('props', nargs='*', default=None,
+                        help='props 列表,如 title:str items:list')
+    p_comp.set_defaults(func=lambda a: generate_component(
+        a.name,
+        [tuple(p.split(':')) for p in a.props] if a.props else None,
+    ))
+
+    p_svc = gen_sub.add_parser('service', help='生成服务层')
+    p_svc.add_argument('name', help='服务名,如 Auth')
+    p_svc.add_argument('methods', nargs='*', default=None, help='方法名列表')
+    p_svc.set_defaults(func=lambda a: generate_service(a.name, a.methods or None))
+
+    # ---- aurora dev [entry] ----
+    p_dev = _add(subparsers, 'dev', help='开发模式(自动重载)')
+    p_dev.add_argument('entry', nargs='?', default='src/main.aur', help='入口文件')
+    p_dev.add_argument('--port', type=int, default=8080)
+    p_dev.set_defaults(func=lambda a: dev_server(a.entry, port=a.port))
+
+    # ---- aurora deploy [--docker] [--static] ----
+    p_dep = _add(subparsers, 'deploy', help='部署:容器化 / 静态导出')
+    p_dep.add_argument('--docker', action='store_true', help='生成 Dockerfile 并构建镜像')
+    p_dep.add_argument('--static', action='store_true', help='导出静态资源到 dist/')
+    p_dep.add_argument('--name', default=None, help='项目名(默认当前目录名)')
+    p_dep.set_defaults(func=_cmd_deploy)
+
+
+def _cmd_deploy(args):
+    """`aurora deploy` 的执行函数。"""
+    project_dir = os.getcwd()
+    name = args.name or os.path.basename(project_dir)
+    if args.docker:
+        image = deploy_docker(project_dir, name)
+        print('Docker 镜像:', image)
+    if args.static:
+        out = deploy_static(project_dir, 'dist')
+        print('静态资源已导出到:', out)
+    if not args.docker and not args.static:
+        print('提示:使用 --docker 或 --static 指定部署方式')
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 标准库注册入口(本模块主要提供 CLI 脚手架能力)
+# ══════════════════════════════════════════════════════════════════════
+STDLIB_REGISTRATION = {
+    'std.codegen': {
+        'scaffold_fullstack': scaffold_fullstack,
+        'scaffold_cli': scaffold_cli,
+        'scaffold_tui': scaffold_tui,
+        'scaffold_microservice': scaffold_microservice,
+        'scaffold_webapp': scaffold_webapp,
+        'generate_controller': generate_controller,
+        'generate_model': generate_model,
+        'generate_component': generate_component,
+        'generate_service': generate_service,
+        'dev_server': dev_server,
+        'deploy_docker': deploy_docker,
+        'deploy_static': deploy_static,
+        'generate_openapi': generate_openapi,
+        'register_cli': register_cli,
+    }
+}
