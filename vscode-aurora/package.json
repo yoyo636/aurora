@@ -1,8 +1,8 @@
 {
   "name": "aurora-ide",
-  "displayName": "Aurora Language (v3)",
-  "description": "Aurora 编程语言支持 v3.2.0:语法高亮、一键运行、静态检查、行内诊断,内置格式化、性能分析、调试、LSP、包管理、AI 引擎与全平台开发工具;新增全栈开发脚手架、代码生成、数据库管理、开发模式与部署",
-  "version": "3.2.0",
+  "displayName": "Aurora Language (v3.3.0)",
+  "description": "Aurora 编程语言支持 v3.3.0:语法高亮、一键运行、静态检查、行内诊断,内置格式化、性能分析、调试、LSP、包管理、AI 引擎与全平台开发工具;新增全栈开发脚手架、代码生成、数据库管理、开发模式与部署;v3.3.0 新增增量计算(incremental computation)、依赖图、响应式数据流(source/live/transact)与增量调试",
+  "version": "3.3.0",
   "publisher": "aurora",
   "license": "MIT",
   "icon": "icons/aurora.png",
@@ -16,7 +16,12 @@
   "keywords": [
     "aurora",
     "language",
-    "programming"
+    "programming",
+    "incremental",
+    "incremental computation",
+    "reactive",
+    "dataflow",
+    "dependency graph"
   ],
   "activationEvents": [
     "onLanguage:aurora",
@@ -43,7 +48,9 @@
     "onCommand:aurora.db",
     "onCommand:aurora.dev",
     "onCommand:aurora.deploy",
-    "onCommand:aurora.webapp"
+    "onCommand:aurora.webapp",
+    "onCommand:aurora.showDependencyGraph",
+    "onCommand:aurora.toggleIncrementalDebug"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -189,6 +196,16 @@
         "command": "aurora.webapp",
         "title": "Aurora: Web应用脚手架 (webapp)",
         "icon": "$(globe)"
+      },
+      {
+        "command": "aurora.showDependencyGraph",
+        "title": "Aurora: 显示增量计算依赖图",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "aurora.toggleIncrementalDebug",
+        "title": "Aurora: 切换增量调试模式",
+        "icon": "$(bug)"
       }
     ],
     "keybindings": [

@@ -6,6 +6,7 @@ import threading
 from typing import Any, Dict, List, Optional
 
 from .ast_nodes import *
+from .incremental import IncrementalEngine
 from .lexer import Lexer
 from .parser import Parser
 from .stdlib import (
@@ -249,6 +250,14 @@ class Interpreter:
         self.extern_registry: Dict[str, Any] = {}   # extern 函数名 -> 可调用对象/占位
         self.event_loop = AuroraEventLoop()
         self._load_builtins()
+        # v3.3.0: 增量计算引擎（全局单例）
+        self._inc_engine = IncrementalEngine.get_instance()
+        # v3.3.0 修复1：标记当前是否正在 live 块的 func 执行中
+        #   - True  -> 引用 SourceNode 走 engine.read()（建立依赖）
+        #   - False -> 引用 SourceNode 返回快照值（不建立依赖）
+        self._in_live_block: bool = False
+        # v3.3.0 修复2：transact 块嵌套深度（禁止嵌套）
+        self._transact_depth: int = 0
         # v3.1.0: 暴露内置单例
         self.global_env.define('event_loop', self.event_loop)
 
@@ -357,6 +366,38 @@ class Interpreter:
 
     # ── 语句执行 ──────────────────────────────────────
 
+    def _collect_live_deps(self, block, env):
+        """静态收集 live 块中引用的所有 SourceNode/LiveNode 依赖"""
+        from .incremental import LiveNode
+        names = set()
+        self._collect_identifiers(block, names)
+        deps = []
+        for name in names:
+            if env.has(name):
+                val = env.get(name)
+                if isinstance(val, LiveNode):
+                    deps.append(val)
+        return deps
+
+    def _collect_identifiers(self, node, names: set):
+        """递归收集 AST 节点中的所有标识符名称"""
+        from .ast_nodes import Identifier
+        if node is None:
+            return
+        if isinstance(node, Identifier):
+            names.add(node.name)
+            return
+        # 递归遍历所有属性
+        if isinstance(node, (list, tuple)):
+            for item in node:
+                self._collect_identifiers(item, names)
+            return
+        if hasattr(node, '__dict__'):
+            for key, value in vars(node).items():
+                if key in ('line', 'column', 'inferred_type'):
+                    continue
+                self._collect_identifiers(value, names)
+
     def _exec_stmts(self, stmts: List[Stmt], env: Environment) -> Any:
         result = None
         for stmt in stmts:
@@ -398,7 +439,23 @@ class Interpreter:
             val = self._eval(stmt.initializer, env)
             # v3.2.0: 模式解构（含字典解构 {a, b = 1} 和默认值）
             if stmt.pattern is not None:
-                from .ast_nodes import StructPattern
+                from .ast_nodes import StructPattern, TuplePattern, BindPattern
+                # 元组模式解构字典：按元素名作为键提取（let (name, ver) = dict）
+                if isinstance(stmt.pattern, TuplePattern) and isinstance(val, dict):
+                    for sub_pat in stmt.pattern.elements:
+                        if not isinstance(sub_pat, BindPattern):
+                            raise AuroraError(
+                                "ValueError", "解构模式与值不匹配: 期望变量名")
+                        name = sub_pat.name
+                        if name not in val:
+                            if sub_pat.default is not None:
+                                env.define(name, self._eval(sub_pat.default, env), mutable=stmt.mutable)
+                            else:
+                                raise AuroraError(
+                                    "KeyError", f"解构绑定:字典缺少键 '{name}'")
+                        else:
+                            env.define(name, val[name], mutable=stmt.mutable)
+                    return val
                 if isinstance(val, (tuple, list, dict)):
                     bindings = self._match_pattern(stmt.pattern, val)
                     if bindings is None:
@@ -448,10 +505,19 @@ class Interpreter:
                 self._memory.write(addr, val)
                 return val
             if isinstance(stmt.target, Identifier):
-                if stmt.op != "=":
-                    cur = env.get(stmt.target.name)
-                    val = self._apply_binary(stmt.op.rstrip("="), cur, val)
-                env.set(stmt.target.name, val)
+                from .incremental import SourceNode
+                cur = env.get(stmt.target.name) if env.has(stmt.target.name) else None
+                # v3.3.0: 赋值给 SourceNode —— 通过引擎写入（触发脏标记）
+                if isinstance(cur, SourceNode):
+                    if stmt.op != "=":
+                        # 复合赋值：先读取当前值（自动解包），计算，再写入
+                        cur_val = self._inc_engine.read(cur)
+                        val = self._apply_binary(stmt.op.rstrip("="), cur_val, val)
+                    self._inc_engine.write(cur, val)
+                else:
+                    if stmt.op != "=":
+                        val = self._apply_binary(stmt.op.rstrip("="), cur, val)
+                    env.set(stmt.target.name, val)
             elif isinstance(stmt.target, MemberAccess):
                 obj = self._eval(stmt.target.object, env)
                 if isinstance(obj, dict):
@@ -913,6 +979,19 @@ class Interpreter:
             val = env.get(expr.name)
             if val is None and not env.has(expr.name):
                 raise AuroraError("NameError", f"未定义的变量: '{expr.name}'")
+            # v3.3.0: 自动解包增量节点（SourceNode/LiveNode）
+            # 修复1 —— 区分 Source 与 Live、区分上下文：
+            #   - SourceNode：普通上下文返回快照值（.result），不建立依赖；
+            #                 live 块内调用 engine.read() 建立依赖并随重算更新。
+            #   - LiveNode  ：始终走 engine.read() 拉取最新值（dirty 则重算）；
+            #                 普通上下文 computing_stack 为空，read 不会记录依赖。
+            from .incremental import LiveNode, SourceNode
+            if isinstance(val, SourceNode):
+                if self._in_live_block:
+                    return self._inc_engine.read(val)
+                return val.result
+            if isinstance(val, LiveNode):
+                return self._inc_engine.read(val)
             return val
 
         if isinstance(expr, ArrayLiteral):
@@ -1193,6 +1272,47 @@ class Interpreter:
             fiber = AuroraFiber(fn, tuple(args))
             fiber.start()
             return fiber
+
+        # v3.3.0: source(value) — 创建可变增量源
+        if isinstance(expr, SourceExpr):
+            val = self._eval(expr.value, env)
+            return self._inc_engine.create_source(val)
+
+        # v3.3.0: live { block } — 活计算块
+        if isinstance(expr, LiveBlockExpr):
+            # 静态收集块中引用的标识符
+            captured = self._collect_live_deps(expr.body, env)
+            def _live_func():
+                # 修复1：标记进入 live 计算上下文，使块内 Source 引用建立依赖
+                old = self._in_live_block
+                self._in_live_block = True
+                try:
+                    return self._exec_stmts(expr.body.statements, env)
+                finally:
+                    self._in_live_block = old
+            node = self._inc_engine.create_live(_live_func, captured_nodes=captured)
+            return node
+
+        # v3.3.0: transact { block } — 批量事务
+        if isinstance(expr, TransactBlockExpr):
+            # 修复2：禁止嵌套 transact
+            if self._transact_depth > 0:
+                raise AuroraError("TransactError", "不支持嵌套 transact 块")
+            self._transact_depth += 1
+            self._inc_engine.transact_begin()
+            try:
+                # 修复3：返回块中最后一个表达式语句的值（_exec_stmts 已如此）
+                result = self._exec_stmts(expr.body.statements, env)
+            except Exception:
+                # 修复2：事务中异常不回滚已修改的 source 值；
+                # 仍需结束事务（统一标记脏），然后异常继续传播
+                self._inc_engine.transact_end()
+                self._transact_depth -= 1
+                raise
+            else:
+                self._inc_engine.transact_end()
+                self._transact_depth -= 1
+                return result
 
         if isinstance(expr, ChannelSend):
             ch = self._eval(expr.channel, env)

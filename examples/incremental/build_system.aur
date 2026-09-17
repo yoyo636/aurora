@@ -1,0 +1,16 @@
+# 增量计算示例：类构建系统
+let mut source_files = source(["main.aur", "utils.aur"])
+let mut optimize = source(true)
+
+let compile_count = live { len(source_files) }
+let compile_flags = live { if optimize { ["-O2", "--release"] } else { ["-g"] } }
+let output_name = live { if optimize { "app_release" } else { "app_debug" } }
+
+println("编译 ", compile_count, " 个文件")
+println("输出: ", output_name)
+println("标志: ", compile_flags)
+
+optimize = false
+println("切换到调试模式:")
+println("输出: ", output_name)
+println("标志: ", compile_flags)

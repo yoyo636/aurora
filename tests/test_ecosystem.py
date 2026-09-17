@@ -5,6 +5,10 @@ import sys
 import tempfile
 import unittest
 
+# 确保 tests/ 目录在 sys.path 中，使 `from helpers import ...` 可用
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from helpers import run_source, eval_expr
 from aurora.stdlib import AuroraError
 from aurora.stdlib import (

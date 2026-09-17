@@ -1,0 +1,13 @@
+# 增量计算示例：简单计数器
+let mut count = source(0)
+let doubled = live { count * 2 }
+let tripled = live { count * 3 }
+
+println("初始 count = ", count)
+println("doubled = ", doubled)
+println("tripled = ", tripled)
+
+count = 5
+println("更新后 count = ", count)
+println("doubled = ", doubled)
+println("tripled = ", tripled)

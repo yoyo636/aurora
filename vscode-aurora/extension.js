@@ -1,9 +1,11 @@
-// Aurora Language —— VSCode 扩展 (v3.2.0)
+// Aurora Language —— VSCode 扩展 (v3.3.0)
 // 功能:运行 .aur 文件(集成终端)、静态检查(行内诊断)、运行选中代码
 // v3.1.0 新增:AI 引擎、基准测试、工作区/依赖管理、GUI、跨平台打包、
 //            Jupyter 内核、HTTP 推理服务、语言互操作、WebAssembly 编译
 // v3.2.0 新增:全栈脚手架(new)、代码生成(generate)、数据库管理(db)、
 //            开发模式(dev)、部署(deploy)、Web 应用脚手架(webapp)
+// v3.3.0 新增:增量计算(incremental computation)、依赖图可视化、
+//            增量调试开关、响应式数据流关键字(source/live/transact)
 "use strict";
 
 const vscode = require("vscode");
@@ -404,6 +406,28 @@ function activate(context) {
       const args = ["webapp"];
       if (name) args.push(name);
       termCli(args, "Aurora Web 脚手架", workspaceDir());
+    })
+  );
+
+  // ── v3.3.0 新命令:增量计算工具链 ──────────────────────
+
+  // 显示增量计算依赖图:aurora depgraph <file>
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.showDependencyGraph", async () => {
+      const ed = await activeAuroraFile();
+      if (!ed) return;
+      termCli(["depgraph", ed.document.fileName], "Aurora 依赖图", path.dirname(ed.document.fileName));
+    })
+  );
+
+  // 切换增量调试模式:aurora incdebug on|off
+  let incDebugOn = false;
+  context.subscriptions.push(
+    vscode.commands.registerCommand("aurora.toggleIncrementalDebug", async () => {
+      incDebugOn = !incDebugOn;
+      const mode = incDebugOn ? "on" : "off";
+      termCli(["incdebug", mode], "Aurora 增量调试 " + mode, workspaceDir());
+      vscode.window.showInformationMessage("Aurora 增量调试模式已" + (incDebugOn ? "开启" : "关闭"));
     })
   );
 

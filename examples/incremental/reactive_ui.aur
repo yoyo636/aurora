@@ -1,0 +1,21 @@
+# 增量计算示例：响应式 UI 状态
+let mut username = source("")
+let mut age = source(0)
+
+let greeting = live { "Hello, " + username + "!" }
+let age_group = live {
+    if age < 13 { "child" }
+    elif age < 18 { "teen" }
+    elif age < 65 { "adult" }
+    else { "senior" }
+}
+let can_vote = live { age >= 18 }
+
+transact {
+    username = "Alice"
+    age = 25
+}
+
+println(greeting)
+println("Age group: ", age_group)
+println("Can vote: ", can_vote)

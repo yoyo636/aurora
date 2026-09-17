@@ -1,6 +1,7 @@
-# Aurora 编程语言 v3.2.0
+# Aurora 编程语言 v3.3.0
 
 > 融合 **Rust / Python / Go / TypeScript** 优势的通用编程语言 —— 纯 Python 实现，零第三方依赖。
+> **v3.3.0 里程碑**:语言级原生增量计算——`source` / `live` / `transact` 三个关键字,`Source<T>` / `Live<T>` 两个类型,纯计算块用 `live` 标记后即成为可复算、可订阅的"活计算"(显式标记 + 自动依赖追踪,而非默认增量);拉模式惰性重算、哈希短路、事务、编译期纯度检查与循环依赖检测。
 > **v3.2.0 里程碑**:全栈开发引擎——全栈 Web 框架、数据库 ORM、CLI/TUI 框架、Git 绑定、代码生成器五大模块;语言级增强(自动导入/属性简写/展开运算符/字典解构/解构默认值);测试增长到 **825+ 个全部通过**。
 > **v3.1.0 里程碑**:全平台企业级引擎——性能革命(并行编译/NEON SIMD/逃逸分析)、模块化系统、AuroraUI 跨平台 GUI 框架、全平台打包(macOS/Windows/Linux/Web)、原生绑定;测试增长到 **509 个全部通过**。
 > **v3.0.0 里程碑**:AI 原生引擎——张量计算、自动微分、神经网络、数据处理、Agent 框架、模型推理全部内置,不再依赖 Python / PyTorch / NumPy。
@@ -22,6 +23,13 @@ Aurora 是一个完整的语言工具链:词法分析 → 语法分析 → 类�
 - **Git 绑定** —— `std.git`:仓库初始化、提交、分支、差异、日志,纯 Python 实现
 - **代码生成器** —— `aurora generate` 一键生成 controller/model/component/service 脚手架
 - **语言级增强** —— 自动导入、属性简写 `User { name, age }`、展开运算符 `[...arr, 4]`/`{...obj, b: 2}`、字典解构 `let { name, age } = user`、解构默认值 `let { name = "Unknown" } = user`
+
+**v3.3.0 增量计算特性**:
+- **语言级原生增量计算** —— `source`(可变输入源)、`live`(活计算块)、`transact`(批量事务)三个关键字,无需手写订阅与失效逻辑
+- **拉模式惰性重算** —— source 改动只标记下游 Dirty,真正读取时才深度优先重算,未读节点不浪费算力
+- **哈希短路** —— 重算后结果哈希不变则不级联通知下游,避免无效刷新
+- **类型** —— `Source<T>` / `Live<T>`,编译期纯度检查 + 循环依赖检测
+- **可观测** —— 依赖图导出(Mermaid / DOT)、`get_stats()` 重算与缓存命中统计、`subscribe` 结果变化回调
 
 **v3.1.0 企业级特性**:
 - **性能革命** —— 并行编译、增量编译增强、图着色寄存器分配、指令调度、LICM、CSE、NEON SIMD、逃逸分析
@@ -281,6 +289,45 @@ let app = web.App()                        // web 自动可用
 | CLI 工具 | `examples/cli-tool/` | std.cli 子命令 + 参数校验,完整 CLI 工具 |
 | TUI 编辑器 | `examples/tui-editor/` | std.tui 面板/列表/键盘事件,终端文本编辑器 |
 | Claude Code 风格 | `examples/claude-code-like/` | 全栈:CLI 交互 + AI Agent + TUI 界面 |
+
+## 增量计算 (v3.3.0)
+
+Aurora v3.3.0 的**杀手级特性**:**把纯计算块用 `live` 关键字显式标记为"活计算"**——标记后自动追踪依赖、可复算、可订阅。注意这不是"所有函数默认增量":普通 `let` 定义的计算不参与增量图,只有被 `live` 包裹的块才会按需重算。你只需用 `source` 标出"输入会变",用 `live { ... }` 包住一段纯计算,Aurora 就自动追踪依赖、按需重算,再也不用手写"监听 → 失效 → 重新渲染"的样板代码。
+
+```aurora
+# 唯一的输入变化点:source
+let mut count = source(0)
+
+# live 块自动追踪它读到的 source/live
+let doubled = live { count * 2 }
+let tripled  = live { count * 3 }
+
+println("初始:", doubled, tripled)     # 0  0
+
+# 修改 source —— 下游只是被标记,不会立刻重算
+count = 5
+
+# 真正读取时才惰性重算:只算被读到的节点
+println("doubled =", doubled)          # 10
+println("tripled =", tripled)          # 15
+```
+
+**三个核心概念**:
+
+- **`source(value)` 是唯一的输入变化点** —— 只有写进 `source` 的值才会"变"。普通变量保持编译期常量语义,不会触发任何重算。
+- **`live { ... }` 自动追踪依赖** —— 块内读了哪个 source/live,运行时就记下它作为依赖;source 一改,这些 live 自动变脏,读取时才重算。
+- **`transact { ... }` 批量更新** —— 块内多次写 source 只累积、不传播,块结束时统一重算一次,避免中间态触发多次刷新。
+
+**关键特性**:
+
+- **惰性重算**:拉模式,只有被读取的节点才重算,没读的分支零开销
+- **哈希短路**:重算后结果没变(结构化哈希相同)就不通知下游,UI 不会白刷新
+- **编译期纯度检查**:`live` 块必须是纯函数,块内赋值/副作用在编译期报错
+- **循环依赖检测**:运行时检测到环立即报错,不让程序进入无限重算
+- **依赖图可视化**:`export_graph("mermaid")` / `export_graph("dot")` 导出依赖图
+- **结果订阅**:`node.subscribe(fn(new, old) { ... })`,结果真正变化时回调
+
+完整指南:[`docs/INCREMENTAL_GUIDE.md`](docs/INCREMENTAL_GUIDE.md) · 可运行示例:[`examples/incremental/`](examples/incremental/)
 
 ## 安装
 

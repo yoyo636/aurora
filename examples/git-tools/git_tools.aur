@@ -1,0 +1,92 @@
+# ─────────────────────────────────────────────────────────────
+# git_tools.aur — Aurora v3.2.0 std.git 绑定示例
+#
+# 演示 std.git 的常用操作:
+#   · git.init(path) / git.Repo(path)     初始化 / 打开仓库
+#   · repo.status()                        工作区状态(暂存/未暂存/未跟踪)
+#   · repo.add(path)                       暂存文件
+#   · repo.commit(message)                 提交,返回 40 位 hash
+#   · repo.log(max_count=N)               提交历史
+#   · repo.branch() / create_branch / checkout / current_branch
+#
+# 运行:
+#   cd examples/git-tools
+#   ../../aurora-run run git_tools.aur
+# 注意: 本机需安装 git 命令行工具(git --version 可用)
+# ─────────────────────────────────────────────────────────────
+import std.git
+import std.io
+
+fn main() {
+    let workdir = "demo-repo"
+
+    # ── 1. 初始化 / 打开仓库 ──
+    # git init 幂等:不存在则新建,已存在则安全复用
+    io.mkdir(workdir)
+    git.init(workdir)
+    let repo = git.Repo(workdir)
+    if git.is_git_repo(workdir) {
+        println("已就绪仓库: " + workdir)
+    }
+
+    # 本地设置提交身份,避免依赖全局 gitconfig
+    repo.config_set("user.name", "Aurora Demo")
+    repo.config_set("user.email", "aurora@example.com")
+
+    # ── 2. 写文件 → add → commit ──
+    io.write_file(workdir + "/hello.txt", "hello aurora\n")
+    repo.add("hello.txt")
+    let h1 = repo.commit("first commit")
+    println("提交完成: " + h1)
+
+    # 再改一次,做第二次提交
+    io.write_file(workdir + "/hello.txt", "hello aurora v2\n")
+    repo.add("hello.txt")
+    let h2 = repo.commit("second commit")
+    println("提交完成: " + h2)
+
+    # ── 3. 查看状态 ──
+    println("--- 当前状态 ---")
+    let s = repo.status()
+    for e in s.staged {
+        println("  暂存:   " + e.path)
+    }
+    for e in s.unstaged {
+        println("  未暂存: " + e.path)
+    }
+    for e in s.untracked {
+        println("  未跟踪: " + e.path)
+    }
+
+    # ── 4. 提交日志 ──
+    println("--- 提交日志(最近 10 条) ---")
+    let entries = repo.log(max_count: 10)
+    for e in entries {
+        println("  " + e.short_hash + "  " + e.author + "  " + e.message)
+    }
+
+    # ── 5. 分支操作 ──
+    let main = repo.current_branch()
+    println("--- 分支 ---")
+    println("  当前分支: " + main)
+
+    repo.create_branch("demo-branch")
+    repo.checkout("demo-branch")
+    println("  已切换到: " + repo.current_branch())
+
+    io.write_file(workdir + "/feature.txt", "on demo-branch\n")
+    repo.add("feature.txt")
+    repo.commit("add feature file")
+
+    println("  全部分支:")
+    for b in repo.branch() {
+        println("    * " + b.name)
+    }
+
+    # 切回主分支
+    repo.checkout(main)
+    println("  已切回: " + repo.current_branch())
+    println("完成! 可用 cd " + workdir + " && git log 查看结果")
+}
+
+main()

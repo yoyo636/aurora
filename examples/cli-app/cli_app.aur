@@ -1,0 +1,96 @@
+# ─────────────────────────────────────────────────────────────
+# cli_app.aur — Aurora v3.2.0 CLI 框架示例
+#
+# 演示 std.cli 的常用能力:
+#   · 彩色输出   fg(text, color) / bold(text) / style(text, ...)
+#   · 进度条     ProgressBar(total, prefix=..., width=...)
+#   · 表格       Table(headers, rows) / add_row / render
+#   · 树状结构   TreeNode(name, icon=...) / add_child / render
+#   · 状态消息   用 fg 组合成功 / 警告 / 错误三色
+#   · 交互输入   input(prompt, default=...) / confirm / select
+#
+# 运行:
+#   cd examples/cli-app
+#   ../../aurora-run run cli_app.aur
+# ─────────────────────────────────────────────────────────────
+import std.cli
+
+# 打印一个分节标题
+fn section(title) {
+    println("")
+    println(cli.bold(cli.fg("══ " + title + " ══", "cyan")))
+}
+
+# 1. 彩色输出与状态消息
+fn demo_colors() {
+    section("1. 彩色输出 / 成功 / 警告 / 错误")
+    println(cli.fg("✔ 成功: 任务执行完成", "green"))
+    println(cli.fg("⚠ 警告: 磁盘剩余空间不足", "yellow"))
+    println(cli.fg("✘ 错误: 网络请求超时", "red"))
+    println(cli.bold("加粗强调文本") + "  与普通文本对比")
+    println(cli.style("style 组合: 红底粗体", "red", "bold"))
+}
+
+# 2. 进度条
+fn demo_progress() {
+    section("2. 进度条 ProgressBar")
+    let pb = cli.ProgressBar(100, prefix: "下载", width: 40)
+    for i in range(10) {
+        pb.advance(10)
+    }
+    pb.finish()
+    println(cli.fg("下载完成", "green"))
+}
+
+# 3. 表格输出
+fn demo_table() {
+    section("3. 表格 Table")
+    let t = cli.Table(["功能", "API", "状态"])
+    t.add_row(["彩色输出", "cli.fg / cli.bold", "OK"])
+    t.add_row(["进度条", "cli.ProgressBar", "OK"])
+    t.add_row(["树状结构", "cli.TreeNode", "OK"])
+    t.add_row(["交互输入", "cli.input / confirm / select", "OK"])
+    println(t.render())
+}
+
+# 4. 树状结构
+fn demo_tree() {
+    section("4. 树状结构 TreeNode")
+    let root = cli.TreeNode("aurora/", icon: "📁")
+    let src = root.add_child(cli.TreeNode("src/", icon: "📁"))
+    src.add_child(cli.TreeNode("interpreter.py"))
+    src.add_child(cli.TreeNode("parser.py"))
+    src.add_child(cli.TreeNode("cli_tui.py"))
+    let docs = root.add_child(cli.TreeNode("docs/", icon: "📁"))
+    docs.add_child(cli.TreeNode("SPEC.md"))
+    docs.add_child(cli.TreeNode("CHANGELOG.md"))
+    root.add_child(cli.TreeNode("README.md"))
+    println(root.render())
+}
+
+# 5. 交互式输入(非终端环境会使用默认值/编号降级)
+fn demo_input() {
+    section("5. 交互式输入 input / confirm / select")
+    let name = cli.input("你的名字", default: "Aurora")
+    println("你好, " + cli.bold(name))
+
+    let go = cli.confirm("是否继续演示?", default: true)
+    if go {
+        println(cli.fg("用户确认继续", "green"))
+    } else {
+        println(cli.fg("用户选择退出", "yellow"))
+    }
+
+    let theme = cli.select("选择一个主题", ["默认", "海洋", "森林"], default_index: 0)
+    println("你选择了主题: " + theme)
+}
+
+# ── 主流程 ──
+println(cli.bold("Aurora CLI 框架示例 (v3.2.0)"))
+demo_colors()
+demo_progress()
+demo_table()
+demo_tree()
+demo_input()
+println("")
+println(cli.fg("全部演示完成,再见!", "green"))

@@ -12,7 +12,7 @@ PAYLOAD="$PKG_DIR/payload"
 RESOURCES="$PKG_DIR/resources"
 SCRIPTS="$PKG_DIR/scripts"
 BUILD_DIR="$PROJECT_ROOT/releases"
-VERSION="3.2.0"
+VERSION="3.3.0"
 
 echo "=== Aurora 安装器构建 ==="
 echo "项目根: $PROJECT_ROOT"
@@ -32,7 +32,7 @@ CORE_FILES=(
     "ast_nodes.py" "tokens.py" "type_checker.py" "type_infer.py" "ownership.py"
     "interpreter.py" "stdlib.py" "codegen.py" "asmgen.py" "repl.py"
     "formatter.py" "profiler.py" "debugger.py" "lsp.py" "pkg.py"
-    "incremental_cache.py"
+    "incremental_cache.py" "incremental.py"
     "benchmark.py" "browser_engine.py" "build_engine.py" "dep_graph.py"
     "memory_manager.py" "module_system.py" "native_bindings.py" "optimizer.py"
     "packaging.py" "parallel_compiler.py" "persistent_cache.py"
@@ -86,6 +86,8 @@ cp -r "$PROJECT_ROOT/examples/fullstack-blog" "$PAYLOAD/usr/local/lib/aurora/exa
 cp -r "$PROJECT_ROOT/examples/cli-tool" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
 cp -r "$PROJECT_ROOT/examples/tui-editor" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
 cp -r "$PROJECT_ROOT/examples/claude-code-like" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
+# v3.3.0 增量编译示例
+cp -r "$PROJECT_ROOT/examples/incremental" "$PAYLOAD/usr/local/lib/aurora/examples/" 2>/dev/null || true
 
 # 3. 设置权限
 echo "[3/5] 设置权限..."

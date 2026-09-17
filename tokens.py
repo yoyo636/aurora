@@ -56,7 +56,12 @@ class TokenType(Enum):
     AWAIT = auto()     # await expr
     AS = auto()        # as (import 别名)
     PERF = auto()      # @perf 性能注解
-    
+    # ── v3.3.0 增量计算 ──
+    SOURCE = auto()    # source(...) 可变增量源
+    LIVE = auto()      # live { ... } 活计算块
+    TRANSACT = auto()  # transact { ... } 批量事务
+    PURE = auto()      # extern "C" { pure fn ... } 纯函数标注
+
     # 运算符
     PLUS = auto()      # +
     MINUS = auto()     # -
@@ -184,4 +189,8 @@ KEYWORDS = {
     'and': TokenType.AND,
     'or': TokenType.OR,
     'not': TokenType.NOT,
+    'source': TokenType.SOURCE,
+    'live': TokenType.LIVE,
+    'transact': TokenType.TRANSACT,
+    'pure': TokenType.PURE,
 }

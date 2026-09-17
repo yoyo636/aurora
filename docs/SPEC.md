@@ -50,7 +50,9 @@ let name = "aurora"
 标识符: `[A-Za-z_][A-Za-z0-9_]*`。
 
 关键字:
-`fn let var const if elif else for while return type enum impl match trait true false nil in break continue import from as spawn chan select default try catch finally panic self std and or not loop pub mut defer yield async await unsafe extern`
+`fn let var const if elif else for while return type enum impl match trait true false nil in break continue import from as spawn chan select default try catch finally panic self std and or not loop pub mut defer yield async await unsafe extern source live transact`
+
+> v3.3.0 新增关键字:`source`(可变增量源)、`live`(活计算块)、`transact`(批量事务),详见第 15 节。
 
 ### 2.5 运算符
 
@@ -553,3 +555,66 @@ entry = "main.aur"
 ## 14. 生态示例
 
 见 `examples/interop/`:与 Rust、C++、Python、JSON、HTML、VEX、HTTP、多进程协同的可运行示例。
+
+## 15. 增量计算(v3.3.0)
+
+语言级原生增量计算:`source` 创建可变输入,`live { ... }` 定义纯计算并自动追踪依赖,`transact { ... }` 批量更新。运行时由 `incremental.py` 的全局单例 `IncrementalEngine` 实现。
+
+### 15.1 语法(BNF)
+
+```ebnf
+source-expr    ::= "source" "(" expr ")"
+live-expr      ::= "live" block
+transact-stmt  ::= "transact" block
+assign-source  ::= identifier "=" expr        ; 左值须为 Source<T>
+```
+
+- `source(value)` 是表达式,求值得到一个 `Source<T>` 节点;
+- `live { stmts... }` 是表达式,求值得到一个 `Live<T>` 节点(块以最后一个表达式为返回值);
+- `transact { stmts... }` 是语句(可作表达式,值为 `nil`)。
+
+### 15.2 语义规范
+
+**source 创建**:创建 `Source<T>` 节点,存入引擎节点表,`version = 0`,缓存初始值与其结构化哈希。
+
+**写入 source**(`src = v`):
+1. 更新节点值与结构化哈希;
+2. 非事务态:`version += 1`,所有直接下游 live 标记 `Dirty`(只标记,不递归、不重算);
+3. 事务态:仅把该 source 记入当前事务脏集合,不立即传播。
+
+**live 依赖追踪**:live 块执行期间读取的每个 source/live 都被记录为依赖快照 `(node_id, version)`;重算后用本次实际读取集合**替换**依赖列表(支持动态依赖)。
+
+**重算规则(拉模式)**:读取 live 节点时——
+1. 若状态非 Dirty 且所有依赖 version 匹配 → 返回缓存值(cache hit);
+2. 否则深度优先重算所有 Dirty 依赖,再执行本节点计算函数;
+3. 计算前节点进入 `Computing`,若重入自身 → 抛循环依赖错误;
+4. 计算后比较新旧结果结构化哈希:相同且深相等 → **短路**,不通知下游;不同 → 更新缓存、通知订阅者。
+
+**事务语义**:`transact` 块嵌套计数。块内写入只累积;计数归零提交时,所有脏 source 统一 `version += 1` 并标记下游。块内读取 live 看到的是事务提交前的旧值(原子一致视图)。
+
+**订阅**:`live` 节点可注册 `fn(new, old)` 回调;仅当结果真正变化(哈希不同)时触发。
+
+### 15.3 类型规则
+
+- `source(e) : Source<T>`,`T = typeof(e)`;
+- `live { e } : Live<T>`,`T = typeof(e)`;
+- 在 `live` 块内读取 `Source<T>` 或 `Live<T>` 透明解包为 `T`;
+- `Source<T>` 可写(`src = v`,要求 `v : T`),`Live<T>` 不可直接赋值;
+- 普通 `let`/`var` 变量**不**参与增量图,对其赋值不触发重算。
+
+**source 的 mut 语义**:`source` 节点持有的值**内部总是可变**——`src = v` 修改节点内部值并 `version+1`,这是 `Source<T>` 本身的能力,**不要求**绑定该节点的名字带 `mut`。
+
+```ebnf
+let x = source(10); x = 20        ; OK:修改内部值,类型检查通过
+let x = source(10); x = source(30); 错误:let 绑定不可重新绑定到新节点
+let mut y = source(10); y = source(30); OK:mut 绑定可重新绑定到新 source
+```
+
+- `source` 的"内部可写"是节点语义;`let` / `let mut` 只控制**名字能否重新绑定**到另一个节点;
+- 通常不需要 `mut`;仅当需要把一个名字重新绑定到不同的 source 节点时才用 `let mut`。
+
+### 15.4 纯度规则
+
+- `live` 块必须是纯函数:块内不得对块外普通变量赋值,不得调用非纯函数(时钟、随机、IO);
+- 违反者在编译期由类型检查器报错(PurityError),不进入运行时;
+- 所有"会变化的输入"必须经由 `source` 引入,否则无法参与依赖追踪。

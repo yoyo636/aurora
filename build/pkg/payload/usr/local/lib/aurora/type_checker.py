@@ -101,12 +101,32 @@ class TypeChecker:
         self.errors: List[TypeError] = []
         self.warnings: List[TypeError] = []
         self._fn_defs: Dict[str, FnDef] = {}
+        # v3.3.0: 记录 live 块与其绑定变量，用于循环依赖检测
+        self._live_blocks: List[Tuple[str, 'LiveBlockExpr']] = []
+        # v3.3.0: 当前作用域中所有 let mut 变量名（按作用域栈管理）
+        self._mutable_vars_stack: List[Set[str]] = [set()]
+        # v3.3.0: extern 函数名 -> 是否标注为 pure
+        self._extern_functions: Dict[str, bool] = {}
+        # v3.3.0: 全程序纯度分析得出的不纯用户函数名集合
+        self._impure_functions: Set[str] = set()
 
         # 注册内建类型和函数
         for name, ti in self.BUILTIN_TYPES.items():
             self.global_env.define(name, ti)
         for name, ti in self.BUILTIN_FUNCTIONS.items():
             self.global_env.define(name, ti)
+
+    # ── 作用域栈辅助（let mut 追踪） ─────────────────────
+    def _push_scope(self):
+        self._mutable_vars_stack.append(set())
+
+    def _pop_scope(self):
+        if len(self._mutable_vars_stack) > 1:
+            self._mutable_vars_stack.pop()
+
+    def _is_mutable(self, name: str) -> bool:
+        """name 是否在任一可见作用域中以 let mut 声明"""
+        return any(name in scope for scope in self._mutable_vars_stack)
 
     def _warn(self, message: str, node: Node = None):
         """记录一条警告（不阻止编译）"""
@@ -115,8 +135,129 @@ class TypeChecker:
     def check(self, program: Program) -> List[TypeError]:
         """类型检查整个程序"""
         self.errors = []
+        self._live_blocks = []
+        self._mutable_vars_stack = [set()]
+        self._extern_functions = {}
+        self._impure_functions = set()
+        self._fn_defs = {}
+
+        # v3.3.0: 全程序预处理（必须在语句检查之前，以便 live 块纯度检查
+        # 能利用完整的调用图）：
+        #   1. 收集 extern 函数纯度标注
+        #   2. 收集所有函数定义
+        #   3. 过程间纯度分析（不动点）-> self._impure_functions
+        self._prepass_program(program)
+
         self._check_stmts(program.statements, self.global_env)
+        # v3.3.0: live 块循环依赖检测
+        self._check_live_cycles()
         return self.errors
+
+    # ── v3.3.0: 全程序预处理与过程间纯度分析 ──────────────
+
+    def _prepass_program(self, program: Program):
+        """在正式检查前收集 extern 纯度、全部 FnDef，并做过程间纯度分析。"""
+        # 1. 收集 extern 函数纯度
+        self._collect_extern_walk(program.statements)
+        # 2. 收集所有函数定义（含嵌套）
+        self._collect_fn_defs_walk(program.statements)
+        # 3. 过程间纯度分析
+        self._analyze_interprocedural_purity()
+
+    def _collect_extern_walk(self, node):
+        """递归收集 extern 块中声明的函数及其 pure 标注。"""
+        if node is None:
+            return
+        if isinstance(node, (list, tuple)):
+            for item in node:
+                self._collect_extern_walk(item)
+            return
+        if not hasattr(node, '__dict__'):
+            return
+        if isinstance(node, ExternBlock):
+            for decl in node.declarations:
+                self._extern_functions[decl.name] = bool(getattr(decl, 'is_pure', False))
+        for key, value in vars(node).items():
+            if key in ('line', 'column', 'inferred_type'):
+                continue
+            if isinstance(value, (list, tuple)) or hasattr(value, '__dict__'):
+                self._collect_extern_walk(value)
+
+    def _collect_fn_defs_walk(self, node):
+        """递归收集所有 FnDef（含嵌套定义、impl 方法）。"""
+        if node is None:
+            return
+        if isinstance(node, (list, tuple)):
+            for item in node:
+                self._collect_fn_defs_walk(item)
+            return
+        if not hasattr(node, '__dict__'):
+            return
+        if isinstance(node, FnDef):
+            self._fn_defs[node.name] = node
+        for key, value in vars(node).items():
+            if key in ('line', 'column', 'inferred_type'):
+                continue
+            if isinstance(value, (list, tuple)) or hasattr(value, '__dict__'):
+                self._collect_fn_defs_walk(value)
+
+    def _collect_callees(self, fn_def: FnDef) -> Set[str]:
+        """收集函数体中所有以 Identifier 形式调用的函数名。"""
+        names: Set[str] = set()
+        self._collect_callees_walk(fn_def.body, names)
+        return names
+
+    def _collect_callees_walk(self, node, names: Set[str]):
+        if node is None:
+            return
+        if isinstance(node, (list, tuple)):
+            for item in node:
+                self._collect_callees_walk(item, names)
+            return
+        if not hasattr(node, '__dict__'):
+            return
+        if isinstance(node, CallExpr) and isinstance(node.callee, Identifier):
+            names.add(node.callee.name)
+        for key, value in vars(node).items():
+            if key in ('line', 'column', 'inferred_type'):
+                continue
+            if isinstance(value, (list, tuple)) or hasattr(value, '__dict__'):
+                self._collect_callees_walk(value, names)
+
+    def _analyze_interprocedural_purity(self):
+        """过程间纯度分析（不动点迭代）。
+
+        初始不纯集合：函数体直接调用 I/O 函数或未标注 pure 的 extern 函数。
+        迭代：若 A 调用了不纯函数 B，则 A 也不纯。直到无变化。
+        """
+        impure: Set[str] = set()
+
+        # 初始：直接调用 I/O 或非 pure extern 的函数
+        for name, fn_def in self._fn_defs.items():
+            callees = self._collect_callees(fn_def)
+            for callee in callees:
+                if callee in self._IO_FUNCTIONS:
+                    impure.add(name)
+                    break
+                if callee in self._extern_functions and not self._extern_functions[callee]:
+                    impure.add(name)
+                    break
+
+        # 不动点传播
+        changed = True
+        while changed:
+            changed = False
+            for name, fn_def in self._fn_defs.items():
+                if name in impure:
+                    continue
+                callees = self._collect_callees(fn_def)
+                for callee in callees:
+                    if callee in impure:
+                        impure.add(name)
+                        changed = True
+                        break
+
+        self._impure_functions = impure
     
     def _check_stmts(self, stmts: List[Stmt], env: TypeEnvironment):
         for stmt in stmts:
@@ -158,13 +299,27 @@ class TypeChecker:
             self._infer_expr(stmt.call, env)
         elif isinstance(stmt, TestBlock):
             child_env = env.child()
+            self._push_scope()
             self._check_stmts(stmt.body.statements, child_env)
+            self._pop_scope()
         elif isinstance(stmt, ImportStmt):
             pass  # TODO: 模块解析
+        elif isinstance(stmt, ExternBlock):
+            # v3.3.0: 记录 extern 函数纯度（pre-pass 已收集，这里同步到当前 env）
+            for decl in stmt.declarations:
+                self._extern_functions[decl.name] = bool(getattr(decl, 'is_pure', False))
+                # 注册为函数类型，使调用能通过类型推断
+                param_types = [TypeInfo('any') for _ in decl.params]
+                ret_type = (self._resolve_type_node(decl.return_type, env)
+                            if decl.return_type else TypeInfo('void'))
+                env.define(decl.name, TypeInfo('fn', param_types + [ret_type]))
     
     def _check_let(self, stmt: LetStmt, env: TypeEnvironment):
         if stmt.initializer:
             inferred = self._infer_expr(stmt.initializer, env)
+            # v3.3.0: 记录 live 块与其绑定变量，供循环依赖检测
+            if isinstance(stmt.initializer, LiveBlockExpr):
+                self._live_blocks.append((stmt.name, stmt.initializer))
             if stmt.type_annotation:
                 declared = self._resolve_type_node(stmt.type_annotation, env)
                 if not declared.is_compatible(inferred):
@@ -178,6 +333,9 @@ class TypeChecker:
         else:
             self.errors.append(TypeError(
                 f"变量 '{stmt.name}' 必须提供类型注解或初始值", stmt))
+        # v3.3.0: 追踪 let mut 变量，供 live 块捕获检查与 Source 重绑定检查
+        if stmt.mutable:
+            self._mutable_vars_stack[-1].add(stmt.name)
     
     def _check_const(self, stmt: ConstStmt, env: TypeEnvironment):
         inferred = self._infer_expr(stmt.initializer, env)
@@ -215,7 +373,11 @@ class TypeChecker:
         self._fn_defs[stmt.name] = stmt
 
         if stmt.body is not None:
-            self._check_stmts(stmt.body.statements, fn_env)
+            self._push_scope()
+            try:
+                self._check_stmts(stmt.body.statements, fn_env)
+            finally:
+                self._pop_scope()
     
     def _check_type_def(self, stmt: TypeDef, env: TypeEnvironment):
         env.type_defs[stmt.name] = stmt
@@ -273,30 +435,40 @@ class TypeChecker:
                 f"if 条件必须是 bool 类型，得到 {cond_type}", stmt))
         
         then_env = env.child()
+        self._push_scope()
         self._check_stmts(stmt.then_body.statements, then_env)
-        
+        self._pop_scope()
+
         for cond, body in stmt.elif_clauses:
             ec = self._infer_expr(cond, env)
             if ec.name != 'bool' and ec.name != 'any':
                 self.errors.append(TypeError(f"elif 条件必须是 bool 类型", stmt))
             eb_env = env.child()
+            self._push_scope()
             self._check_stmts(body.statements, eb_env)
-        
+            self._pop_scope()
+
         if stmt.else_body:
             else_env = env.child()
+            self._push_scope()
             self._check_stmts(stmt.else_body.statements, else_env)
+            self._pop_scope()
     
     def _check_for(self, stmt: ForStmt, env: TypeEnvironment):
         iter_type = self._infer_expr(stmt.iterable, env)
         for_env = env.child()
+        self._push_scope()
         for var in stmt.variables:
             for_env.define(var, TypeInfo('any'))
         self._check_stmts(stmt.body.statements, for_env)
-    
+        self._pop_scope()
+
     def _check_while(self, stmt: WhileStmt, env: TypeEnvironment):
         cond_type = self._infer_expr(stmt.condition, env)
         while_env = env.child()
+        self._push_scope()
         self._check_stmts(stmt.body.statements, while_env)
+        self._pop_scope()
     
     def _check_match(self, stmt: MatchStmt, env: TypeEnvironment):
         subject_type = self._infer_expr(stmt.subject, env)
@@ -362,17 +534,241 @@ class TypeChecker:
     
     def _check_try(self, stmt: TryStmt, env: TypeEnvironment):
         try_env = env.child()
+        self._push_scope()
         self._check_stmts(stmt.body.statements, try_env)
+        self._pop_scope()
         for catch in stmt.catches:
             catch_env = env.child()
             catch_env.define(catch.name, TypeInfo('Error'))
+            self._push_scope()
             self._check_stmts(catch.body.statements, catch_env)
+            self._pop_scope()
         if stmt.finally_body:
-            self._check_stmts(stmt.finally_body.statements, env.child())
+            finally_env = env.child()
+            self._push_scope()
+            self._check_stmts(stmt.finally_body.statements, finally_env)
+            self._pop_scope()
     
     def _check_assign(self, stmt: AssignStmt, env: TypeEnvironment):
-        self._infer_expr(stmt.target, env)
-        self._infer_expr(stmt.value, env)
+        target_type = self._infer_expr(stmt.target, env)
+        value_type = self._infer_expr(stmt.value, env)
+
+        # v3.3.0: Source 的 mut 语义检查
+        #  - x = value（右值为内部值类型 T）：修改 source 内部值，允许。
+        #  - x = source(...)（右值也是 Source<T>）：重新绑定 source。
+        #    若 x 不是 let mut 声明，则报错。
+        if isinstance(stmt.target, Identifier):
+            tname = stmt.target.name
+            if target_type.name == 'Source':
+                if value_type.name == 'Source' and not self._is_mutable(tname):
+                    self.errors.append(TypeError(
+                        f"不能重新绑定 source 变量 '{tname}'。"
+                        f"source 内部值总是可变的，使用 '{tname} = value' 修改内部值；"
+                        f"如需重新绑定，请用 'let mut {tname} = source(...)'。",
+                        stmt))
+
+    # ── v3.3.0: live 块纯度检查 ───────────────────────────
+
+    # 已知的 I/O / 不纯内置函数名
+    _IO_FUNCTIONS = {
+        'print', 'println', 'echo', 'read', 'read_line', 'read_file',
+        'write_file', 'append_file', 'open', 'close', 'input',
+        'sleep', 'exec', 'system', 'rand', 'random', 'now',
+        'http_get', 'http_post', 'fetch',
+    }
+
+    def _check_live_purity(self, expr: 'LiveBlockExpr', env: TypeEnvironment):
+        """检查 live 块的纯度 —— 不允许 I/O 操作、对 source 的赋值、
+        捕获非 source 的 let mut 变量、或调用未标注 pure 的 extern 函数。
+        违规作为 TypeError 收集到 self.errors（编译期错误，精确到行号）。"""
+        violations: List[Tuple[object, str]] = []
+
+        # v3.3.0 Fix 1: live 块中捕获的 let mut 变量必须是 source
+        self._check_live_mutable_capture(expr, env)
+
+        # v3.3.0 Fix 2/3/4: 纯度违规检测（含 extern 标注、过程间不纯调用、调用链追溯）
+        self._check_purity_walk(expr.body, self._IO_FUNCTIONS, violations)
+        for node, msg in violations:
+            self.errors.append(TypeError(f"live 块纯度违规: {msg}", node))
+
+    def _check_live_mutable_capture(self, expr: 'LiveBlockExpr', env: TypeEnvironment):
+        """Fix 1: live 块引用的 let mut 变量必须是 Source<T>，否则无法触发重算。"""
+        names = self._collect_identifiers(expr)
+        for name in names:
+            if not self._is_mutable(name):
+                continue
+            ti = env.lookup(name)
+            if ti is not None and ti.name == 'Source':
+                continue
+            self.errors.append(TypeError(
+                f"live 块中引用了可变变量 '{name}'，但它不是 source。"
+                f"可变状态必须用 source() 包裹以启用依赖追踪。", expr))
+
+    def _format_call_chain(self, call_stack: List[str], leaf_loc: str) -> str:
+        """格式化调用链信息。超过 5 层折叠。"""
+        chain = call_stack
+        if len(chain) > 5:
+            shown = " → ".join(chain[:5])
+            chain_str = f"{shown} → ... (还有 {len(chain) - 5} 层)"
+        else:
+            chain_str = " → ".join(chain)
+        return f"live → {chain_str} → {leaf_loc}"
+
+    def _add_purity_violation(self, violations: List[Tuple[object, str]],
+                              node, call_stack: List[str],
+                              leaf_name: str, leaf_kind: str):
+        """记录一条纯度违规。leaf_kind: 'io' 或 'extern'。"""
+        if leaf_kind == 'extern':
+            leaf_loc = f"{leaf_name} (extern 函数，未标注 pure)"
+            direct_msg = (f"extern 函数 '{leaf_name}' 未标注为 pure，"
+                          f"不能在 live 块中调用。请确认其无副作用后标注为 "
+                          f"'extern \"C\" pure fn'。")
+        else:
+            leaf_loc = leaf_name
+            direct_msg = f"调用了 I/O 函数 '{leaf_name}'"
+
+        if call_stack:
+            chain = self._format_call_chain(call_stack, leaf_loc)
+            violations.append((node, f"调用了不纯函数 '{call_stack[0]}'。调用链: {chain}"))
+        else:
+            violations.append((node, direct_msg))
+
+    def _check_purity_walk(self, node, io_funcs: Set[str],
+                           violations: List[Tuple[object, str]],
+                           call_stack: Optional[List[str]] = None,
+                           visited: Optional[Set[str]] = None):
+        """递归遍历 AST，检测 live 块内的不纯操作。
+
+        - call_stack: live 块到当前调用点之间的用户函数链（不含 leaf）。
+        - visited: 当前追踪链上已进入的用户函数，防止递归导致无限循环。
+        """
+        if call_stack is None:
+            call_stack = []
+        if visited is None:
+            visited = set()
+        if node is None:
+            return
+        if isinstance(node, (list, tuple)):
+            for item in node:
+                self._check_purity_walk(item, io_funcs, violations, call_stack, visited)
+            return
+        if not hasattr(node, '__dict__'):
+            return
+
+        # 检测函数调用中的 I/O 函数 / extern 非 pure / 不纯用户函数
+        traced_callee: Optional[str] = None
+        if isinstance(node, CallExpr):
+            callee = node.callee
+            if isinstance(callee, Identifier):
+                name = callee.name
+                if name in io_funcs:
+                    self._add_purity_violation(violations, node, call_stack, name, 'io')
+                elif name in self._extern_functions and not self._extern_functions[name]:
+                    self._add_purity_violation(violations, node, call_stack, name, 'extern')
+                elif (name in self._impure_functions
+                      and name in self._fn_defs
+                      and name not in visited):
+                    # 间接不纯调用：递归进入函数体追溯根因
+                    traced_callee = name
+
+        # 检测方法调用中的 I/O 方法
+        if isinstance(node, MethodCall):
+            if node.method in io_funcs:
+                violations.append((node, f"调用了 I/O 方法 '{node.method}'"))
+
+        # 检测赋值（可能修改 source）
+        if isinstance(node, AssignStmt):
+            violations.append((node, "live 块中不允许赋值操作（可能修改 source）"))
+
+        # 递归子节点（跳过元信息字段）
+        for key, value in vars(node).items():
+            if key in ('line', 'column', 'inferred_type'):
+                continue
+            if isinstance(value, (list, tuple)) or hasattr(value, '__dict__'):
+                self._check_purity_walk(value, io_funcs, violations, call_stack, visited)
+
+        # 递归进入不纯用户函数体以追溯调用链
+        if traced_callee is not None:
+            fn_def = self._fn_defs[traced_callee]
+            new_stack = call_stack + [traced_callee]
+            new_visited = visited | {traced_callee}
+            self._check_purity_walk(fn_def.body, io_funcs, violations,
+                                    new_stack, new_visited)
+
+    def _collect_identifiers(self, node) -> Set[str]:
+        """收集节点子树中所有标识符引用名。"""
+        names: Set[str] = set()
+        self._collect_ident_walk(node, names)
+        return names
+
+    def _collect_ident_walk(self, node, names: Set[str]):
+        if node is None:
+            return
+        if isinstance(node, (list, tuple)):
+            for item in node:
+                self._collect_ident_walk(item, names)
+            return
+        if not hasattr(node, '__dict__'):
+            return
+        if isinstance(node, Identifier):
+            names.add(node.name)
+        for key, value in vars(node).items():
+            if key in ('line', 'column', 'inferred_type'):
+                continue
+            if isinstance(value, (list, tuple)) or hasattr(value, '__dict__'):
+                self._collect_ident_walk(value, names)
+
+    def _check_live_cycles(self):
+        """检测 live 块之间的循环依赖（含直接自引用）。
+        构建依赖图：live 变量 A 依赖 live 变量 B 当且仅当 A 的块引用了 B。
+        DFS 检测环，命中则报编译期错误。"""
+        if len(self._live_blocks) <= 1:
+            # 仅 0/1 个 live 块时仍需检查直接自引用
+            names = {name for name, _ in self._live_blocks}
+            for name, block in self._live_blocks:
+                refs = self._collect_identifiers(block)
+                if name in refs:
+                    self.errors.append(TypeError(
+                        f"live 块 '{name}' 直接引用自身，存在循环依赖", block))
+            return
+
+        # 依赖图：var -> set(依赖的 live 变量)
+        live_names = {name for name, _ in self._live_blocks}
+        deps: Dict[str, Set[str]] = {}
+        block_of: Dict[str, 'LiveBlockExpr'] = {}
+        for name, block in self._live_blocks:
+            refs = self._collect_identifiers(block)
+            deps[name] = refs & live_names
+            block_of[name] = block
+
+        # DFS 三色标记检测环
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color: Dict[str, int] = {n: WHITE for n in live_names}
+        cycle_path: List[str] = []
+
+        def dfs(node: str) -> bool:
+            color[node] = GRAY
+            cycle_path.append(node)
+            for nxt in sorted(deps.get(node, set())):
+                if color.get(nxt, WHITE) == GRAY:
+                    # 找到环
+                    idx = cycle_path.index(nxt)
+                    cycle = cycle_path[idx:] + [nxt]
+                    self.errors.append(TypeError(
+                        "live 块循环依赖: " + " -> ".join(cycle),
+                        block_of.get(node)))
+                    return True
+                if color.get(nxt, WHITE) == WHITE:
+                    if dfs(nxt):
+                        return True
+            cycle_path.pop()
+            color[node] = BLACK
+            return False
+
+        for n in sorted(live_names):
+            if color[n] == WHITE:
+                dfs(n)
+
     
     def _register_pattern_bindings(self, pattern: Pattern, env: TypeEnvironment):
         if isinstance(pattern, BindPattern):
@@ -554,6 +950,30 @@ class TypeChecker:
             return TypeInfo('any')
         elif isinstance(expr, SpawnExpr):
             return TypeInfo('fiber')
+        elif isinstance(expr, SourceExpr):
+            # v3.3.0: source(value) → Source<T>
+            inner = self._infer_expr(expr.value, env)
+            return TypeInfo("Source", [inner])
+        elif isinstance(expr, LiveBlockExpr):
+            # v3.3.0: live { block } → Live<T>
+            inner_type = TypeInfo("dynamic")
+            if expr.body and expr.body.statements:
+                for stmt in reversed(expr.body.statements):
+                    if hasattr(stmt, 'expr') and stmt.expr is not None:
+                        inner_type = self._infer_expr(stmt.expr, env)
+                        break
+            # 编译期纯度检查（违规作为错误收集）
+            self._check_live_purity(expr, env)
+            return TypeInfo("Live", [inner_type])
+        elif isinstance(expr, TransactBlockExpr):
+            # v3.3.0: transact { block } → 块内最后表达式类型
+            inner_type = TypeInfo("dynamic")
+            if expr.body and expr.body.statements:
+                for stmt in reversed(expr.body.statements):
+                    if hasattr(stmt, 'expr') and stmt.expr is not None:
+                        inner_type = self._infer_expr(stmt.expr, env)
+                        break
+            return inner_type
         elif isinstance(expr, ChannelSend):
             self._infer_expr(expr.channel, env)
             self._infer_expr(expr.value, env)

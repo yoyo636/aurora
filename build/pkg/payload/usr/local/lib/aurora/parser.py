@@ -188,6 +188,8 @@ class Parser:
         while not self._at(TokenType.RBRACE):
             # 可选 pub 前缀（extern 块内通常不写，兼容）
             self._match(TokenType.PUB)
+            # v3.3.0: 可选 pure 修饰符 —— extern "C" { pure fn c_sin(x: float) -> float }
+            is_pure = bool(self._match(TokenType.PURE))
             self._expect(TokenType.FN)
             fname = self._expect(TokenType.IDENTIFIER).value
             self._expect(TokenType.LPAREN)
@@ -198,7 +200,8 @@ class Parser:
                 ret_type = self._parse_type()
             is_variadic = any(p.variadic for p in params)
             decls.append(ExternFn(name=fname, params=params,
-                                  return_type=ret_type, is_variadic=is_variadic))
+                                  return_type=ret_type, is_variadic=is_variadic,
+                                  is_pure=is_pure))
             while self._match(TokenType.SEMICOLON):
                 pass
         self._expect(TokenType.RBRACE)
@@ -1342,6 +1345,31 @@ class Parser:
             self._advance()
             call = self._parse_expr()
             return SpawnExpr(call=call, line=tok.line, column=tok.column)
+
+        # v3.3.0: source(value) — 创建可变增量源
+        if tok.type == TokenType.SOURCE:
+            self._advance()  # source
+            self._expect(TokenType.LPAREN, "source 需要参数: source(value)")
+            val = self._parse_expr()
+            self._expect(TokenType.RPAREN, "source( 需要 )")
+            return SourceExpr(value=val, line=tok.line, column=tok.column)
+
+        # v3.3.0: live { block } — 活计算块
+        # 注意: _parse_block() 内部会自己消费 LBRACE, 这里只做友好报错检查
+        if tok.type == TokenType.LIVE:
+            self._advance()  # live
+            if not self._at(TokenType.LBRACE):
+                raise ParseError("live 后需要 { ... } 块", self._current())
+            body = self._parse_block()
+            return LiveBlockExpr(body=body, line=tok.line, column=tok.column)
+
+        # v3.3.0: transact { block } — 批量事务
+        if tok.type == TokenType.TRANSACT:
+            self._advance()  # transact
+            if not self._at(TokenType.LBRACE):
+                raise ParseError("transact 后需要 { ... } 块", self._current())
+            body = self._parse_block()
+            return TransactBlockExpr(body=body, line=tok.line, column=tok.column)
 
         # chan<T>()
         if tok.type == TokenType.IDENTIFIER and tok.value == 'chan':

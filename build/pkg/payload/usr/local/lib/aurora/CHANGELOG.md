@@ -2,6 +2,35 @@
 
 本项目遵循语义化版本,详见 `docs/VERSIONING.md`。
 
+## [3.3.0] - 2026-09-17
+
+### 概述
+Aurora v3.3.0 是语言级增量计算大版本——把"自动重算、按需刷新"从标准库级别的响应式状态提升为**语言原生特性**。新增 `source` / `live` / `transact` 三个关键字与 `Source<T>` / `Live<T>` 两个类型,纯函数块默认成为可复算、可订阅的"活计算":source 修改 → 下游 live 自动标记 Dirty → 读取时惰性重算 → 哈希短路。配套编译期纯度检查与循环依赖检测、依赖图导出(Mermaid/DOT)与重算统计。新增核心模块 `incremental.py` 与测试 `test_incremental_v330.py`(30+ 用例)。
+
+### 核心特性:语言级原生增量计算
+- **三个关键字**:`source(value)` 创建可变输入源;`live { ... }` 定义自动追踪依赖的活计算块;`transact { ... }` 把多次写入合并为一次批量事务
+- **两个类型**:`Source<T>` 可变源节点(唯一输入变化点);`Live<T>` 活计算节点(惰性、可缓存、可订阅)
+- **拉模式重算**:source 写入只标记直接下游为 Dirty,不立即传播;读取 live 时才沿依赖深度优先重算,未被读取的节点不浪费算力
+- **哈希短路**:重算后对结果做结构化哈希,若哈希不变则不通知下游,避免无效级联刷新
+- **混合依赖追踪**:source 用 version 计数器判断是否变化;不可变值用结构化哈希;序列化超过 1KB 的大对象自动降级为引用追踪,平衡精度与开销
+- **事务**:`transact` 块内多次修改 source 只累积、不传播,块结束时统一标记一次,避免中间态触发多次重算
+- **订阅**:`live` 节点支持注册回调,结果真正变化时以 `(new, old)` 形式通知,可直接驱动 UI / DOM / 副作用
+
+### 编译期保障
+- **纯度检查**:`live` 块被要求为纯函数——不允许在块内赋值普通变量、产生副作用或调用非纯函数,类型检查器在编译期报错
+- **循环依赖检测**:重算过程中节点进入 Computing 状态,若再次读取自身则抛出 `IncrementalError`,从运行时层面兜住编译期未能识别的环
+
+### 新增模块与工具
+- **`incremental.py`**:增量计算引擎(全局单例 `IncrementalEngine`),节点创建、拉模式读取、事务、结构化哈希、订阅、统计、图导出全部内置
+- **依赖图导出**:`export_graph("mermaid")` / `export_graph("dot")`,可视化 source→live 依赖关系,便于调试与教学
+- **性能统计**:`get_stats()` 返回节点数、source/live 计数、重算次数、缓存命中次数、累计计算时间
+- **新增测试**:`tests/test_incremental_v330.py`,覆盖 source/live/transact 语义、惰性重算、哈希短路、订阅、事务合并、循环依赖报错、图导出与统计
+
+### 示例
+- `examples/incremental/counter.aur`:简单计数器,展示 source 修改后 live 自动重算
+- `examples/incremental/reactive_ui.aur`:响应式 UI 状态(问候语 / 年龄分组 / 投票资格),transact 批量更新
+- `examples/incremental/build_system.aur`:类构建系统,展示优化开关切换只重算受影响节点
+
 ## [3.2.0] - 2026-09-16
 
 ### 概述

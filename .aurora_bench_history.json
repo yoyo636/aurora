@@ -1,0 +1,53 @@
+{
+  "saved_at": 1789470195.0090969,
+  "results": {
+    "fibonacci": {
+      "name": "fibonacci",
+      "iterations": 5,
+      "total_seconds": 0.007297,
+      "mean_ms": 1.459,
+      "min_ms": 1.373,
+      "max_ms": 1.593
+    },
+    "matrix_multiply": {
+      "name": "matrix_multiply",
+      "iterations": 5,
+      "total_seconds": 0.008082,
+      "mean_ms": 1.616,
+      "min_ms": 1.595,
+      "max_ms": 1.645
+    },
+    "string_concat": {
+      "name": "string_concat",
+      "iterations": 5,
+      "total_seconds": 0.000413,
+      "mean_ms": 0.083,
+      "min_ms": 0.082,
+      "max_ms": 0.084
+    },
+    "loop_iteration": {
+      "name": "loop_iteration",
+      "iterations": 5,
+      "total_seconds": 0.025571,
+      "mean_ms": 5.114,
+      "min_ms": 4.892,
+      "max_ms": 5.358
+    },
+    "dict_access": {
+      "name": "dict_access",
+      "iterations": 5,
+      "total_seconds": 0.006047,
+      "mean_ms": 1.209,
+      "min_ms": 1.105,
+      "max_ms": 1.359
+    },
+    "json_parse": {
+      "name": "json_parse",
+      "iterations": 5,
+      "total_seconds": 0.00255,
+      "mean_ms": 0.51,
+      "min_ms": 0.508,
+      "max_ms": 0.512
+    }
+  }
+}

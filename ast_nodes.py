@@ -715,6 +715,7 @@ class ExternFn(Node):
     params: List[Param] = field(default_factory=list)
     return_type: Optional[TypeNode] = None
     is_variadic: bool = False
+    is_pure: bool = False  # v3.3.0: pure fn —— 无副作用，可在 live 块中调用
 
 
 @dataclass
@@ -735,3 +736,25 @@ class UnsafeBlock(Stmt):
 class AwaitExpr(Expr):
     """await expr：等待一个 Coroutine / Awaitable 完成"""
     expression: Expr = None
+
+
+# ============================================================
+# v3.3.0 增量计算 AST 节点
+# ============================================================
+
+@dataclass
+class SourceExpr(Expr):
+    """source(value) — 创建可变增量源"""
+    value: Expr = None
+
+
+@dataclass
+class LiveBlockExpr(Expr):
+    """live { block } — 活计算块，自动追踪依赖"""
+    body: Block = None
+
+
+@dataclass
+class TransactBlockExpr(Expr):
+    """transact { block } — 批量事务更新块"""
+    body: Block = None

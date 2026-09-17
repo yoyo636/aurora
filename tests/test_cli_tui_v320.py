@@ -9,6 +9,7 @@ import sys
 import unittest
 
 # 强制非 TTY 模式，确保所有测试走 Mock 路径
+_orig_no_color = os.environ.get("NO_COLOR")
 os.environ["NO_COLOR"] = "1"
 
 # 确保可以 import cli_tui
@@ -27,6 +28,12 @@ from cli_tui import (
     Text, Input, List, Button, TextArea,
     App,
 )
+
+# 导入完成后恢复 NO_COLOR，避免污染后续模块的颜色探测
+if _orig_no_color is None:
+    os.environ.pop("NO_COLOR", None)
+else:
+    os.environ["NO_COLOR"] = _orig_no_color
 
 
 class TestColor(unittest.TestCase):

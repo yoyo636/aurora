@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────
+# tui_app.aur — Aurora v3.2.0 TUI 框架示例
+#
+# 演示 std.tui 的常用控件与布局:
+#   · Window(App 标题) / Panel(Box 边框面板)
+#   · TextInput(Input 单行输入框)
+#   · ListBox(List 列表选择)
+#   · Button(按钮,带 on_click 回调)
+#   · VBox / HBox 布局容器
+#   · EventLoop(App.run 事件循环,Esc 退出)
+#
+# 运行(需要真实终端,不要在管道中运行):
+#   cd examples/tui-app
+#   ../../aurora-run run tui_app.aur
+# 操作: 方向键移动 / 焦点,在输入框打字,回车触发按钮,Esc 退出
+# ─────────────────────────────────────────────────────────────
+import std.tui
+
+fn main() {
+    # 应用主窗口(EventLoop)
+    let app = tui.App(title: "Aurora TUI 示例")
+
+    # 根布局:垂直排列
+    let root = tui.VBox(0, 0, 70, 24)
+    root.add(tui.Text("Aurora v3.2.0 终端 UI 演示", width: 70, bold_: true))
+    root.add(tui.Text("输入内容 + 列表选择,然后按按钮确认", width: 70))
+
+    # 面板(带边框的 Panel)
+    let panel = tui.Box(0, 0, 70, 10, title: "输入区", border: true)
+
+    # 一行内:输入框 + 列表(HBox 水平布局)
+    let row = tui.HBox(0, 0, 66, 6)
+    let input = tui.Input(x: 0, y: 0, width: 30, placeholder: "在这里输入...")
+    let list = tui.List(["项目一", "项目二", "项目三", "项目四"],
+                        x: 0, y: 0, width: 30, height: 5)
+    row.add(input)
+    row.add(list)
+    panel.add(row)
+    root.add(panel)
+
+    # 结果文本(点击按钮后更新)
+    let result = tui.Text("(尚未选择)", width: 70)
+    root.add(result)
+
+    # 按钮:on_click 回调读取输入框与列表的当前值
+    let btn = tui.Button("确认", on_click: || {
+        result.text = "你输入了: " + input.value + "  |  选中: " + list.selected_value
+    })
+    root.add(btn)
+
+    # 加入窗口,设置状态栏,进入事件循环
+    app.add(root)
+    app.set_status("方向键/制表键切换焦点 · 输入框打字 · 回车确认 · Esc 退出")
+    app.run()
+}
+
+main()

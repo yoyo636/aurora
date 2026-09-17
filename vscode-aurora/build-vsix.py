@@ -1,7 +1,7 @@
 import zipfile, os, shutil
 
 SRC = "/Users/wuyuanduo/aurora/vscode-aurora"
-VERSION = "3.2.0"
+VERSION = "3.3.0"
 TMP = "/tmp/aurora-ide-{}.vsix".format(VERSION)
 DEST1 = "/Users/wuyuanduo/aurora/vscode-aurora-{}.vsix".format(VERSION)
 DEST2 = "/Users/wuyuanduo/aurora/vscode-aurora/aurora-{}.vsix".format(VERSION)
@@ -11,9 +11,9 @@ manifest = (
     '<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">\n'
     "  <Metadata>\n"
     '    <Identity Language="zh-cn" Id="aurora-ide" Version="' + VERSION + '" Publisher="aurora"/>\n'
-    "    <DisplayName>Aurora Language (v3)</DisplayName>\n"
-    '    <Description xml:space="preserve">Aurora 编程语言支持 v3.2.0:语法高亮、一键运行、静态检查、行内诊断,内置格式化、性能分析、调试、LSP、包管理、AI 引擎与全平台开发工具;新增全栈脚手架、代码生成、数据库管理、开发模式与部署</Description>\n'
-    "    <Tags>aurora,language,programming</Tags>\n"
+    '    <DisplayName>Aurora Language (v3.3.0)</DisplayName>\n'
+    '    <Description xml:space="preserve">Aurora 编程语言支持 v3.3.0:语法高亮、一键运行、静态检查、行内诊断,内置格式化、性能分析、调试、LSP、包管理、AI 引擎与全平台开发工具;新增全栈脚手架、代码生成、数据库管理、开发模式与部署;v3.3.0 新增增量计算、依赖图、响应式数据流(source/live/transact)与增量调试</Description>\n'
+    "    <Tags>aurora,language,programming,incremental,reactive,dataflow</Tags>\n"
     "    <GalleryFlags>Public</GalleryFlags>\n"
     "  </Metadata>\n"
     "  <Installation>\n"

@@ -58,7 +58,7 @@
       ]
     },
     "keywords": {
-      "match": "\\b(fn|let|var|const|if|elif|else|for|while|return|type|enum|impl|match|trait|true|false|nil|in|break|continue|import|from|as|spawn|chan|select|default|try|catch|finally|panic|self|std|and|or|not|loop|pub|mut|defer|yield|async|await|unsafe|extern|cfg|tensor|struct)\\b",
+      "match": "\\b(fn|let|var|const|if|elif|else|for|while|return|type|enum|impl|match|trait|true|false|nil|in|break|continue|import|from|as|spawn|chan|select|default|try|catch|finally|panic|self|std|and|or|not|loop|pub|mut|defer|yield|async|await|unsafe|extern|cfg|tensor|struct|source|live|transact)\\b",
       "name": "keyword.control.aurora"
     },
     "destructuring": {
