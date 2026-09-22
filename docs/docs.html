@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aurora 文档 — 编程语言参考手册</title>
+<meta name="description" content="Aurora 编程语言官方文档：语言参考、标准库 API、教程、最佳实践。">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", sans-serif; background: #ffffff; color: #1d1d1f; line-height: 1.6; }
+.nav { position: sticky; top: 0; background: rgba(255,255,255,0.95); border-bottom: 1px solid #e8e8ed; padding: 16px 48px; display: flex; align-items: center; justify-content: space-between; }
+.nav-brand { font-size: 19px; font-weight: 600; color: #1d1d1f; text-decoration: none; }
+.nav-links { display: flex; gap: 24px; }
+.nav-links a { font-size: 14px; color: #424245; text-decoration: none; }
+.nav-links a:hover { color: #0071e3; }
+.hero { padding: 80px 48px; text-align: center; background: linear-gradient(180deg, #f5f5f7, #fff); }
+.hero h1 { font-size: 56px; font-weight: 700; letter-spacing: -1px; margin-bottom: 16px; }
+.hero p { font-size: 20px; color: #6e6e73; max-width: 600px; margin: 0 auto; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; padding: 60px 48px; max-width: 1200px; margin: 0 auto; }
+.card { background: #f5f5f7; border-radius: 16px; padding: 28px; }
+.card h3 { font-size: 19px; font-weight: 600; margin-bottom: 8px; }
+.card p { font-size: 15px; color: #6e6e73; }
+.card a { color: #0071e3; text-decoration: none; font-size: 14px; display: inline-block; margin-top: 12px; }
+.footer { background: #f5f5f7; padding: 32px; text-align: center; font-size: 13px; color: #86868b; border-top: 1px solid #e8e8ed; }
+</style>
+</head>
+<body>
+<nav class="nav">
+    <a href="/" class="nav-brand">Aurora</a>
+    <div class="nav-links">
+        <a href="/">首页</a>
+        <a href="/docs.html">文档</a>
+        <a href="https://github.com/yoyo636/aurora">GitHub</a>
+    </div>
+</nav>
+<section class="hero">
+    <h1>文档</h1>
+    <p>Aurora v5.0.0 编程语言完整参考文档</p>
+</section>
+<section class="grid">
+    <div class="card">
+        <h3>快速入门</h3>
+        <p>5 分钟上手 Aurora，安装、第一个程序、基本语法。</p>
+        <a href="#quickstart">开始阅读 →</a>
+    </div>
+    <div class="card">
+        <h3>语言参考</h3>
+        <p>语法、类型系统、控制流、函数、结构体、错误处理。</p>
+        <a href="#reference">查看参考 →</a>
+    </div>
+    <div class="card">
+        <h3>标准库</h3>
+        <p>696+ 标准库模块 API 文档，覆盖所有领域。</p>
+        <a href="#stdlib">浏览 API →</a>
+    </div>
+    <div class="card">
+        <h3>增量计算</h3>
+        <p>语言级原生增量计算：source / live / transaction。</p>
+        <a href="#incremental">了解特性 →</a>
+    </div>
+    <div class="card">
+        <h3>AOT 编译</h3>
+        <p>ARM64 原生机器码编译，性能优化指南。</p>
+        <a href="#aot">编译指南 →</a>
+    </div>
+    <div class="card">
+        <h3>AI 开发</h3>
+        <p>张量、自动微分、神经网络、Agent 开发。</p>
+        <a href="#ai">AI 文档 →</a>
+    </div>
+</section>
+<footer class="footer">
+    <p>Aurora Project v5.0.0 · MIT License · <a href="https://github.com/yoyo636/aurora">GitHub</a></p>
+</footer>
+</body>
+</html>
