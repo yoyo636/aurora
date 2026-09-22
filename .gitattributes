@@ -2,22 +2,39 @@
 *.aur linguist-language=Aurora
 *.aur linguist-detectable=true
 
-# 标记生成的代码为非源码（可选，取消注释则不计入语言统计）
-# std_*.aur linguist-generated=true
-# stdlib_*.aur linguist-generated=true
+# runtime/ 目录是 C 引导层（原生 VM / AOT 编译器），标记为 vendored
+# 这些是实现语言运行时的引导代码，不是 Aurora 语言本身的代码
+runtime/**/*.c linguist-vendored=true
+runtime/**/*.h linguist-vendored=true
+runtime/**/*.s linguist-vendored=true
+runtime/**/*.o linguist-vendored=true
 
-# 标记构建工具
+# tools/ 下的 Python 构建工具标记为 vendored
 tools/*.py linguist-vendored=true
 tools/auto_dev/*.py linguist-vendored=true
 
-# 标记二进制文件
+# vscode-aurora/ 下的 JS/TS 标记为 vendored（IDE 插件）
+vscode-aurora/**/*.js linguist-vendored=true
+vscode-aurora/**/*.json linguist-vendored=true
+
+# website/ 下的 HTML/CSS/JS 标记为 documentation
+website/** linguist-documentation
+
+# docs/ 下的文档标记为 documentation
+docs/** linguist-documentation
+*.md linguist-documentation
+
+# examples/ 下的示例标记为 documentation
+examples/** linguist-documentation
+
+# 二进制文件
 *.vsix binary
 *.tar.gz binary
 *.pkg binary
 *.mp4 binary
-*.o binary
-*.s binary
+*.dmg binary
 
-# 标记文档
-docs/* linguist-documentation
-*.md linguist-documentation
+# 生成的标准库代码标记为 generated（不计入手写代码统计）
+# 取消注释以下行则 std_*.aur 不计入语言统计
+# std_*.aur linguist-generated=true
+# stdlib_*.aur linguist-generated=true
