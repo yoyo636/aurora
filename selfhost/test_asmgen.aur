@@ -1,0 +1,72 @@
+# =============================================================================
+# test_asmgen.aur — 自举版 ARM64 后端冒烟测试（在 Aurora 内运行）
+# -----------------------------------------------------------------------------
+# 运行方式：由 Python 解释器加载本文件，调用 selfhost.asmgen.compile，
+# 断言产出的汇编文本里包含预期的指令助记符。
+# =============================================================================
+
+import selfhost.asmgen as ag
+import std.str as strmod
+
+# 构造花括号，避免字符串插值把 { } 吞掉
+let LB = strmod.from_char_code(123)
+let RB = strmod.from_char_code(125)
+
+var passed = 0
+var failed = 0
+
+fn check(name, cond) {
+    if cond {
+        passed = passed + 1
+        println("PASS: " + name)
+    } else {
+        failed = failed + 1
+        println("FAIL: " + name)
+    }
+}
+
+# 子串包含判断
+fn contains(haystack, needle) {
+    return haystack.find(needle) >= 0
+}
+
+# ---- 1. 最简单的函数：返回 1+2 -----------------------------------------------
+let src1 = "fn main()" + LB + " return 1 + 2 " + RB
+let asm1 = ag.compile(src1)
+
+check("asm has add", contains(asm1, "add x0, x9, x10"))
+check("asm has mov imm", contains(asm1, "mov x9, #1"))
+check("asm has bl _aurora_main call target", contains(asm1, "bl _aurora_main"))
+check("asm has _main entry", contains(asm1, "_main:"))
+check("asm has ret", contains(asm1, "ret"))
+check("asm uses svc exit", contains(asm1, "svc #0"))
+
+# ---- 2. 算术 + 比较 ---------------------------------------------------------
+let src2 = "fn f(a, b)" + LB + " return a * b / (a + 1) " + RB
+let asm2 = ag.compile(src2)
+check("mul emitted", contains(asm2, "mul x"))
+check("sdiv emitted", contains(asm2, "sdiv x0, x9, x10"))
+
+# ---- 3. 函数调用 -------------------------------------------------------------
+let src3 = "fn add(a, b)" + LB + " return a + b " + RB + "\nfn main()" + LB + " return add(3, 4) " + RB
+let asm3 = ag.compile(src3)
+check("call bl _aurora_add", contains(asm3, "bl _aurora_add"))
+check("arg loaded x0", contains(asm3, "mov x0, #3"))
+
+# ---- 4. 控制流 ---------------------------------------------------------------
+let src4 = "fn f(n)" + LB + " if n < 0 " + LB + " return -1 " + RB + " while n > 0 " + LB + " n = n - 1 " + RB + " return 0 " + RB
+let asm4 = ag.compile(src4)
+check("cmp emitted", contains(asm4, "cmp x9, x10"))
+check("branch cc emitted", contains(asm4, "b.ge"))
+check("while cond label", contains(asm4, "while_cond"))
+check("neg for unary minus", contains(asm4, "neg"))
+
+# ---- 5. print/println 整数 ---------------------------------------------------
+let src5 = "println(1 + 2)"
+let asm5 = ag.compile(src5)
+check("bl _print_int", contains(asm5, "bl _print_int"))
+check("bl _print_nl", contains(asm5, "bl _print_nl"))
+check("data section _nl", contains(asm5, "_nl: .asciz"))
+
+# ---- 汇总 --------------------------------------------------------------------
+println("==== asmgen self-test: " + str(passed) + " passed, " + str(failed) + " failed ====")

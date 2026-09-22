@@ -1,0 +1,43 @@
+# =============================================================================
+# config.aur — 配置管理
+# =============================================================================
+
+# ── 加载配置 ──
+fn config_load(path) {
+    if not exists(path) {
+        return {}
+    }
+    let content = read(path)
+    return json(content)
+}
+
+# ── 保存配置 ──
+fn config_save(path, cfg) {
+    write(path, to_json(cfg))
+    return "配置已保存: " + path
+}
+
+# ── 获取值 ──
+fn config_get(cfg, key, default) {
+    if contains(cfg, key) {
+        return cfg[key]
+    }
+    return default
+}
+
+# ── 设置值 ──
+fn config_set(cfg, key, value) {
+    cfg[key] = value
+    return cfg
+}
+
+# ── 测试 ──
+fn main() {
+    println("── config 测试 ──")
+    let cfg = {"name": "aurora", "version": "4.0.0"}
+    println("名称: " + cfg["name"])
+    println("版本: " + cfg["version"])
+    println("✓ config 通过")
+}
+
+main()

@@ -1,0 +1,113 @@
+# profiler.aur — Aurora 性能分析器（自举版）
+# 替代 Python profiler.py
+
+import stdlib
+import stdlib_time
+
+# 性能分析状态
+var prof = {
+    enabled: false,
+    functions: {},
+    start_time: 0
+}
+
+# 启动性能分析
+pub fn start() {
+    prof.enabled = true
+    prof.functions = {}
+    prof.start_time = stdlib_time.now()
+    stdlib.println("性能分析已启动")
+}
+
+# 停止性能分析
+pub fn stop() {
+    prof.enabled = false
+    var end_time = stdlib_time.now()
+    var total = (end_time - prof.start_time) * 1000
+    stdlib.println("性能分析结束，总耗时: " + stdlib.str(total) + "ms")
+    report()
+}
+
+# 记录函数调用
+pub fn record_call(fn_name, duration) {
+    if !prof.enabled { return }
+    if has_key(prof.functions, fn_name) {
+        prof.functions[fn_name].count = prof.functions[fn_name].count + 1
+        prof.functions[fn_name].total = prof.functions[fn_name].total + duration
+    } else {
+        prof.functions[fn_name] = {
+            count: 1,
+            total: duration,
+            min: duration,
+            max: duration
+        }
+    }
+}
+
+# 函数计时装饰器
+pub fn time_fn(fn_name, block) {
+    var start = stdlib_time.now()
+    var result = block()
+    var end = stdlib_time.now()
+    var duration = (end - start) * 1000
+    record_call(fn_name, duration)
+    return result
+}
+
+# 生成报告
+fn report() {
+    stdlib.println("")
+    stdlib.println("=== 性能分析报告 ===")
+    stdlib.println("")
+    stdlib.println("函数名              调用次数    总耗时(ms)    平均(ms)")
+    stdlib.println("-" .repeat(60))
+
+    # 按总耗时排序
+    var sorted_fns = sort_by_total(prof.functions)
+    var i = 0
+    while i < len(sorted_fns) {
+        var name = sorted_fns[i]
+        var info = prof.functions[name]
+        var avg = info.total / info.count
+        stdlib.println(
+            name.pad_end(20) +
+            stdlib.str(info.count).pad_start(10) +
+            stdlib.str(info.total).pad_start(14) +
+            stdlib.str(avg).pad_start(12)
+        )
+        i = i + 1
+    }
+}
+
+# 按总耗时排序
+fn sort_by_total(functions) -> [string] {
+    var names = []
+    for name in functions {
+        push(names, name)
+    }
+    # 简化版：冒泡排序
+    var n = len(names)
+    var i = 0
+    while i < n {
+        var j = 0
+        while j < n - i - 1 {
+            if functions[names[j]].total < functions[names[j+1]].total {
+                var temp = names[j]
+                names[j] = names[j+1]
+                names[j+1] = temp
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return names
+}
+
+# 检查字典键
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

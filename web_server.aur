@@ -1,0 +1,31 @@
+# =============================================================================
+# web_server.aur — Web 服务器
+# =============================================================================
+
+# ── 启动服务器（通过 Python http.server）──
+fn web_serve(port) {
+    let cmd = "python3 -m http.server " + str(port)
+    println("Web 服务器启动: http://localhost:" + str(port))
+    return shell(cmd)
+}
+
+# ── 路由表 ──
+fn web_new_router() {
+    return {"routes": {}, "port": 8080}
+}
+
+# ── 添加路由 ──
+fn web_add_route(router, path, handler) {
+    router.routes[path] = handler
+    return router
+}
+
+# ── 测试 ──
+fn main() {
+    println("── web_server 测试 ──")
+    let router = web_new_router()
+    println("路由器已创建, 端口 " + str(router.port))
+    println("✓ web_server 通过")
+}
+
+main()

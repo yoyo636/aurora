@@ -1,0 +1,248 @@
+# stdlib_thread.aur — 线程/并发标准库（自举版）
+# 对应 Python stdlib_thread.py
+# 线程、channel、Mutex、原子操作、线程池
+
+import stdlib
+
+# ============ 线程 ============
+
+# 线程句柄
+type Thread {
+    id: int,
+    handle: int
+}
+
+# 启动新线程
+pub fn spawn(fn) -> Thread {
+    # FFI: pthread_create
+    var handle = sys_pthread_create(fn)
+    return Thread {
+        id: sys_thread_id(),
+        handle: handle
+    }
+}
+
+# 等待线程结束
+pub fn join(thread) {
+    # FFI: pthread_join
+    sys_pthread_join(thread.handle)
+}
+
+# 当前线程 ID
+pub fn current_id() -> int {
+    return sys_thread_id()
+}
+
+# ============ Channel（消息传递）============
+
+# 有缓冲 channel
+type Channel {
+    buffer: [],
+    capacity: int,
+    closed: bool
+}
+
+# 创建 channel
+pub fn channel(capacity) -> Channel {
+    return Channel {
+        buffer: [],
+        capacity: capacity,
+        closed: false
+    }
+}
+
+# 发送
+pub fn send(ch, value) {
+    # FFI: 加锁，放入缓冲
+    while len(ch.buffer) >= ch.capacity {
+        # 等待
+    }
+    push(ch.buffer, value)
+}
+
+# 接收
+pub fn recv(ch) {
+    while len(ch.buffer) == 0 {
+        # 等待
+    }
+    var value = ch.buffer[0]
+    # 移除第一个
+    var i = 0
+    while i < len(ch.buffer) - 1 {
+        ch.buffer[i] = ch.buffer[i + 1]
+        i = i + 1
+    }
+    ch.buffer[len(ch.buffer) - 1] = nil
+    return value
+}
+
+# 关闭 channel
+pub fn close(ch) {
+    ch.closed = true
+}
+
+# ============ Mutex（互斥锁）============
+
+type Mutex {
+    locked: bool,
+    owner: int
+}
+
+pub fn mutex_new() -> Mutex {
+    return Mutex {
+        locked: false,
+        owner: 0
+    }
+}
+
+pub fn lock(m) {
+    while m.locked {
+        # 自旋等待
+    }
+    m.locked = true
+    m.owner = current_id()
+}
+
+pub fn unlock(m) {
+    if m.owner == current_id() {
+        m.locked = false
+    }
+}
+
+# 带锁执行
+pub fn with_lock(m, fn) {
+    lock(m)
+    var result = fn()
+    unlock(m)
+    return result
+}
+
+# ============ RwLock（读写锁）============
+
+type RwLock {
+    readers: int,
+    writer: bool
+}
+
+pub fn rwlock_new() -> RwLock {
+    return RwLock {
+        readers: 0,
+        writer: false
+    }
+}
+
+pub fn read_lock(rl) {
+    while rl.writer {
+        # 等待写者释放
+    }
+    rl.readers = rl.readers + 1
+}
+
+pub fn read_unlock(rl) {
+    rl.readers = rl.readers - 1
+}
+
+pub fn write_lock(rl) {
+    while rl.writer or rl.readers > 0 {
+        # 等待
+    }
+    rl.writer = true
+}
+
+pub fn write_unlock(rl) {
+    rl.writer = false
+}
+
+# ============ 原子操作 ============
+
+type AtomicInt {
+    value: int
+}
+
+pub fn atomic_new(initial) -> AtomicInt {
+    return AtomicInt { value: initial }
+}
+
+pub fn atomic_load(a) -> int {
+    return a.value
+}
+
+pub fn atomic_store(a, v) {
+    a.value = v
+}
+
+pub fn atomic_add(a, delta) -> int {
+    var old = a.value
+    a.value = old + delta
+    return old
+}
+
+pub fn atomic_compare_swap(a, expected, new_val) -> bool {
+    if a.value == expected {
+        a.value = new_val
+        return true
+    }
+    return false
+}
+
+# ============ 线程池 ============
+
+type ThreadPool {
+    size: int,
+    tasks: Channel,
+    workers: []
+}
+
+pub fn threadpool_new(size) -> ThreadPool {
+    var ch = channel(100)
+    var pool = ThreadPool {
+        size: size,
+        tasks: ch,
+        workers: []
+    }
+
+    # 启动 worker 线程
+    var i = 0
+    while i < size {
+        var worker = spawn(|| {
+            while true {
+                var task = recv(ch)
+                if task == nil { break }
+                task()
+            }
+        })
+        push(pool.workers, worker)
+        i = i + 1
+    }
+
+    return pool
+}
+
+pub fn threadpool_submit(pool, task) {
+    send(pool.tasks, task)
+}
+
+pub fn threadpool_shutdown(pool) {
+    close(pool.tasks)
+    var i = 0
+    while i < len(pool.workers) {
+        join(pool.workers[i])
+        i = i + 1
+    }
+}
+
+# ============ FFI 桥接 ============
+
+fn sys_pthread_create(fn) -> int {
+    # FFI: pthread_create
+    return 0
+}
+
+fn sys_pthread_join(handle) {
+    # FFI: pthread_join
+}
+
+fn sys_thread_id() -> int {
+    # FFI: pthread_self
+    return 0
+}

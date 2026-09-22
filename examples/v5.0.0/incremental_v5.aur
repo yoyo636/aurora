@@ -1,0 +1,42 @@
+# Aurora v5.0.0 语言级增量计算示例
+# source / live / transaction
+
+pub fn main() {
+    println("=== Aurora v5.0.0 增量计算示例 ===")
+    println("")
+    
+    # 定义可变源
+    source price = 100
+    source quantity = 5
+    
+    # 定义活计算：自动追踪依赖
+    live {
+        var total = price * quantity
+        var tax = total * 0.1
+        var grand_total = total + tax
+        println("价格: " + str(price))
+        println("数量: " + str(quantity))
+        println("总价: " + str(total))
+        println("税费: " + str(tax))
+        println("总计: " + str(grand_total))
+        println("---")
+    }
+    
+    # 修改源，活计算自动重算
+    println("修改价格为 150:")
+    price = 150
+    
+    println("修改数量为 10:")
+    quantity = 10
+    
+    # 批量事务更新
+    println("")
+    println("批量事务更新:")
+    transaction {
+        price = 200
+        quantity = 3
+    }
+    
+    println("")
+    println("增量计算完成！只有受影响的子图被重算。")
+}

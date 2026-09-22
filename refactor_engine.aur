@@ -1,0 +1,79 @@
+# refactor_engine.aur — 重构引擎（自举版）
+# 对应 Python refactor_engine.py
+# 重命名、提取函数、内联、移动符号
+
+import stdlib
+import stdlib_fs
+import project_index
+
+# 重命名符号
+pub fn rename(old_name, new_name) {
+    stdlib.println("重命名: " + old_name + " -> " + new_name)
+
+    # 查找所有引用
+    var refs = project_index.find_references(old_name)
+    var count = 0
+
+    var i = 0
+    while i < len(refs) {
+        var ref = refs[i]
+        var content = stdlib_fs.read_file(ref.file)
+        var new_content = replace_all(content, old_name, new_name)
+        stdlib_fs.write_file(ref.file, new_content)
+        count = count + 1
+        i = i + 1
+    }
+
+    stdlib.println("✓ 已替换 " + stdlib.str(count) + " 处")
+}
+
+# 提取函数
+pub fn extract_function(file, start_line, end_line, fn_name) {
+    stdlib.println("提取函数: " + fn_name)
+    # 1. 读取文件
+    var lines = stdlib_fs.read_lines(file)
+    # 2. 提取选中行
+    # 3. 创建新函数
+    # 4. 替换为函数调用
+}
+
+# 内联函数
+pub fn inline_function(fn_name) {
+    stdlib.println("内联函数: " + fn_name)
+}
+
+# 移动符号到新文件
+pub fn move_symbol(symbol_name, new_file) {
+    stdlib.println("移动 " + symbol_name + " -> " + new_file)
+}
+
+# 组织导入
+pub fn organize_imports(file) {
+    stdlib.println("组织导入: " + file)
+}
+
+fn replace_all(s, old, new) -> string {
+    var result = ""
+    var i = 0
+    while i < len(s) {
+        if i + len(old) <= len(s) {
+            var match = true
+            var j = 0
+            while j < len(old) {
+                if char_at(s, i + j) != char_at(old, j) {
+                    match = false
+                    break
+                }
+                j = j + 1
+            }
+            if match {
+                result = result + new
+                i = i + len(old)
+                continue
+            }
+        }
+        result = result + char_at(s, i)
+        i = i + 1
+    }
+    return result
+}

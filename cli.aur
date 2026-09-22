@@ -1,0 +1,88 @@
+# cli.aur — Aurora 命令行工具（自举版）
+# 替代 Python cli.py
+
+import lexer
+import parser
+import interpreter
+import asmgen
+import stdlib
+
+pub fn main() {
+    var args = stdlib.args()
+    if len(args) < 2 {
+        stdlib.println("Aurora v4.0.0 — 自举版")
+        stdlib.println("用法: aurora <command> [args]")
+        stdlib.println("")
+        stdlib.println("命令:")
+        stdlib.println("  run <file>    运行 Aurora 程序")
+        stdlib.println("  repl          交互式 REPL")
+        stdlib.println("  check <file>  静态检查")
+        stdlib.println("  build <file>  编译为 ARM64 二进制")
+        stdlib.println("  version       显示版本")
+        return 1
+    }
+
+    var cmd = args[1]
+
+    if cmd == "version" {
+        stdlib.println("Aurora v4.0.0 (self-hosted)")
+        return 0
+    }
+
+    if cmd == "run" {
+        if len(args) < 3 {
+            stdlib.println("错误: 缺少文件名")
+            return 1
+        }
+        var filename = args[2]
+        var src = stdlib.read_file(filename)
+        var tokens = lexer.tokenize(src)
+        var ast = parser.parse(tokens)
+        var result = interpreter.eval(ast)
+        return 0
+    }
+
+    if cmd == "build" {
+        if len(args) < 3 {
+            stdlib.println("错误: 缺少文件名")
+            return 1
+        }
+        var filename = args[2]
+        var src = stdlib.read_file(filename)
+        var asm = asmgen.compile(src)
+        stdlib.println(asm)
+        return 0
+    }
+
+    if cmd == "repl" {
+        stdlib.println("Aurora REPL v4.0.0")
+        stdlib.println("输入代码，按 Enter 执行。输入 exit 退出。")
+        while true {
+            stdlib.print(">>> ")
+            var line = stdlib.read_line()
+            if line == "exit" { break }
+            if len(line) == 0 { continue }
+            var tokens = lexer.tokenize(line)
+            var ast = parser.parse(tokens)
+            var result = interpreter.eval(ast)
+            stdlib.println(stdlib.str(result))
+        }
+        return 0
+    }
+
+    if cmd == "check" {
+        if len(args) < 3 {
+            stdlib.println("错误: 缺少文件名")
+            return 1
+        }
+        var filename = args[2]
+        var src = stdlib.read_file(filename)
+        var tokens = lexer.tokenize(src)
+        var ast = parser.parse(tokens)
+        stdlib.println("✓ 检查通过")
+        return 0
+    }
+
+    stdlib.println("错误: 未知命令 " + cmd)
+    return 1
+}

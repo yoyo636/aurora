@@ -1,0 +1,50 @@
+# =============================================================================
+# test_bootstrap.aur — 完全自举闭环（self-hosting bootstrap）
+# -----------------------------------------------------------------------------
+# 第一层（Layer0）：本文件由宿主 Python 解释器直接运行，它 import 的
+# selfhost.lexer / selfhost.parser / selfhost.interpreter 是用 Aurora 写的
+# 迷你编译器栈，跑在宿主之上。
+#
+# 闭环步骤：
+#   1. 用 std.fs.read_file 读出 selfhost/{ast,lexer,parser,interpreter}.aur 源码。
+#   2. 拼成一个程序（插入 glue：把 ast 工厂绑成字典；末尾让 Layer1 自己解释
+#      "print(1 + 1)" 并打印结果）。用 Layer0 的 lexer→parser→interpreter 跑它。
+#   3. 期间 Layer1 的 tokenize/parse/interpret 闭包会被调用，stdout 必须输出 2。
+# =============================================================================
+
+import selfhost.lexer as lexer
+import selfhost.parser as parser
+import selfhost.interpreter as interp
+import std.fs as fs
+import std.str as strmod
+
+# 构造花括号，避免 Aurora 字符串插值把 { } 吞掉
+let LB = strmod.from_char_code(123)
+let RB = strmod.from_char_code(125)
+
+# ---- 1. 读取四份自举源码 ----------------------------------------------------
+let ast_src = fs.read_file("selfhost/ast.aur")
+let lexer_src = fs.read_file("selfhost/lexer.aur")
+let parser_src = fs.read_file("selfhost/parser.aur")
+let interp_src = fs.read_file("selfhost/interpreter.aur")
+
+# ---- 2. glue：把 ast 工厂函数绑成 ast 字典 ----------------------------------
+let ast_pairs = "\"program\": program, \"fn_def\": fn_def, \"let_stmt\": let_stmt, \"var_stmt\": var_stmt, \"return_stmt\": return_stmt, \"if_stmt\": if_stmt, \"while_stmt\": while_stmt, \"for_stmt\": for_stmt, \"binary_expr\": binary_expr, \"unary_expr\": unary_expr, \"call_expr\": call_expr, \"literal\": literal, \"identifier\": identifier, \"list_literal\": list_literal, \"assign_expr\": assign_expr, \"dict_literal\": dict_literal, \"break_stmt\": break_stmt, \"continue_stmt\": continue_stmt, \"index_assign\": index_assign, \"import_stmt\": import_stmt"
+let glue_bind = "ast = " + LB + ast_pairs + RB
+
+# ---- 3. glue_export：在自举解释环境里取出 Layer1 闭包并跑 "print(1+1)" ------
+let boot_pairs = "\"tokenize\": tokenize, \"parse\": parse, \"interpret\": interpret"
+let glue_export = "let boot = " + LB + boot_pairs + RB + "\n"
+    + "let target = \"print(1 + 1)\"\n"
+    + "let t1 = boot[\"tokenize\"](target)\n"
+    + "let p1 = boot[\"parse\"](t1)\n"
+    + "boot[\"interpret\"](p1)\n"
+
+let combined = ast_src + "\n" + glue_bind + "\n" + lexer_src + "\n" + parser_src + "\n" + interp_src + "\n" + glue_export
+
+# ---- 4. Layer0 解释 combined，期间 Layer1 会打印出 2 ------------------------
+let boot_tokens = lexer.tokenize(combined)
+let boot_ast = parser.parse(boot_tokens)
+interp.interpret(boot_ast)
+
+println("==== bootstrap OK ====")

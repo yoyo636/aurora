@@ -1,0 +1,127 @@
+// ai_loss.aur — Aurora 损失函数库
+// 对标 PyTorch nn.functional
+
+mod ai_loss;
+
+// ============ MSE Loss ============
+pub fn mse_loss(pred: Tensor, target: Tensor) -> Tensor {
+    let n = ai_tensor.numel(pred);
+    let mut sum = 0.0;
+    for i in range(n) {
+        let diff = list_get(pred.data, i) - list_get(target.data, i);
+        sum = sum + diff * diff;
+    }
+    return ai_tensor.scalar(sum / float(n));
+}
+
+// ============ Cross Entropy Loss ============
+pub fn cross_entropy(logits: Tensor, targets: List<int>) -> Tensor {
+    // logits: [batch, classes], targets: [batch]
+    let batch = list_get(logits.shape, 0);
+    let classes = list_get(logits.shape, 1);
+    let mut total_loss = 0.0;
+
+    for b in range(batch) {
+        // softmax
+        let mut max_val = -1e9;
+        for c in range(classes) {
+            let v = list_get(logits.data, b * classes + c);
+            if v > max_val { max_val = v; }
+        }
+        let mut sum_exp = 0.0;
+        for c in range(classes) {
+            sum_exp = sum_exp + exp(list_get(logits.data, b * classes + c) - max_val);
+        }
+        let log_sum_exp = max_val + log(sum_exp);
+        let target_logit = list_get(logits.data, b * classes + list_get(targets, b));
+        total_loss = total_loss + (log_sum_exp - target_logit);
+    }
+    return ai_tensor.scalar(total_loss / float(batch));
+}
+
+// ============ NLL Loss ============
+pub fn nll_loss(log_probs: Tensor, targets: List<int>) -> Tensor {
+    let batch = list_get(log_probs.shape, 0);
+    let mut total = 0.0;
+    for b in range(batch) {
+        let idx = b * list_get(log_probs.shape, 1) + list_get(targets, b);
+        total = total - list_get(log_probs.data, idx);
+    }
+    return ai_tensor.scalar(total / float(batch));
+}
+
+// ============ BCE Loss (Binary Cross Entropy) ============
+pub fn bce_loss(pred: Tensor, target: Tensor) -> Tensor {
+    let n = ai_tensor.numel(pred);
+    let mut total = 0.0;
+    for i in range(n) {
+        let p = list_get(pred.data, i);
+        let t = list_get(target.data, i);
+        total = total - (t * log(p + 1e-10) + (1.0 - t) * log(1.0 - p + 1e-10));
+    }
+    return ai_tensor.scalar(total / float(n));
+}
+
+// ============ BCE With Logits Loss ============
+pub fn bce_with_logits(logits: Tensor, target: Tensor) -> Tensor {
+    // max(log, 0) - log * target + log(1 + exp(-|log|))
+    let n = ai_tensor.numel(logits);
+    let mut total = 0.0;
+    for i in range(n) {
+        let logit = list_get(logits.data, i);
+        let t = list_get(target.data, i);
+        let max_val = if logit > 0.0 { logit } else { 0.0 };
+        total = total + max_val - logit * t + log(1.0 + exp(-abs(logit)));
+    }
+    return ai_tensor.scalar(total / float(n));
+}
+
+// ============ L1 Loss ============
+pub fn l1_loss(pred: Tensor, target: Tensor) -> Tensor {
+    let n = ai_tensor.numel(pred);
+    let mut total = 0.0;
+    for i in range(n) {
+        total = total + abs(list_get(pred.data, i) - list_get(target.data, i));
+    }
+    return ai_tensor.scalar(total / float(n));
+}
+
+// ============ Huber Loss ============
+pub fn huber_loss(pred: Tensor, target: Tensor, delta: f64) -> Tensor {
+    let n = ai_tensor.numel(pred);
+    let mut total = 0.0;
+    for i in range(n) {
+        let diff = abs(list_get(pred.data, i) - list_get(target.data, i));
+        if diff < delta {
+            total = total + 0.5 * diff * diff;
+        } else {
+            total = total + delta * (diff - 0.5 * delta);
+        }
+    }
+    return ai_tensor.scalar(total / float(n));
+}
+
+// ============ KL Divergence ============
+pub fn kl_div(log_pred: Tensor, target: Tensor) -> Tensor {
+    let n = ai_tensor.numel(log_pred);
+    let mut total = 0.0;
+    for i in range(n) {
+        total = total + list_get(target.data, i) *
+            (log(list_get(target.data, i) + 1e-10) - list_get(log_pred.data, i));
+    }
+    return ai_tensor.scalar(total / float(n));
+}
+
+// ============ Cosine Embedding Loss ============
+pub fn cosine_embedding(x1: Tensor, x2: Tensor, label: int) -> Tensor {
+    // cosine similarity
+    let dot = ai_tensor.sum(ai_tensor.mul(x1, x2));
+    let norm1 = sqrt(ai_tensor.sum(ai_tensor.mul(x1, x1)));
+    let norm2 = sqrt(ai_tensor.sum(ai_tensor.mul(x2, x2)));
+    let cos_sim = dot / (norm1 * norm2 + 1e-10);
+    if label == 1 {
+        return ai_tensor.scalar(1.0 - cos_sim);
+    } else {
+        return ai_tensor.scalar(max(0.0, cos_sim - 0.0));
+    }
+}

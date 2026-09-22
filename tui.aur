@@ -1,0 +1,125 @@
+# tui.aur — 终端 UI 框架（自举版）
+# 对应 Python tui.py / cli_tui.py
+# 颜色、进度条、表格、对话框
+
+import stdlib
+
+# ANSI 颜色码
+var COLOR_RESET = "\033[0m"
+var COLOR_RED = "\033[31m"
+var COLOR_GREEN = "\033[32m"
+var COLOR_YELLOW = "\033[33m"
+var COLOR_BLUE = "\033[34m"
+var COLOR_MAGENTA = "\033[35m"
+var COLOR_CYAN = "\033[36m"
+var COLOR_WHITE = "\033[37m"
+var COLOR_BOLD = "\033[1m"
+var COLOR_DIM = "\033[2m"
+
+# 打印彩色文本
+pub fn color(text, color_code) {
+    print(color_code + text + COLOR_RESET)
+}
+
+pub fn red(text) { print(COLOR_RED + text + COLOR_RESET) }
+pub fn green(text) { print(COLOR_GREEN + text + COLOR_RESET) }
+pub fn yellow(text) { print(COLOR_YELLOW + text + COLOR_RESET) }
+pub fn blue(text) { print(COLOR_BLUE + text + COLOR_RESET) }
+pub fn cyan(text) { print(COLOR_CYAN + text + COLOR_RESET) }
+
+# 进度条
+pub fn progress_bar(current, total, width) {
+    if width == 0 { width = 40 }
+    var percent = 0
+    if total > 0 {
+        percent = current * 100 / total
+    }
+    var filled = current * width / total
+    var empty = width - filled
+
+    var bar = "["
+    var i = 0
+    while i < filled {
+        bar = bar + "█"
+        i = i + 1
+    }
+    var j = 0
+    while j < empty {
+        bar = bar + "░"
+        j = j + 1
+    }
+    bar = bar + "] " + stdlib.str(percent) + "%"
+
+    print(bar)
+}
+
+# 表格
+pub fn table(headers, rows) {
+    # 打印表头
+    var header_line = "│ "
+    var i = 0
+    while i < len(headers) {
+        header_line = header_line + pad(headers[i], 15) + " │ "
+        i = i + 1
+    }
+    println(header_line)
+
+    # 分隔线
+    var sep = "├"
+    var k = 0
+    while k < len(headers) {
+        sep = sep + "───────────────┼"
+        k = k + 1
+    }
+    println(sep)
+
+    # 打印行
+    var r = 0
+    while r < len(rows) {
+        var row_line = "│ "
+        var c = 0
+        while c < len(rows[r]) {
+            row_line = row_line + pad(stdlib.str(rows[r][c]), 15) + " │ "
+            c = c + 1
+        }
+        println(row_line)
+        r = r + 1
+    }
+}
+
+# 标题框
+pub fn box_title(title) {
+    var line = "╔══════════════════════════════════════════╗"
+    println(line)
+    println("║  " + pad(title, 40) + "║")
+    println("╚══════════════════════════════════════════╝")
+}
+
+# 步骤指示
+pub fn step(n, total, desc) {
+    var prefix = "[" + stdlib.str(n) + "/" + stdlib.str(total) + "]"
+    println(COLOR_CYAN + prefix + COLOR_RESET + " " + desc)
+}
+
+# 成功消息
+pub fn success(msg) {
+    println(COLOR_GREEN + "✓ " + msg + COLOR_RESET)
+}
+
+# 错误消息
+pub fn error(msg) {
+    println(COLOR_RED + "✗ " + msg + COLOR_RESET)
+}
+
+# 警告消息
+pub fn warn(msg) {
+    println(COLOR_YELLOW + "⚠ " + msg + COLOR_RESET)
+}
+
+fn pad(s, width) -> string {
+    var result = s
+    while len(result) < width {
+        result = result + " "
+    }
+    return result
+}

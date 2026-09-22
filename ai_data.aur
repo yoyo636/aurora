@@ -1,0 +1,172 @@
+// ai_data.aur — Aurora 数据加载器
+// 对标 PyTorch DataLoader / Dataset
+
+mod ai_data;
+
+// ============ Dataset 基类 ============
+pub struct Dataset {
+    size: int,
+    get_item_fn: fn(int) -> (Tensor, Tensor),
+}
+
+pub fn dataset_new(size: int, get_item: fn(int) -> (Tensor, Tensor)) -> Dataset {
+    return Dataset { size: size, get_item_fn: get_item };
+}
+
+pub fn len(d: Dataset) -> int {
+    return d.size;
+}
+
+pub fn get_item(d: Dataset, idx: int) -> (Tensor, Tensor) {
+    return d.get_item_fn(idx);
+}
+
+// ============ DataLoader ============
+pub struct DataLoader {
+    dataset: Dataset,
+    batch_size: int,
+    shuffle: bool,
+    drop_last: bool,
+}
+
+pub fn dataloader_new(dataset: Dataset, batch_size: int) -> DataLoader {
+    return DataLoader {
+        dataset: dataset,
+        batch_size: batch_size,
+        shuffle: true,
+        drop_last: false,
+    };
+}
+
+pub fn dataloader_no_shuffle(dataset: Dataset, batch_size: int) -> DataLoader {
+    return DataLoader {
+        dataset: dataset,
+        batch_size: batch_size,
+        shuffle: false,
+        drop_last: false,
+    };
+}
+
+// 迭代器：返回每个 batch
+pub struct BatchIterator {
+    loader: DataLoader,
+    indices: List<int>,
+    position: int,
+}
+
+pub fn iter(loader: DataLoader) -> BatchIterator {
+    let n = len(loader.dataset);
+    let indices = list_new();
+    for i in range(n) { list_push(indices, i); }
+    if loader.shuffle {
+        // Fisher-Yates shuffle
+        for i in range(n - 1, 0, -1) {
+            let j = int(random_float() * float(i + 1));
+            let tmp = list_get(indices, i);
+            list_set(indices, i, list_get(indices, j));
+            list_set(indices, j, tmp);
+        }
+    }
+    return BatchIterator { loader: loader, indices: indices, position: 0 };
+}
+
+pub fn next(it: BatchIterator) -> Option<(Tensor, Tensor)> {
+    let n = len(it.loader.dataset);
+    let bs = it.loader.batch_size;
+    if it.position >= n {
+        return None;
+    }
+    let end = if it.position + bs > n { n } else { it.position + bs };
+    if it.loader.drop_last && (end - it.position) < bs {
+        return None;
+    }
+
+    let mut batch_x = list_new();
+    let mut batch_y = list_new();
+    for i in range(it.position, end) {
+        let idx = list_get(it.indices, i);
+        let (x, y) = get_item(it.loader.dataset, idx);
+        list_push(batch_x, x);
+        list_push(batch_y, y);
+    }
+    it.position = end;
+
+    // 堆叠 batch（简化：假设所有样本形状相同）
+    let x_stacked = stack_batch(batch_x);
+    let y_stacked = stack_batch(batch_y);
+    return Some((x_stacked, y_stacked));
+}
+
+fn stack_batch(batch: List<Tensor>) -> Tensor {
+    let batch_size = list_len(batch);
+    let first = list_get(batch, 0);
+    let feat_size = ai_tensor.numel(first);
+    let data = list_new();
+    for t in batch {
+        for v in t.data {
+            list_push(data, v);
+        }
+    }
+    let shape = [batch_size];
+    for s in first.shape {
+        list_push(shape, s);
+    }
+    return ai_tensor.new(data, shape);
+}
+
+// ============ TensorDataset ============
+pub struct TensorDataset {
+    data: Tensor,
+    targets: Tensor,
+}
+
+pub fn tensor_dataset(data: Tensor, targets: Tensor) -> TensorDataset {
+    return TensorDataset { data: data, targets: targets };
+}
+
+pub fn tensor_dataset_len(td: TensorDataset) -> int {
+    return list_get(td.data.shape, 0);
+}
+
+// ============ 常用变换 ============
+pub struct Transform {
+    fn_ptr: fn(Tensor) -> Tensor,
+}
+
+pub fn transform_new(f: fn(Tensor) -> Tensor) -> Transform {
+    return Transform { fn_ptr: f };
+}
+
+pub fn apply_transform(t: Transform, x: Tensor) -> Tensor {
+    return t.fn_ptr(x);
+}
+
+// 归一化变换
+pub fn normalize_transform(mean: f64, std: f64) -> Transform {
+    return transform_new(fn(x: Tensor) -> Tensor {
+        let mut data = list_new();
+        for v in x.data {
+            list_push(data, (v - mean) / std);
+        }
+        return ai_tensor.new(data, x.shape);
+    });
+}
+
+// ToTensor 变换
+pub fn to_tensor() -> Transform {
+    return transform_new(fn(x: Tensor) -> Tensor {
+        return x;  // 已经是 tensor
+    });
+}
+
+// ============ 合成数据集 ============
+pub fn make_synthetic(num_samples: int, input_dim: int, num_classes: int) -> Dataset {
+    let x = ai_tensor.randn([num_samples, input_dim]);
+    let y = ai_tensor.randn([num_samples, num_classes]);
+    let td = tensor_dataset(x, y);
+    return dataset_new(num_samples, fn(idx: int) -> (Tensor, Tensor) {
+        let x_row = ai_tensor.slice(td.data, idx, idx+1);
+        let y_row = ai_tensor.slice(td.targets, idx, idx+1);
+        return (x_row, y_row);
+    });
+}

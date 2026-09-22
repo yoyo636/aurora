@@ -1,0 +1,386 @@
+# stdlib_core.aur — Aurora 核心标准库（自举版）
+# print / println / str / int / len / push / pop 等
+
+import runtime
+
+# ============ 输出 ============
+
+pub fn print(x) {
+    var s = str(x)
+    runtime.print_str(s)
+}
+
+pub fn println(x) {
+    var s = str(x)
+    runtime.println_str(s)
+}
+
+# 不带参数的 println（换行）
+pub fn println_newline() {
+    runtime.print_str("\n")
+}
+
+# 格式化输出
+pub fn printf(fmt, ...) {
+    # 简化版：直接拼接
+    var result = fmt
+    var i = 0
+    while i < len(...) {
+        var placeholder = "{" + str(i) + "}"
+        var replacement = str(...[i])
+        result = replace(result, placeholder, replacement)
+        i = i + 1
+    }
+    runtime.print_str(result)
+}
+
+# ============ 类型转换 ============
+
+pub fn str(x) -> string {
+    if x == nil { return "nil" }
+    if x == true { return "true" }
+    if x == false { return "false" }
+    if type_of(x) == "int" { return int_to_str(x) }
+    if type_of(x) == "float" { return float_to_str(x) }
+    if type_of(x) == "string" { return x }
+    if type_of(x) == "list" { return list_to_str(x) }
+    if type_of(x) == "dict" { return dict_to_str(x) }
+    return "<object>"
+}
+
+pub fn int(x) -> int {
+    if type_of(x) == "int" { return x }
+    if type_of(x) == "float" { return int(x) }
+    if type_of(x) == "string" { return parse_int(x) }
+    return 0
+}
+
+pub fn float(x) -> float {
+    if type_of(x) == "float" { return x }
+    if type_of(x) == "int" { return float(x) }
+    return 0.0
+}
+
+pub fn bool(x) -> bool {
+    if x == nil { return false }
+    if x == false { return false }
+    if x == 0 { return false }
+    if x == "" { return false }
+    return true
+}
+
+# ============ 类型判断 ============
+
+pub fn type_of(x) -> string {
+    if x == nil { return "nil" }
+    # 由运行时提供
+    return "unknown"
+}
+
+pub fn is_nil(x) -> bool {
+    return x == nil
+}
+
+pub fn is_int(x) -> bool {
+    return type_of(x) == "int"
+}
+
+pub fn is_float(x) -> bool {
+    return type_of(x) == "float"
+}
+
+pub fn is_string(x) -> bool {
+    return type_of(x) == "string"
+}
+
+pub fn is_list(x) -> bool {
+    return type_of(x) == "list"
+}
+
+pub fn is_dict(x) -> bool {
+    return type_of(x) == "dict"
+}
+
+# ============ 列表操作 ============
+
+pub fn push(arr, item) {
+    # 运行时：在列表末尾添加
+}
+
+pub fn pop(arr) {
+    # 运行时：移除并返回最后一个元素
+    return nil
+}
+
+pub fn len(x) -> int {
+    # 运行时：返回长度
+    return 0
+}
+
+pub fn first(arr) {
+    if len(arr) == 0 { return nil }
+    return arr[0]
+}
+
+pub fn last(arr) {
+    if len(arr) == 0 { return nil }
+    return arr[len(arr) - 1]
+}
+
+pub fn contains(arr, item) -> bool {
+    var i = 0
+    while i < len(arr) {
+        if arr[i] == item { return true }
+        i = i + 1
+    }
+    return false
+}
+
+pub fn index_of(arr, item) -> int {
+    var i = 0
+    while i < len(arr) {
+        if arr[i] == item { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+pub fn sort(arr) {
+    # 简化冒泡排序
+    var n = len(arr)
+    var i = 0
+    while i < n - 1 {
+        var j = 0
+        while j < n - i - 1 {
+            if arr[j] > arr[j + 1] {
+                var tmp = arr[j]
+                arr[j] = arr[j + 1]
+                arr[j + 1] = tmp
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+}
+
+pub fn reverse(arr) {
+    var n = len(arr)
+    var i = 0
+    while i < n / 2 {
+        var tmp = arr[i]
+        arr[i] = arr[n - 1 - i]
+        arr[n - 1 - i] = tmp
+        i = i + 1
+    }
+}
+
+# ============ 字符串操作 ============
+
+pub fn char_at(s, i) -> string {
+    # 运行时：返回 s[i]
+    return ""
+}
+
+pub fn substr(s, start, end) -> string {
+    var result = ""
+    var i = start
+    while i < end and i < len(s) {
+        result = result + char_at(s, i)
+        i = i + 1
+    }
+    return result
+}
+
+pub fn replace(s, old, new) -> string {
+    var result = ""
+    var i = 0
+    while i < len(s) {
+        if i + len(old) <= len(s) {
+            var match = true
+            var j = 0
+            while j < len(old) {
+                if char_at(s, i + j) != char_at(old, j) {
+                    match = false
+                    break
+                }
+                j = j + 1
+            }
+            if match {
+                result = result + new
+                i = i + len(old)
+                continue
+            }
+        }
+        result = result + char_at(s, i)
+        i = i + 1
+    }
+    return result
+}
+
+pub fn split(s, delim) -> [] {
+    var result = []
+    var current = ""
+    var i = 0
+    while i < len(s) {
+        if i + len(delim) <= len(s) {
+            var match = true
+            var j = 0
+            while j < len(delim) {
+                if char_at(s, i + j) != char_at(delim, j) {
+                    match = false
+                    break
+                }
+                j = j + 1
+            }
+            if match {
+                push(result, current)
+                current = ""
+                i = i + len(delim)
+                continue
+            }
+        }
+        current = current + char_at(s, i)
+        i = i + 1
+    }
+    push(result, current)
+    return result
+}
+
+pub fn trim(s) -> string {
+    var start = 0
+    var end = len(s) - 1
+    while start <= end and (char_at(s, start) == " " or char_at(s, start) == "\n" or char_at(s, start) == "\t") {
+        start = start + 1
+    }
+    while end >= start and (char_at(s, end) == " " or char_at(s, end) == "\n" or char_at(s, end) == "\t") {
+        end = end - 1
+    }
+    return substr(s, start, end + 1)
+}
+
+# ============ 数学 ============
+
+pub fn abs(x) {
+    if x < 0 { return -x }
+    return x
+}
+
+pub fn min(a, b) {
+    if a < b { return a }
+    return b
+}
+
+pub fn max(a, b) {
+    if a > b { return a }
+    return b
+}
+
+pub fn clamp(x, lo, hi) {
+    if x < lo { return lo }
+    if x > hi { return hi }
+    return x
+}
+
+pub fn pow(base, exp) {
+    var result = 1
+    var i = 0
+    while i < exp {
+        result = result * base
+        i = i + 1
+    }
+    return result
+}
+
+pub fn sqrt(x) -> float {
+    # 牛顿法
+    if x < 0 { return 0.0 }
+    if x == 0 { return 0.0 }
+    var guess = float(x) / 2.0
+    var i = 0
+    while i < 20 {
+        guess = (guess + float(x) / guess) / 2.0
+        i = i + 1
+    }
+    return guess
+}
+
+# ============ 辅助 ============
+
+fn int_to_str(n) -> string {
+    if n == 0 { return "0" }
+    var negative = false
+    var num = n
+    if n < 0 {
+        negative = true
+        num = -n
+    }
+    var digits = ""
+    while num > 0 {
+        var d = num % 10
+        var c = chr(48 + d)
+        digits = c + digits
+        num = num / 10
+    }
+    if negative {
+        digits = "-" + digits
+    }
+    return digits
+}
+
+fn float_to_str(f) -> string {
+    return int_to_str(int(f)) + ".0"
+}
+
+fn list_to_str(arr) -> string {
+    var result = "["
+    var i = 0
+    while i < len(arr) {
+        if i > 0 { result = result + ", " }
+        result = result + str(arr[i])
+        i = i + 1
+    }
+    result = result + "]"
+    return result
+}
+
+fn dict_to_str(d) -> string {
+    var result = "{"
+    var first = true
+    for k in d {
+        if !first { result = result + ", " }
+        result = result + str(k) + ": " + str(d[k])
+        first = false
+    }
+    result = result + "}"
+    return result
+}
+
+fn parse_int(s) -> int {
+    var result = 0
+    var negative = false
+    var i = 0
+    if len(s) > 0 and char_at(s, 0) == "-" {
+        negative = true
+        i = 1
+    }
+    while i < len(s) {
+        var c = char_at(s, i)
+        var d = ord(c) - 48
+        if d >= 0 and d <= 9 {
+            result = result * 10 + d
+        }
+        i = i + 1
+    }
+    if negative { result = -result }
+    return result
+}
+
+fn chr(code) -> string {
+    # 运行时：返回对应字符
+    return "?"
+}
+
+fn ord(c) -> int {
+    # 运行时：返回字符编码
+    return 0
+}

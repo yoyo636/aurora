@@ -1,0 +1,90 @@
+# git_bindings.aur — Git 集成（自举版）
+# 对应 Python git_bindings.py
+# 仓库操作、提交、分支、拉取
+
+import stdlib
+import stdlib_fs
+
+# 仓库
+type Repo {
+    path: string,
+    branch: string
+}
+
+# 打开仓库
+pub fn open(path) -> Repo {
+    var git_dir = path + "/.git"
+    if !stdlib_fs.exists(git_dir) {
+        stdlib.println("错误: " + path + " 不是 git 仓库")
+        return nil
+    }
+    return Repo {
+        path: path,
+        branch: "main"
+    }
+}
+
+# 初始化仓库
+pub fn init(path) {
+    stdlib_fs.mkdir_all(path)
+    stdlib_fs.mkdir_all(path + "/.git")
+    stdlib.println("✓ 已初始化 git 仓库: " + path)
+}
+
+# 添加文件
+pub fn add(repo, files) {
+    stdlib.println("git add: " + files)
+    # FFI: 调用 git 命令
+}
+
+# 提交
+pub fn commit(repo, message) {
+    stdlib.println("git commit: " + message)
+}
+
+# 推送
+pub fn push(repo, remote, branch) {
+    stdlib.println("git push " + remote + " " + branch)
+}
+
+# 拉取
+pub fn pull(repo, remote, branch) {
+    stdlib.println("git pull " + remote + " " + branch)
+}
+
+# 创建分支
+pub fn branch(repo, name) {
+    stdlib.println("git checkout -b " + name)
+}
+
+# 切换分支
+pub fn checkout(repo, name) {
+    stdlib.println("git checkout " + name)
+    repo.branch = name
+}
+
+# 状态
+pub fn status(repo) -> string {
+    return "On branch " + repo.branch
+}
+
+# 日志
+pub fn log(repo, count) -> [string] {
+    var entries = []
+    var i = 0
+    while i < count {
+        push(entries, "commit " + stdlib.str(i))
+        i = i + 1
+    }
+    return entries
+}
+
+# 克隆
+pub fn clone(url, dest) {
+    stdlib.println("git clone " + url + " " + dest)
+}
+
+# 远程仓库
+pub fn remote_add(repo, name, url) {
+    stdlib.println("git remote add " + name + " " + url)
+}

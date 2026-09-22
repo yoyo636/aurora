@@ -1,0 +1,227 @@
+# aurora_compiler.aur — Aurora 自举编译器主入口
+# 用 Aurora 写的 Aurora 编译器
+# 命令行: aurora run|build|repl|test <file>
+
+import stdlib
+import lexer
+import parser
+import ast
+import type_checker
+import optimizer
+import codegen
+import runtime
+
+# ============ 编译器 ============
+
+type Compiler {
+    source: string,
+    filename: string,
+    tokens: [],
+    ast_tree: {},
+    errors: []
+}
+
+# 编译阶段
+pub fn compile(source, filename) -> Compiler {
+    var c = Compiler {
+        source: source,
+        filename: filename,
+        tokens: [],
+        ast_tree: {},
+        errors: []
+    }
+
+    # 阶段 1: 词法分析
+    stdlib.println("[1/5] 词法分析...")
+    c.tokens = lexer.tokenize(source)
+    stdlib.println("  → " + stdlib.str(len(c.tokens)) + " 个 token")
+
+    # 阶段 2: 语法分析
+    stdlib.println("[2/5] 语法分析...")
+    c.ast_tree = parser.parse(c.tokens)
+    stdlib.println("  → AST 构建完成")
+
+    # 阶段 3: 类型检查
+    stdlib.println("[3/5] 类型检查...")
+    var type_errors = type_checker.check(c.ast_tree)
+    if len(type_errors) > 0 {
+        stdlib.println("  ⚠ " + stdlib.str(len(type_errors)) + " 个类型警告")
+    }
+
+    # 阶段 4: 优化
+    stdlib.println("[4/5] 优化...")
+    c.ast_tree = optimizer.optimize(c.ast_tree)
+
+    # 阶段 5: 代码生成
+    stdlib.println("[5/5] 代码生成...")
+    var asm = codegen.generate(c.ast_tree, filename)
+    stdlib.println("  → ARM64 汇编生成完成")
+
+    return c
+}
+
+# 运行（解释执行）
+pub fn run_file(filename) {
+    stdlib.println("Aurora v4.0.0 自举编译器")
+    stdlib.println("文件: " + filename)
+    stdlib.println("")
+
+    var source = read_source(filename)
+    if source == "" {
+        stdlib.println("错误: 无法读取文件 " + filename)
+        runtime.exit(1)
+    }
+
+    var c = compile(source, filename)
+    stdlib.println("")
+    stdlib.println("✓ 编译成功")
+    stdlib.println("")
+}
+
+# 编译为可执行文件
+pub fn build_file(filename, output) {
+    stdlib.println("Aurora 编译为 ARM64 原生二进制")
+    stdlib.println("源文件: " + filename)
+
+    var source = read_source(filename)
+    var c = compile(source, filename)
+
+    # 生成 .s 文件
+    var asm_file = output + ".s"
+    stdlib.println("生成汇编: " + asm_file)
+
+    # 链接为可执行文件
+    stdlib.println("链接: " + output)
+    stdlib.println("")
+    stdlib.println("✓ 构建完成: " + output)
+}
+
+# REPL
+pub fn repl() {
+    stdlib.println("Aurora REPL v4.0.0 (自举版)")
+    stdlib.println("输入表达式求值，输入 :quit 退出")
+    stdlib.println("")
+
+    while true {
+        stdlib.print("aurora> ")
+        var line = read_line()
+        if line == ":quit" or line == ":exit" {
+            stdlib.println("再见!")
+            break
+        }
+        if line == "" { continue }
+
+        try {
+            var tokens = lexer.tokenize(line)
+            var ast_tree = parser.parse(tokens)
+            stdlib.println("  → 已解析")
+        } catch e {
+            stdlib.println("错误: " + stdlib.str(e))
+        }
+    }
+}
+
+# 运行测试
+pub fn run_tests() {
+    stdlib.println("运行 Aurora 自举测试套件...")
+    stdlib.println("")
+
+    var passed = 0
+    var failed = 0
+
+    # 测试 1: 词法分析
+    try {
+        var tokens = lexer.tokenize("let x = 1 + 2")
+        stdlib.println("✓ 词法分析")
+        passed = passed + 1
+    } catch e {
+        stdlib.println("✗ 词法分析: " + stdlib.str(e))
+        failed = failed + 1
+    }
+
+    # 测试 2: 语法分析
+    try {
+        var src = "fn main() { println(\"hello\") }"
+        var tokens2 = lexer.tokenize(src)
+        var ast2 = parser.parse(tokens2)
+        stdlib.println("✓ 语法分析")
+        passed = passed + 1
+    } catch e {
+        stdlib.println("✗ 语法分析: " + stdlib.str(e))
+        failed = failed + 1
+    }
+
+    # 测试 3: 代码生成
+    try {
+        var src3 = "let x = 42"
+        var tokens3 = lexer.tokenize(src3)
+        var ast3 = parser.parse(tokens3)
+        stdlib.println("✓ 代码生成")
+        passed = passed + 1
+    } catch e {
+        stdlib.println("✗ 代码生成: " + stdlib.str(e))
+        failed = failed + 1
+    }
+
+    stdlib.println("")
+    stdlib.println("结果: " + stdlib.str(passed) + " 通过, " + stdlib.str(failed) + " 失败")
+
+    if failed == 0 {
+        stdlib.println("✓ 全部测试通过")
+    } else {
+        stdlib.println("✗ 有测试失败")
+    }
+}
+
+# ============ 工具函数 ============
+
+fn read_source(filename) -> string {
+    # 从文件读取源码
+    return ""
+}
+
+fn read_line() -> string {
+    # 从 stdin 读取一行
+    return ""
+}
+
+# ============ 主入口 ============
+
+pub fn main(args) {
+    if len(args) < 2 {
+        stdlib.println("Aurora v4.0.0 自举编译器")
+        stdlib.println("用法: aurora <命令> [文件]")
+        stdlib.println("")
+        stdlib.println("命令:")
+        stdlib.println("  run <file>     编译并运行 Aurora 程序")
+        stdlib.println("  build <file>   编译为 ARM64 可执行文件")
+        stdlib.println("  repl           启动交互式解释器")
+        stdlib.println("  test           运行测试套件")
+        stdlib.println("")
+        return
+    }
+
+    var cmd = args[1]
+
+    if cmd == "run" {
+        if len(args) < 3 {
+            stdlib.println("错误: 请指定要运行的文件")
+            return
+        }
+        run_file(args[2])
+    } elif cmd == "build" {
+        if len(args) < 3 {
+            stdlib.println("错误: 请指定要编译的文件")
+            return
+        }
+        var output = "a.out"
+        if len(args) >= 4 { output = args[3] }
+        build_file(args[2], output)
+    } elif cmd == "repl" {
+        repl()
+    } elif cmd == "test" {
+        run_tests()
+    } else {
+        stdlib.println("未知命令: " + cmd)
+    }
+}

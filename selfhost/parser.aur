@@ -1,0 +1,496 @@
+# =============================================================================
+# parser.aur — 自举递归下降解析器
+# -----------------------------------------------------------------------------
+# 输入：token 列表（来自 selfhost.lexer.tokenize）
+# 输出：Program AST dict（由 selfhost.ast 工厂构建）
+# =============================================================================
+
+import selfhost.ast as ast
+
+# ---- 模块级解析状态 ----------------------------------------------------------
+var pr_tokens = []
+var pr_pos = 0
+
+# ---- 游标辅助 ----------------------------------------------------------------
+fn pr_peek() {
+    if pr_pos >= len(pr_tokens) {
+        return {"type": "EOF", "value": "", "line": 0, "column": 0}
+    }
+    return pr_tokens[pr_pos]
+}
+
+fn pr_next() {
+    let t = pr_peek()
+    pr_pos = pr_pos + 1
+    return t
+}
+
+fn pr_check(ttype) {
+    return pr_peek()["type"] == ttype
+}
+
+fn pr_check_val(ttype, value) {
+    let t = pr_peek()
+    return t["type"] == ttype && t["value"] == value
+}
+
+fn pr_match(ttype) {
+    if pr_check(ttype) {
+        pr_pos = pr_pos + 1
+        return true
+    }
+    return false
+}
+
+fn pr_match_val(ttype, value) {
+    if pr_check_val(ttype, value) {
+        pr_pos = pr_pos + 1
+        return true
+    }
+    return false
+}
+
+fn pr_skip_newlines() {
+    while pr_check("NEWLINE") {
+        pr_pos = pr_pos + 1
+    }
+}
+
+# ---- 表达式（优先级从低到高）------------------------------------------------
+
+# or = and (("||") and)*
+fn parse_or() {
+    let mut left = parse_and()
+    while pr_check("OR") {
+        let op = pr_next()["value"]
+        let right = parse_and()
+        left = ast.binary_expr(left, op, right)
+    }
+    return left
+}
+
+# and = equality (("&&") equality)*
+fn parse_and() {
+    let mut left = parse_equality()
+    while pr_check("AND") {
+        let op = pr_next()["value"]
+        let right = parse_equality()
+        left = ast.binary_expr(left, op, right)
+    }
+    return left
+}
+
+# equality = comparison (("==" | "!=") comparison)*
+fn parse_equality() {
+    let mut left = parse_comparison()
+    while pr_check("EQ") || pr_check("NE") {
+        let op = pr_next()["value"]
+        let right = parse_comparison()
+        left = ast.binary_expr(left, op, right)
+    }
+    return left
+}
+
+# comparison = term (("<" | ">" | "<=" | ">=") term)*
+fn parse_comparison() {
+    let mut left = parse_term()
+    while pr_check("LT") || pr_check("GT") || pr_check("LE") || pr_check("GE") {
+        let op = pr_next()["value"]
+        let right = parse_term()
+        left = ast.binary_expr(left, op, right)
+    }
+    return left
+}
+
+# term = factor (("+" | "-") factor)*
+fn parse_term() {
+    let mut left = parse_factor()
+    while pr_check("PLUS") || pr_check("MINUS") {
+        let op = pr_next()["value"]
+        let right = parse_factor()
+        left = ast.binary_expr(left, op, right)
+    }
+    return left
+}
+
+# factor = unary (("*" | "/" | "%") unary)*
+fn parse_factor() {
+    let mut left = parse_unary()
+    while pr_check("STAR") || pr_check("SLASH") || pr_check("PERCENT") {
+        let op = pr_next()["value"]
+        let right = parse_unary()
+        left = ast.binary_expr(left, op, right)
+    }
+    return left
+}
+
+# unary = ("!" | "-") unary | postfix
+fn parse_unary() {
+    if pr_check("NOT") || pr_check("MINUS") {
+        let op = pr_next()["value"]
+        let operand = parse_unary()
+        return ast.unary_expr(op, operand)
+    }
+    return parse_postfix()
+}
+
+# postfix = primary (call | index | method_call)*
+fn parse_postfix() {
+    let mut callee = parse_primary()
+    while true {
+        # 函数调用: "(" args ")"
+        if pr_check("LPAREN") {
+            pr_next()
+            let args = []
+            if !pr_check("RPAREN") {
+                while true {
+                    args.append(parse_equality())
+                    if !pr_match("COMMA") {
+                        break
+                    }
+                }
+            }
+            pr_match("RPAREN")
+            callee = ast.call_expr(callee, args)
+        } else {
+            if pr_check("DOT") {
+                # 方法调用: .name "(" args ")"
+                pr_next()  # .
+                let method = pr_next()["value"]
+                pr_match("LPAREN")
+                let args = []
+                if !pr_check("RPAREN") {
+                    while true {
+                        args.append(parse_equality())
+                        if !pr_match("COMMA") {
+                            break
+                        }
+                    }
+                }
+                pr_match("RPAREN")
+                callee = {"kind": "MethodCall", "object": callee, "method": method, "args": args}
+            } else {
+                if pr_check("LBRACKET") {
+                    # 索引: "[" expr "]"
+                    pr_next()
+                    let idx = parse_equality()
+                    pr_match("RBRACKET")
+                    callee = {"kind": "IndexExpr", "object": callee, "index": idx}
+                } else {
+                    break
+                }
+            }
+        }
+    }
+    return callee
+}
+
+# primary = INTEGER | FLOAT | STRING | TRUE | FALSE | NIL
+#         | IDENTIFIER | "(" expression ")" | "[" args "]"
+fn parse_primary() {
+    let t = pr_peek()
+    let tt = t["type"]
+    let vv = t["value"]
+
+    if tt == "INTEGER" {
+        pr_next()
+        return ast.literal(int(vv))
+    }
+    if tt == "FLOAT" {
+        pr_next()
+        return ast.literal(float(vv))
+    }
+    if tt == "STRING" {
+        pr_next()
+        return ast.literal(vv)
+    }
+    if tt == "TRUE" {
+        pr_next()
+        return ast.literal(true)
+    }
+    if tt == "FALSE" {
+        pr_next()
+        return ast.literal(false)
+    }
+    if tt == "NIL" {
+        pr_next()
+        return ast.literal(nil)
+    }
+    if tt == "IDENTIFIER" {
+        pr_next()
+        return ast.identifier(vv)
+    }
+    if pr_match("LPAREN") {
+        let e = parse_expression()
+        pr_match("RPAREN")
+        return e
+    }
+    if pr_match("LBRACKET") {
+        let elements = []
+        pr_skip_newlines()
+        if !pr_check("RBRACKET") {
+            while true {
+                pr_skip_newlines()
+                if pr_check("RBRACKET") {
+                    break
+                }
+                elements.append(parse_equality())
+                pr_skip_newlines()
+                if !pr_match("COMMA") {
+                    break
+                }
+            }
+        }
+        pr_match("RBRACKET")
+        return ast.list_literal(elements)
+    }
+    if pr_match("LBRACE") {
+        # 字典字面量: { key: value (, key: value)* }
+        let entries = []
+        pr_skip_newlines()
+        if !pr_check("RBRACE") {
+            while true {
+                pr_skip_newlines()
+                if pr_check("RBRACE") {
+                    break
+                }
+                let key_node = parse_expression()
+                pr_match("COLON")
+                let val_node = parse_expression()
+                let pair = [key_node, val_node]
+                entries.append(pair)
+                pr_skip_newlines()
+                if !pr_match("COMMA") {
+                    break
+                }
+            }
+        }
+        pr_match("RBRACE")
+        return ast.dict_literal(entries)
+    }
+    # 兜底
+    return ast.literal(nil)
+}
+
+fn parse_expression() {
+    return parse_or()
+}
+
+# ---- 语句 --------------------------------------------------------------------
+
+fn parse_block() {
+    pr_match("LBRACE")
+    let stmts = []
+    while true {
+        pr_skip_newlines()
+        if pr_check("RBRACE") || pr_check("EOF") {
+            break
+        }
+        stmts.append(parse_stmt())
+    }
+    pr_match("RBRACE")
+    return stmts
+}
+
+fn parse_let_stmt() {
+    # 已经消费了 LET
+    if pr_check_val("IDENTIFIER", "mut") {
+        pr_next()  # 吞掉 mut 修饰符
+    }
+    let name = pr_next()["value"]
+    pr_match("ASSIGN")
+    let value = parse_expression()
+    pr_match("SEMICOLON")
+    return ast.let_stmt(name, value)
+}
+
+fn parse_var_stmt() {
+    if pr_check_val("IDENTIFIER", "mut") {
+        pr_next()  # 吞掉 mut 修饰符
+    }
+    let name = pr_next()["value"]
+    pr_match("ASSIGN")
+    let value = parse_expression()
+    pr_match("SEMICOLON")
+    return ast.var_stmt(name, value)
+}
+
+fn parse_fn_def() {
+    # 已经消费了 FN
+    let name = pr_next()["value"]
+    pr_match("LPAREN")
+    let params = []
+    if !pr_check("RPAREN") {
+        while true {
+            params.append(pr_next()["value"])
+            if !pr_match("COMMA") {
+                break
+            }
+        }
+    }
+    pr_match("RPAREN")
+    let body = parse_block()
+    return ast.fn_def(name, params, body)
+}
+
+fn parse_return_stmt() {
+    # 已经消费了 RETURN
+    if pr_check("SEMICOLON") || pr_check("RBRACE") || pr_check("NEWLINE") || pr_check("EOF") {
+        pr_match("SEMICOLON")
+        return ast.return_stmt(ast.literal(nil))
+    }
+    let value = parse_expression()
+    pr_match("SEMICOLON")
+    return ast.return_stmt(value)
+}
+
+fn parse_if_stmt() {
+    # 已经消费了 IF
+    let cond = parse_expression()
+    let then_body = parse_block()
+    pr_skip_newlines()
+    let mut else_body = nil
+    if pr_match("ELSE") {
+        if pr_check("IF") {
+            # else if  ->  else { if (...) {...} }
+            pr_next()
+            let nested = parse_if_stmt()
+            let wrap = [nested]
+            else_body = wrap
+        } else {
+            else_body = parse_block()
+        }
+    }
+    return ast.if_stmt(cond, then_body, else_body)
+}
+
+fn parse_while_stmt() {
+    # 已经消费了 WHILE
+    let cond = parse_expression()
+    let body = parse_block()
+    return ast.while_stmt(cond, body)
+}
+
+fn parse_for_stmt() {
+    # 已经消费了 FOR
+    let var_name = pr_next()["value"]
+    # "in" 在自举词法器中是普通 IDENTIFIER
+    pr_next()  # 消费 "in"
+    let lower = parse_expression()
+    let mut iterable = lower
+    if pr_match("RANGE") {
+        let upper = parse_expression()
+        iterable = {"kind": "RangeExpr", "start": lower, "end": upper}
+    }
+    let body = parse_block()
+    return ast.for_stmt(var_name, iterable, body)
+}
+
+# 表达式语句：支持 `name = expr` 赋值
+fn parse_expr_stmt() {
+    let t = pr_peek()
+    if t["type"] == "IDENTIFIER" {
+        let save = pr_pos
+        pr_next()  # 消费标识符
+        if pr_check("ASSIGN") {
+            let name = t["value"]
+            pr_next()  # 消费 =
+            let value = parse_expression()
+            pr_match("SEMICOLON")
+            pr_skip_newlines()
+            return ast.assign_expr(name, value)
+        }
+        pr_pos = save  # 回溯
+    }
+    let e = parse_expression()
+    if pr_check("ASSIGN") {
+        pr_next()  # 消费 =
+        let value = parse_expression()
+        pr_match("SEMICOLON")
+        pr_skip_newlines()
+        if e["kind"] == "IndexExpr" {
+            return ast.index_assign(e["object"], e["index"], value)
+        }
+        return e
+    }
+    pr_match("SEMICOLON")
+    pr_skip_newlines()
+    return e
+}
+
+fn parse_import_stmt() {
+    # 已经消费了 IMPORT；消费整条 import 语句直到 NEWLINE / SEMICOLON / EOF
+    let start_tok = pr_peek()
+    let path_parts = []
+    while !pr_check("NEWLINE") && !pr_check("SEMICOLON") && !pr_check("EOF") {
+        let t = pr_next()
+        if t["type"] != "DOT" {
+            path_parts.append(t["value"])
+        }
+    }
+    pr_match("SEMICOLON")
+    pr_skip_newlines()
+    return ast.import_stmt(path_parts)
+}
+
+fn parse_stmt() {
+    if pr_match("LET") {
+        return parse_let_stmt()
+    }
+    if pr_match("VAR") {
+        return parse_var_stmt()
+    }
+    if pr_match("FN") {
+        return parse_fn_def()
+    }
+    if pr_match("PUB") {
+        # pub 修饰符：继续解析其后的 fn 定义
+        return parse_stmt()
+    }
+    if pr_match("BREAK") {
+        pr_match("SEMICOLON")
+        pr_skip_newlines()
+        return ast.break_stmt()
+    }
+    if pr_match("CONTINUE") {
+        pr_match("SEMICOLON")
+        pr_skip_newlines()
+        return ast.continue_stmt()
+    }
+    if pr_match("IMPORT") {
+        return parse_import_stmt()
+    }
+    if pr_match("RETURN") {
+        return parse_return_stmt()
+    }
+    if pr_match("IF") {
+        return parse_if_stmt()
+    }
+    if pr_match("WHILE") {
+        return parse_while_stmt()
+    }
+    if pr_match("FOR") {
+        return parse_for_stmt()
+    }
+    return parse_expr_stmt()
+}
+
+fn parse_program() {
+    let body = []
+    while true {
+        pr_skip_newlines()
+        if pr_check("EOF") {
+            break
+        }
+        body.append(parse_stmt())
+    }
+    return ast.program(body)
+}
+
+# ---- 主入口 ------------------------------------------------------------------
+pub fn parse(tokens) {
+    pr_tokens = tokens
+    pr_pos = 0
+    pr_skip_newlines()
+    return parse_program()
+}

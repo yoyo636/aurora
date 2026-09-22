@@ -1,0 +1,110 @@
+# =============================================================================
+# ast.aur — 自举 AST 节点工厂
+# -----------------------------------------------------------------------------
+# 每个节点都是一个普通 dict，必须包含 "kind" 字段。
+# 这些工厂函数由 selfhost/parser.aur 调用，产出的 dict 再交给
+# selfhost/interpreter.aur 执行。
+# =============================================================================
+
+
+# 程序根节点：body 为语句列表
+pub fn program(body) {
+    return {"kind": "Program", "body": body}
+}
+
+# 函数定义：name 为字符串，params 为参数名列表，body 为语句列表
+pub fn fn_def(name, params, body) {
+    return {"kind": "FnDef", "name": name, "params": params, "body": body}
+}
+
+# 不可变绑定
+pub fn let_stmt(name, value) {
+    return {"kind": "LetStmt", "name": name, "value": value}
+}
+
+# 可变绑定
+pub fn var_stmt(name, value) {
+    return {"kind": "VarStmt", "name": name, "value": value}
+}
+
+# return 语句
+pub fn return_stmt(value) {
+    return {"kind": "ReturnStmt", "value": value}
+}
+
+# if 语句：else_body 可能为 nil
+pub fn if_stmt(cond, then_body, else_body) {
+    return {"kind": "IfStmt", "cond": cond, "then": then_body, "else": else_body}
+}
+
+# while 语句
+pub fn while_stmt(cond, body) {
+    return {"kind": "WhileStmt", "cond": cond, "body": body}
+}
+
+# for 语句：iterable 可以是 RangeExpr 或任意列表表达式
+pub fn for_stmt(var_name, iterable, body) {
+    return {"kind": "ForStmt", "var": var_name, "iterable": iterable, "body": body}
+}
+
+# 二元表达式
+pub fn binary_expr(left, op, right) {
+    return {"kind": "BinaryExpr", "left": left, "op": op, "right": right}
+}
+
+# 一元表达式（op 为 "-" 或 "!"）
+pub fn unary_expr(op, operand) {
+    return {"kind": "UnaryExpr", "op": op, "operand": operand}
+}
+
+# 函数调用
+pub fn call_expr(callee, args) {
+    return {"kind": "CallExpr", "callee": callee, "args": args}
+}
+
+# 字面量（int / float / str / bool / nil）
+pub fn literal(value) {
+    return {"kind": "Literal", "value": value}
+}
+
+# 标识符引用
+pub fn identifier(name) {
+    return {"kind": "Identifier", "name": name}
+}
+
+# 列表字面量
+pub fn list_literal(elements) {
+    return {"kind": "ListLiteral", "elements": elements}
+}
+
+# 赋值表达式 / 语句
+pub fn assign_expr(name, value) {
+    return {"kind": "AssignExpr", "name": name, "value": value}
+}
+
+# ---- 以下为 v4.0.0 自举闭环新增节点（只增不改） ------------------------------
+
+# 字典字面量：entries 为 [key_node, value_node] 二元列表的列表
+pub fn dict_literal(entries) {
+    return {"kind": "DictLiteral", "entries": entries}
+}
+
+# 索引赋值语句：obj[idx] = value
+pub fn index_assign(object, index, value) {
+    return {"kind": "IndexAssign", "object": object, "index": index, "value": value}
+}
+
+# break 语句
+pub fn break_stmt() {
+    return {"kind": "BreakStmt"}
+}
+
+# continue 语句
+pub fn continue_stmt() {
+    return {"kind": "ContinueStmt"}
+}
+
+# import 语句（自举解析时仅消费，不执行语义）
+pub fn import_stmt(path) {
+    return {"kind": "ImportStmt", "path": path}
+}

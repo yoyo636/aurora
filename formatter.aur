@@ -1,0 +1,109 @@
+# formatter.aur — Aurora 代码格式化器（自举版）
+# 替代 Python formatter.py
+
+# 格式化入口
+pub fn format(source) -> string {
+    var lines = split_lines(source)
+    var result = ""
+    var indent = 0
+    var i = 0
+    while i < len(lines) {
+        var line = trim(lines[i])
+        if len(line) == 0 {
+            result = result + "\n"
+            i = i + 1
+            continue
+        }
+
+        # 减少缩进的关键字
+        if starts_with(line, "}") or starts_with(line, "end") or starts_with(line, "else") or starts_with(line, "elif") {
+            indent = indent - 1
+            if indent < 0 { indent = 0 }
+        }
+
+        # 添加缩进
+        result = result + repeat("    ", indent) + line + "\n"
+
+        # 增加缩进的关键字
+        if ends_with(line, "{") or starts_with(line, "fn ") or starts_with(line, "if ") or starts_with(line, "else") or starts_with(line, "for ") or starts_with(line, "while ") {
+            indent = indent + 1
+        }
+
+        i = i + 1
+    }
+    return result
+}
+
+# 分割行为行
+fn split_lines(src) -> [string] {
+    var lines = []
+    var current = ""
+    var i = 0
+    while i < len(src) {
+        var c = char_at(src, i)
+        if c == '\n' {
+            push(lines, current)
+            current = ""
+        } else {
+            current = current + c
+        }
+        i = i + 1
+    }
+    if len(current) > 0 {
+        push(lines, current)
+    }
+    return lines
+}
+
+# 去除首尾空格
+fn trim(s) -> string {
+    var start = 0
+    var end = len(s) - 1
+    while start <= end && char_at(s, start) == ' ' {
+        start = start + 1
+    }
+    while end >= start && char_at(s, end) == ' ' {
+        end = end - 1
+    }
+    var result = ""
+    var i = start
+    while i <= end {
+        result = result + char_at(s, i)
+        i = i + 1
+    }
+    return result
+}
+
+# 重复字符串
+fn repeat(s, n) -> string {
+    var result = ""
+    var i = 0
+    while i < n {
+        result = result + s
+        i = i + 1
+    }
+    return result
+}
+
+# 检查前缀
+fn starts_with(s, prefix) -> bool {
+    if len(s) < len(prefix) { return false }
+    var i = 0
+    while i < len(prefix) {
+        if char_at(s, i) != char_at(prefix, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+# 检查后缀
+fn ends_with(s, suffix) -> bool {
+    if len(s) < len(suffix) { return false }
+    var offset = len(s) - len(suffix)
+    var i = 0
+    while i < len(suffix) {
+        if char_at(s, offset + i) != char_at(suffix, i) { return false }
+        i = i + 1
+    }
+    return true
+}

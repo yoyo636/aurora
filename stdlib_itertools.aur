@@ -1,0 +1,171 @@
+# stdlib_itertools.aur — 迭代器工具（自举版）
+# range / zip / enumerate / chain / product / take / drop
+
+import stdlib
+
+# range: [start, end)
+pub fn range(start, end) -> [] {
+    var arr = []
+    var i = start
+    while i < end {
+        stdlib.push(arr, i)
+        i = i + 1
+    }
+    return arr
+}
+
+# range_with_step
+pub fn range_step(start, end, step) -> [] {
+    var arr = []
+    var i = start
+    while i < end {
+        stdlib.push(arr, i)
+        i = i + step
+    }
+    return arr
+}
+
+# zip: 并行遍历
+pub fn zip(arr1, arr2) -> [] {
+    var result = []
+    var n = stdlib.min(len(arr1), len(arr2))
+    var i = 0
+    while i < n {
+        stdlib.push(result, [arr1[i], arr2[i]])
+        i = i + 1
+    }
+    return result
+}
+
+# enumerate: 带索引
+pub fn enumerate(arr) -> [] {
+    var result = []
+    var i = 0
+    while i < len(arr) {
+        stdlib.push(result, [i, arr[i]])
+        i = i + 1
+    }
+    return result
+}
+
+# chain: 拼接多个数组
+pub fn chain(arr1, arr2) -> [] {
+    var result = []
+    var i = 0
+    while i < len(arr1) {
+        stdlib.push(result, arr1[i])
+        i = i + 1
+    }
+    var j = 0
+    while j < len(arr2) {
+        stdlib.push(result, arr2[j])
+        j = j + 1
+    }
+    return result
+}
+
+# take: 取前 n 个
+pub fn take(arr, n) -> [] {
+    var result = []
+    var i = 0
+    while i < n and i < len(arr) {
+        stdlib.push(result, arr[i])
+        i = i + 1
+    }
+    return result
+}
+
+# drop: 跳过前 n 个
+pub fn drop(arr, n) -> [] {
+    var result = []
+    var i = n
+    while i < len(arr) {
+        stdlib.push(result, arr[i])
+        i = i + 1
+    }
+    return result
+}
+
+# first
+pub fn first(arr) {
+    if len(arr) == 0 { return nil }
+    return arr[0]
+}
+
+# last
+pub fn last(arr) {
+    if len(arr) == 0 { return nil }
+    return arr[len(arr) - 1]
+}
+
+# flatten: 拍平一层
+pub fn flatten(arr) -> [] {
+    var result = []
+    var i = 0
+    while i < len(arr) {
+        if type_of(arr[i]) == "list" {
+            var j = 0
+            while j < len(arr[i]) {
+                stdlib.push(result, arr[i][j])
+                j = j + 1
+            }
+        } else {
+            stdlib.push(result, arr[i])
+        }
+        i = i + 1
+    }
+    return result
+}
+
+# product: 笛卡尔积
+pub fn product(arr1, arr2) -> [] {
+    var result = []
+    var i = 0
+    while i < len(arr1) {
+        var j = 0
+        while j < len(arr2) {
+            stdlib.push(result, [arr1[i], arr2[j]])
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return result
+}
+
+# chunk: 分块
+pub fn chunk(arr, size) -> [] {
+    var result = []
+    var i = 0
+    while i < len(arr) {
+        var chunk = []
+        var j = 0
+        while j < size and i + j < len(arr) {
+            stdlib.push(chunk, arr[i + j])
+            j = j + 1
+        }
+        stdlib.push(result, chunk)
+        i = i + size
+    }
+    return result
+}
+
+# window: 滑动窗口
+pub fn window(arr, size) -> [] {
+    var result = []
+    var i = 0
+    while i <= len(arr) - size {
+        var w = []
+        var j = 0
+        while j < size {
+            stdlib.push(w, arr[i + j])
+            j = j + 1
+        }
+        stdlib.push(result, w)
+        i = i + 1
+    }
+    return result
+}
+
+fn type_of(v) -> string {
+    return "unknown"
+}

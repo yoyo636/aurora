@@ -1,0 +1,110 @@
+# parallel_compiler.aur — 并行编译器（自举版）
+# 对应 Python parallel_compiler.py
+# 多线程并行编译模块
+
+import stdlib
+import stdlib_thread
+
+# 编译任务
+type CompileTask {
+    file: string,
+    priority: int,
+    status: string
+}
+
+# 并行编译
+pub fn parallel_build(files) {
+    stdlib.println("并行编译 " + stdlib.str(len(files)) + " 个文件...")
+
+    # 1. 按依赖分层（拓扑排序）
+    var layers = topo_layers(files)
+    stdlib.println("发现 " + stdlib.str(len(layers)) + " 个依赖层")
+
+    # 2. 每层并行编译
+    var i = 0
+    while i < len(layers) {
+        stdlib.println("层 " + stdlib.str(i) + ": " + stdlib.str(len(layers[i])) + " 个文件")
+
+        # 启动线程池
+        var pool = stdlib_thread.threadpool_new(4)
+
+        var j = 0
+        while j < len(layers[i]) {
+            var file = layers[i][j]
+            stdlib_thread.threadpool_submit(pool, || {
+                compile_one(file)
+            })
+            j = j + 1
+        }
+
+        stdlib_thread.threadpool_shutdown(pool)
+        i = i + 1
+    }
+
+    stdlib.println("✓ 并行编译完成")
+}
+
+# 拓扑分层
+fn topo_layers(files) -> [[string]] {
+    var layers = []
+    var remaining = files
+    var layer = 0
+
+    while len(remaining) > 0 {
+        var current_layer = []
+        var i = 0
+        while i < len(remaining) {
+            var deps = get_deps(remaining[i])
+            var ready = true
+            var j = 0
+            while j < len(deps) {
+                if in_list(deps[j], remaining) {
+                    ready = false
+                }
+                j = j + 1
+            }
+            if ready {
+                push(current_layer, remaining[i])
+            }
+            i = i + 1
+        }
+
+        if len(current_layer) == 0 {
+            # 循环依赖，全部放下一层
+            current_layer = remaining
+        }
+
+        push(layers, current_layer)
+
+        # 移除已编译的
+        var new_remaining = []
+        var k = 0
+        while k < len(remaining) {
+            if !in_list(remaining[k], current_layer) {
+                push(new_remaining, remaining[k])
+            }
+            k = k + 1
+        }
+        remaining = new_remaining
+        layer = layer + 1
+    }
+
+    return layers
+}
+
+fn compile_one(file) {
+    # 实际编译
+}
+
+fn get_deps(file) -> [string] {
+    return []
+}
+
+fn in_list(item, list) -> bool {
+    var i = 0
+    while i < len(list) {
+        if list[i] == item { return true }
+        i = i + 1
+    }
+    return false
+}

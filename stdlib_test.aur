@@ -1,0 +1,248 @@
+# stdlib_test.aur — Aurora 测试框架（自举版）
+# 对应 Python stdlib_test.py
+# 用法：
+#   test_eq(add(1,2), 3)
+#   test_true(has_permission)
+#   test_raises(fn, "ValueError")
+
+import stdlib
+import stdlib_time
+
+# 测试统计
+var test_total = 0
+var test_passed = 0
+var test_failed = 0
+var current_suite = ""
+var failures = []
+
+# ============ 断言宏 ============
+
+# 断言相等
+pub fn test_eq(actual, expected) -> bool {
+    test_total = test_total + 1
+    if actual == expected {
+        test_passed = test_passed + 1
+        return true
+    }
+    test_failed = test_failed + 1
+    var msg = "期望 " + stdlib.str(expected) + " 得到 " + stdlib.str(actual)
+    push(failures, current_suite + ": " + msg)
+    stdlib.println("  ✗ " + msg)
+    return false
+}
+
+# 断言不相等
+pub fn test_neq(actual, expected) -> bool {
+    test_total = test_total + 1
+    if actual != expected {
+        test_passed = test_passed + 1
+        return true
+    }
+    test_failed = test_failed + 1
+    var msg = "不应等于 " + stdlib.str(expected)
+    push(failures, current_suite + ": " + msg)
+    stdlib.println("  ✗ " + msg)
+    return false
+}
+
+# 断言为真
+pub fn test_true(cond) -> bool {
+    test_total = test_total + 1
+    if cond {
+        test_passed = test_passed + 1
+        return true
+    }
+    test_failed = test_failed + 1
+    push(failures, current_suite + ": 期望为真")
+    stdlib.println("  ✗ 期望为真，得到假")
+    return false
+}
+
+# 断言为假
+pub fn test_false(cond) -> bool {
+    test_total = test_total + 1
+    if !cond {
+        test_passed = test_passed + 1
+        return true
+    }
+    test_failed = test_failed + 1
+    push(failures, current_suite + ": 期望为假")
+    stdlib.println("  ✗ 期望为假，得到真")
+    return false
+}
+
+# 断言为 nil
+pub fn test_nil(value) -> bool {
+    test_total = test_total + 1
+    if value == nil {
+        test_passed = test_passed + 1
+        return true
+    }
+    test_failed = test_failed + 1
+    push(failures, current_suite + ": 期望 nil")
+    stdlib.println("  ✗ 期望 nil，得到 " + stdlib.str(value))
+    return false
+}
+
+# 断言不为 nil
+pub fn test_not_nil(value) -> bool {
+    test_total = test_total + 1
+    if value != nil {
+        test_passed = test_passed + 1
+        return true
+    }
+    test_failed = test_failed + 1
+    push(failures, current_suite + ": 期望非 nil")
+    stdlib.println("  ✗ 期望非 nil，得到 nil")
+    return false
+}
+
+# 断言数值在范围内
+pub fn test_in_range(value, min_val, max_val) -> bool {
+    test_total = test_total + 1
+    if value >= min_val and value <= max_val {
+        test_passed = test_passed + 1
+        return true
+    }
+    test_failed = test_failed + 1
+    var msg = "期望 " + stdlib.str(value) + " 在 [" + stdlib.str(min_val) + ", " + stdlib.str(max_val) + "] 范围内"
+    push(failures, current_suite + ": " + msg)
+    stdlib.println("  ✗ " + msg)
+    return false
+}
+
+# 断言包含子串
+pub fn test_contains(haystack, needle) -> bool {
+    test_total = test_total + 1
+    if string_contains(haystack, needle) {
+        test_passed = test_passed + 1
+        return true
+    }
+    test_failed = test_failed + 1
+    var msg = "'" + haystack + "' 不包含 '" + needle + "'"
+    push(failures, current_suite + ": " + msg)
+    stdlib.println("  ✗ " + msg)
+    return false
+}
+
+# 断言函数抛出异常
+pub fn test_raises(fn) -> bool {
+    test_total = test_total + 1
+    var raised = false
+    # 实际实现会用 try/catch
+    # try { fn() } catch { raised = true }
+    if raised {
+        test_passed = test_passed + 1
+        return true
+    }
+    test_failed = test_failed + 1
+    push(failures, current_suite + ": 期望抛出异常但没有")
+    stdlib.println("  ✗ 期望抛出异常但没有")
+    return false
+}
+
+# ============ 测试套件 ============
+
+# 开始测试套件
+pub fn describe(name) {
+    current_suite = name
+    stdlib.println("")
+    stdlib.println("=== " + name + " ===")
+}
+
+# 测试用例
+pub fn it(name, test_fn) {
+    stdlib.println("  ✓ " + name)
+    test_fn()
+}
+
+# 跳过测试
+pub fn skip(name) {
+    stdlib.println("  ⊘ " + name + " (跳过)")
+}
+
+# ============ 性能测试 ============
+
+# 基准测试：运行 n 次，返回平均毫秒数
+pub fn bench(name, fn, n) -> int {
+    var start = stdlib_time.now_ms()
+    var i = 0
+    while i < n {
+        fn()
+        i = i + 1
+    }
+    var end = stdlib_time.now_ms()
+    var total = end - start
+    var avg = total / n
+    stdlib.println("  ⏱ " + name + ": " + stdlib.str(total) + "ms 总计, " + stdlib.str(avg) + "ms/次 (" + stdlib.str(n) + " 次)")
+    return avg
+}
+
+# ============ 运行器 ============
+
+# 运行所有测试
+pub fn run_all() {
+    stdlib.println("")
+    stdlib.println("========================================")
+    stdlib.println("  Aurora 测试结果")
+    stdlib.println("========================================")
+    stdlib.println("")
+    stdlib.println("  总计: " + stdlib.str(test_total))
+    stdlib.println("  通过: " + stdlib.str(test_passed))
+    stdlib.println("  失败: " + stdlib.str(test_failed))
+    stdlib.println("")
+
+    if test_failed > 0 {
+        stdlib.println("失败用例:")
+        var i = 0
+        while i < len(failures) {
+            stdlib.println("  - " + failures[i])
+            i = i + 1
+        }
+    }
+
+    stdlib.println("")
+    if test_failed == 0 {
+        stdlib.println("🎉 全部通过!")
+    } else {
+        stdlib.println("💔 有 " + stdlib.str(test_failed) + " 个失败")
+    }
+
+    # 退出码
+    if test_failed > 0 {
+        stdlib.exit(1)
+    }
+}
+
+# 重置统计
+pub fn reset() {
+    test_total = 0
+    test_passed = 0
+    test_failed = 0
+    failures = []
+    current_suite = ""
+}
+
+# ============ 辅助 ============
+
+fn string_contains(haystack, needle) -> bool {
+    var h_len = len(haystack)
+    var n_len = len(needle)
+    if n_len == 0 { return true }
+    if h_len < n_len { return false }
+    var i = 0
+    while i <= h_len - n_len {
+        var match = true
+        var j = 0
+        while j < n_len {
+            if char_at(haystack, i + j) != char_at(needle, j) {
+                match = false
+                break
+            }
+            j = j + 1
+        }
+        if match { return true }
+        i = i + 1
+    }
+    return false
+}

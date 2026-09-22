@@ -1,0 +1,46 @@
+# =============================================================================
+# interop.aur — 跨语言互操作
+# 支持: Python / C++ / Rust / Go / JavaScript / JSON
+# =============================================================================
+
+# ── 调用 Python ──
+fn interop_python(code) {
+    let cmd = "python3 -c \"" + code + "\""
+    return shell(cmd)
+}
+
+# ── 调用 Shell ──
+fn interop_shell(cmd) {
+    return shell(cmd)
+}
+
+# ── 导出 JSON ──
+fn interop_to_json(data) {
+    return to_json(data)
+}
+
+# ── 导入 JSON ──
+fn interop_from_json(text) {
+    return json(text)
+}
+
+# ── 导出 Python dict 字面量 ──
+fn interop_to_python(data) {
+    return to_json(data)  # JSON 兼容 Python dict 语法
+}
+
+# ── 测试 ──
+fn main() {
+    println("── interop 测试 ──")
+
+    let data = {"hello": "world", "numbers": [1, 2, 3]}
+    let j = interop_to_json(data)
+    println("JSON: " + j)
+
+    let back = interop_from_json(j)
+    println("解析: " + back["hello"])
+
+    println("✓ interop 通过")
+}
+
+main()

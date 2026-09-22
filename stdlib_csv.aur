@@ -1,0 +1,165 @@
+# stdlib_csv.aur — CSV 标准库（自举版）
+# 对应 Python stdlib_csv.py
+# 读写 CSV、转义处理、类型转换
+
+import stdlib
+import stdlib_fs
+
+# 读取 CSV 文件
+pub fn read_csv(path) -> [[string]] {
+    var content = stdlib_fs.read_file(path)
+    return parse_csv(content)
+}
+
+# 解析 CSV 字符串
+pub fn parse_csv(content) -> [[string]] {
+    var rows = []
+    var current_row = []
+    var current_field = ""
+    var in_quotes = false
+    var i = 0
+
+    while i < len(content) {
+        var c = char_at(content, i)
+
+        if c == '"' {
+            in_quotes = !in_quotes
+        } elif c == ',' and !in_quotes {
+            stdlib.push(current_row, current_field)
+            current_field = ""
+        } elif c == '\n' and !in_quotes {
+            stdlib.push(current_row, current_field)
+            stdlib.push(rows, current_row)
+            current_row = []
+            current_field = ""
+        } else {
+            current_field = current_field + c
+        }
+
+        i = i + 1
+    }
+
+    # 最后一行
+    if len(current_field) > 0 or len(current_row) > 0 {
+        stdlib.push(current_row, current_field)
+        stdlib.push(rows, current_row)
+    }
+
+    return rows
+}
+
+# 写入 CSV 文件
+pub fn write_csv(path, rows) {
+    var content = format_csv(rows)
+    stdlib_fs.write_file(path, content)
+}
+
+# 格式化为 CSV 字符串
+pub fn format_csv(rows) -> string {
+    var result = ""
+    var i = 0
+    while i < len(rows) {
+        var row = rows[i]
+        var j = 0
+        while j < len(row) {
+            var field = row[j]
+            # 需要转义的字段
+            if needs_quote(field) {
+                result = result + "\"" + escape_quotes(field) + "\""
+            } else {
+                result = result + field
+            }
+            if j < len(row) - 1 {
+                result = result + ","
+            }
+            j = j + 1
+        }
+        result = result + "\n"
+        i = i + 1
+    }
+    return result
+}
+
+# 从 CSV 转字典（第一行作为表头）
+pub fn read_csv_as_dicts(path) -> [{}] {
+    var rows = read_csv(path)
+    if len(rows) == 0 { return [] }
+
+    var headers = rows[0]
+    var result = []
+    var i = 1
+    while i < len(rows) {
+        var row = rows[i]
+        var dict = {}
+        var j = 0
+        while j < len(headers) and j < len(row) {
+            dict[headers[j]] = row[j]
+            j = j + 1
+        }
+        stdlib.push(result, dict)
+        i = i + 1
+    }
+    return result
+}
+
+# 写入字典列表到 CSV
+pub fn write_dicts_as_csv(path, dicts, headers) {
+    var rows = []
+    stdlib.push(rows, headers)
+
+    var i = 0
+    while i < len(dicts) {
+        var row = []
+        var j = 0
+        while j < len(headers) {
+            var key = headers[j]
+            if has_key(dicts[i], key) {
+                stdlib.push(row, stdlib.str(dicts[i][key]))
+            } else {
+                stdlib.push(row, "")
+            }
+            j = j + 1
+        }
+        stdlib.push(rows, row)
+        i = i + 1
+    }
+
+    write_csv(path, rows)
+}
+
+# ============ 辅助 ============
+
+fn needs_quote(field) -> bool {
+    var i = 0
+    while i < len(field) {
+        var c = char_at(field, i)
+        if c == ',' or c == '"' or c == '\n' or c == '\r' {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn escape_quotes(field) -> string {
+    var result = ""
+    var i = 0
+    while i < len(field) {
+        var c = char_at(field, i)
+        if c == '"' {
+            result = result + "\"\""
+        } else {
+            result = result + c
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

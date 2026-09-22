@@ -1,0 +1,358 @@
+# stdlib_collections.aur — 集合标准库（自举版）
+# HashMap / HashSet / Vec / Deque / Heap / Counter
+
+import stdlib
+
+# ============ Vec（动态数组增强）============
+
+pub fn vec_new() -> [] {
+    return []
+}
+
+pub fn vec_push(v, item) {
+    stdlib.push(v, item)
+}
+
+pub fn vec_pop(v) {
+    return stdlib.pop(v)
+}
+
+pub fn vec_get(v, i) {
+    if i < 0 or i >= len(v) { return nil }
+    return v[i]
+}
+
+pub fn vec_set(v, i, item) {
+    v[i] = item
+}
+
+pub fn vec_len(v) -> int {
+    return len(v)
+}
+
+pub fn vec_contains(v, item) -> bool {
+    var i = 0
+    while i < len(v) {
+        if v[i] == item { return true }
+        i = i + 1
+    }
+    return false
+}
+
+pub fn vec_index_of(v, item) -> int {
+    var i = 0
+    while i < len(v) {
+        if v[i] == item { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+pub fn vec_insert(v, idx, item) {
+    # 后移元素
+    var i = len(v)
+    while i > idx {
+        v[i] = v[i - 1]
+        i = i - 1
+    }
+    v[idx] = item
+}
+
+pub fn vec_remove(v, idx) {
+    var i = idx
+    while i < len(v) - 1 {
+        v[i] = v[i + 1]
+        i = i + 1
+    }
+    # 截断最后一个
+    v[len(v) - 1] = nil
+}
+
+pub fn vec_reverse(v) {
+    var n = len(v)
+    var i = 0
+    while i < n / 2 {
+        var temp = v[i]
+        v[i] = v[n - 1 - i]
+        v[n - 1 - i] = temp
+        i = i + 1
+    }
+}
+
+pub fn vec_sort(v) {
+    # 冒泡排序
+    var n = len(v)
+    var i = 0
+    while i < n {
+        var j = 0
+        while j < n - i - 1 {
+            if v[j] > v[j + 1] {
+                var temp = v[j]
+                v[j] = v[j + 1]
+                v[j + 1] = temp
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+}
+
+pub fn vec_map(v, f) -> [] {
+    var result = []
+    var i = 0
+    while i < len(v) {
+        stdlib.push(result, f(v[i]))
+        i = i + 1
+    }
+    return result
+}
+
+pub fn vec_filter(v, pred) -> [] {
+    var result = []
+    var i = 0
+    while i < len(v) {
+        if pred(v[i]) {
+            stdlib.push(result, v[i])
+        }
+        i = i + 1
+    }
+    return result
+}
+
+pub fn vec_reduce(v, init, f) {
+    var acc = init
+    var i = 0
+    while i < len(v) {
+        acc = f(acc, v[i])
+        i = i + 1
+    }
+    return acc
+}
+
+pub fn vec_foreach(v, f) {
+    var i = 0
+    while i < len(v) {
+        f(v[i])
+        i = i + 1
+    }
+}
+
+# ============ HashMap ============
+
+# Aurora 原生 dict 即 HashMap，这里提供增强 API
+
+pub fn hashmap_new() -> {} {
+    return {}
+}
+
+pub fn hashmap_get(m, key, default) {
+    if has_key(m, key) {
+        return m[key]
+    }
+    return default
+}
+
+pub fn hashmap_set(m, key, value) {
+    m[key] = value
+}
+
+pub fn hashmap_delete(m, key) {
+    # 标记删除
+    m[key] = nil
+}
+
+pub fn hashmap_keys(m) -> [] {
+    var keys = []
+    for k in m {
+        if m[k] != nil {
+            stdlib.push(keys, k)
+        }
+    }
+    return keys
+}
+
+pub fn hashmap_values(m) -> [] {
+    var values = []
+    for k in m {
+        if m[k] != nil {
+            stdlib.push(values, m[k])
+        }
+    }
+    return values
+}
+
+pub fn hashmap_len(m) -> int {
+    var count = 0
+    for k in m {
+        if m[k] != nil { count = count + 1 }
+    }
+    return count
+}
+
+pub fn hashmap_merge(m1, m2) -> {} {
+    var result = {}
+    for k in m1 {
+        result[k] = m1[k]
+    }
+    for k in m2 {
+        result[k] = m2[k]
+    }
+    return result
+}
+
+pub fn hashmap_contains(m, key) -> bool {
+    return has_key(m, key)
+}
+
+# ============ HashSet（基于 HashMap）============
+
+pub fn hashset_new() -> {} {
+    return {}
+}
+
+pub fn hashset_add(s, item) {
+    s[item] = true
+}
+
+pub fn hashset_remove(s, item) {
+    s[item] = nil
+}
+
+pub fn hashset_contains(s, item) -> bool {
+    if has_key(s, item) and s[item] != nil {
+        return s[item]
+    }
+    return false
+}
+
+pub fn hashset_union(s1, s2) -> {} {
+    var result = hashset_new()
+    for k in s1 {
+        if s1[k] != nil { result[k] = true }
+    }
+    for k in s2 {
+        if s2[k] != nil { result[k] = true }
+    }
+    return result
+}
+
+pub fn hashset_intersect(s1, s2) -> {} {
+    var result = hashset_new()
+    for k in s1 {
+        if s1[k] != nil and hashset_contains(s2, k) {
+            result[k] = true
+        }
+    }
+    return result
+}
+
+# ============ Deque（双端队列）============
+
+pub fn deque_new() -> [] {
+    return []
+}
+
+pub fn deque_push_front(d, item) {
+    vec_insert(d, 0, item)
+}
+
+pub fn deque_push_back(d, item) {
+    stdlib.push(d, item)
+}
+
+pub fn deque_pop_front(d) {
+    var item = d[0]
+    vec_remove(d, 0)
+    return item
+}
+
+pub fn deque_pop_back(d) {
+    return stdlib.pop(d)
+}
+
+pub fn deque_peek_front(d) {
+    if len(d) == 0 { return nil }
+    return d[0]
+}
+
+pub fn deque_peek_back(d) {
+    if len(d) == 0 { return nil }
+    return d[len(d) - 1]
+}
+
+# ============ Heap（最小堆）============
+
+pub fn heap_new() -> [] {
+    return []
+}
+
+pub fn heap_push(h, item) {
+    stdlib.push(h, item)
+    var i = len(h) - 1
+    # 上浮
+    while i > 0 {
+        var parent = (i - 1) / 2
+        if h[i] < h[parent] {
+            var temp = h[i]
+            h[i] = h[parent]
+            h[parent] = temp
+            i = parent
+        } else {
+            break
+        }
+    }
+}
+
+pub fn heap_pop(h) {
+    if len(h) == 0 { return nil }
+    var root = h[0]
+    h[0] = h[len(h) - 1]
+    h[len(h) - 1] = nil
+    var n = len(h) - 1
+    # 下沉
+    var i = 0
+    while true {
+        var left = 2 * i + 1
+        var right = 2 * i + 2
+        var smallest = i
+        if left < n and h[left] < h[smallest] { smallest = left }
+        if right < n and h[right] < h[smallest] { smallest = right }
+        if smallest == i { break }
+        var temp = h[i]
+        h[i] = h[smallest]
+        h[smallest] = temp
+        i = smallest
+    }
+    return root
+}
+
+# ============ Counter ============
+
+pub fn counter_new() -> {} {
+    return {}
+}
+
+pub fn counter_add(c, item) {
+    if has_key(c, item) {
+        c[item] = c[item] + 1
+    } else {
+        c[item] = 1
+    }
+}
+
+pub fn counter_count(c, item) -> int {
+    if has_key(c, item) {
+        return c[item]
+    }
+    return 0
+}
+
+# ============ 辅助 ============
+
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

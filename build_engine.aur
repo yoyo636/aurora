@@ -1,0 +1,390 @@
+# build_engine.aur — Aurora 构建引擎（自举版）
+# 增量编译、依赖追踪、并行构建、缓存
+# 对应 Python build_engine.py
+
+import stdlib
+import stdlib_fs
+import stdlib_time
+import lexer
+import parser
+import type_checker
+import type_infer
+import optimizer
+import codegen
+
+# 构建配置
+type BuildConfig {
+    target: string,
+    mode: string,
+    output_dir: string,
+    optimization_level: int,
+    debug: bool,
+    parallel: bool,
+    clean: bool
+}
+
+# 构建任务
+type BuildTask {
+    source_file: string,
+    output_file: string,
+    dependencies: [string],
+    last_build_time: int,
+    needs_rebuild: bool
+}
+
+# 全局状态
+var build_config = {
+    target: "arm64",
+    mode: "release",
+    output_dir: "target",
+    optimization_level: 2,
+    debug: false,
+    parallel: false,
+    clean: false
+}
+
+var build_tasks = {}
+var build_stats = {
+    files_compiled: 0,
+    files_cached: 0,
+    total_time_ms: 0,
+    errors: []
+}
+
+# ============ 构建入口 ============
+
+pub fn build(entry_file) {
+    stdlib.println("Aurora 构建引擎 v4.0.0")
+    stdlib.println("目标: " + build_config.target)
+    stdlib.println("模式: " + build_config.mode)
+    stdlib.println("")
+
+    var start = stdlib_time.now_ms()
+
+    # 清理
+    if build_config.clean {
+        clean()
+    }
+
+    # 创建输出目录
+    stdlib_fs.mkdir_all(build_config.output_dir)
+
+    # 1. 扫描源文件
+    var sources = scan_sources(entry_file)
+    stdlib.println("发现 " + stdlib.str(len(sources)) + " 个源文件")
+
+    # 2. 分析依赖
+    analyze_dependencies(sources)
+
+    # 3. 增量编译
+    compile_incremental(sources)
+
+    # 4. 链接
+    link(entry_file)
+
+    var end = stdlib_time.now_ms()
+    build_stats.total_time_ms = end - start
+
+    # 5. 报告
+    report()
+}
+
+# ============ 扫描源文件 ============
+
+fn scan_sources(entry_file) -> [string] {
+    var sources = [entry_file]
+    var queue = [entry_file]
+    var visited = {}
+
+    while len(queue) > 0 {
+        var file = stdlib.pop(queue)
+        if has_key(visited, file) { continue }
+        visited[file] = true
+
+        var content = stdlib_fs.read_file(file)
+        if content == "" { continue }
+
+        # 解析 import 语句
+        var imports = parse_imports(content)
+        var i = 0
+        while i < len(imports) {
+            var import_path = resolve_import(file, imports[i])
+            if import_path != "" and !has_key(visited, import_path) {
+                stdlib.push(sources, import_path)
+                stdlib.push(queue, import_path)
+            }
+            i = i + 1
+        }
+    }
+
+    return sources
+}
+
+fn parse_imports(source) -> [string] {
+    var imports = []
+    var lines = stdlib_fs.read_lines_from_string(source)
+    var i = 0
+    while i < len(lines) {
+        var line = trim(lines[i])
+        if starts_with(line, "import ") {
+            var mod = substring(line, 7, len(line))
+            stdlib.push(imports, mod)
+        } elif starts_with(line, "from ") {
+            # from x import y
+            var rest = substring(line, 5, len(line))
+            var parts = split(rest, " import ")
+            if len(parts) > 0 {
+                stdlib.push(imports, parts[0])
+            }
+        }
+        i = i + 1
+    }
+    return imports
+}
+
+fn resolve_import(current_file, module_name) -> string {
+    # 简化：尝试几个路径
+    var candidates = [
+        module_name + ".aur",
+        module_name + "/mod.aur",
+        "src/" + module_name + ".aur",
+        "vendor/" + module_name + ".aur"
+    ]
+    var i = 0
+    while i < len(candidates) {
+        if stdlib_fs.exists(candidates[i]) {
+            return candidates[i]
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+# ============ 依赖分析 ============
+
+fn analyze_dependencies(sources) {
+    stdlib.println("分析依赖...")
+    var i = 0
+    while i < len(sources) {
+        var file = sources[i]
+        var task = BuildTask {
+            source_file: file,
+            output_file: build_config.output_dir + "/" + file + ".o",
+            dependencies: [],
+            last_build_time: get_build_time(file),
+            needs_rebuild: false
+        }
+        build_tasks[file] = task
+        i = i + 1
+    }
+}
+
+fn get_build_time(source_file) -> int {
+    var output = build_config.output_dir + "/" + source_file + ".o"
+    if stdlib_fs.exists(output) {
+        return stdlib_fs.modified_time(output)
+    }
+    return 0
+}
+
+# ============ 增量编译 ============
+
+fn compile_incremental(sources) {
+    stdlib.println("增量编译...")
+
+    var i = 0
+    while i < len(sources) {
+        var file = sources[i]
+        var task = build_tasks[file]
+
+        # 检查是否需要重新编译
+        var src_time = stdlib_fs.modified_time(file)
+        if src_time > task.last_build_time {
+            task.needs_rebuild = true
+        }
+
+        if task.needs_rebuild {
+            compile_file(file)
+            build_stats.files_compiled = build_stats.files_compiled + 1
+        } else {
+            build_stats.files_cached = build_stats.files_cached + 1
+            stdlib.println("  缓存: " + file)
+        }
+
+        i = i + 1
+    }
+}
+
+fn compile_file(file) {
+    stdlib.println("  编译: " + file)
+
+    # 1. 读取源文件
+    var source = stdlib_fs.read_file(file)
+
+    # 2. 词法分析
+    var tokens = lexer.tokenize(source)
+
+    # 3. 语法分析
+    var ast_tree = parser.parse(tokens)
+
+    # 4. 类型检查
+    var errors = type_checker.check(ast_tree)
+    if len(errors) > 0 {
+        stdlib.push(build_stats.errors, file + ": 类型错误")
+        return
+    }
+
+    # 5. 类型推断
+    var inferred = type_infer.infer(ast_tree)
+
+    # 6. 优化
+    var optimized = optimizer.optimize(ast_tree)
+
+    # 7. 代码生成
+    var output_file = build_config.output_dir + "/" + file + ".s"
+    codegen.compile(optimized, output_file)
+
+    # 8. 汇编（FFI: 调用 clang/as）
+    # assemble(output_file)
+}
+
+# ============ 链接 ============
+
+fn link(entry_file) {
+    stdlib.println("链接...")
+
+    var output_name = stdlib_fs.basename(entry_file)
+    var exe_path = build_config.output_dir + "/" + output_name
+
+    # FFI: 调用 ld/clang 链接
+    # link_objects(object_files, exe_path)
+
+    stdlib.println("  输出: " + exe_path)
+}
+
+# ============ 清理 ============
+
+pub fn clean() {
+    stdlib.println("清理构建目录...")
+    stdlib_fs.remove(build_config.output_dir)
+    stdlib_fs.mkdir_all(build_config.output_dir)
+}
+
+# ============ 报告 ============
+
+fn report() {
+    stdlib.println("")
+    stdlib.println("========================================")
+    stdlib.println("  构建报告")
+    stdlib.println("========================================")
+    stdlib.println("")
+    stdlib.println("  编译文件: " + stdlib.str(build_stats.files_compiled))
+    stdlib.println("  缓存命中: " + stdlib.str(build_stats.files_cached))
+    stdlib.println("  总耗时: " + stdlib.str(build_stats.total_time_ms) + "ms")
+    stdlib.println("  错误数: " + stdlib.str(len(build_stats.errors)))
+    stdlib.println("")
+
+    if len(build_stats.errors) > 0 {
+        stdlib.println("错误:")
+        var i = 0
+        while i < len(build_stats.errors) {
+            stdlib.println("  ✗ " + build_stats.errors[i])
+            i = i + 1
+        }
+    }
+}
+
+# ============ 构建模式 ============
+
+pub fn set_mode(mode) {
+    build_config.mode = mode
+    if mode == "debug" {
+        build_config.optimization_level = 0
+        build_config.debug = true
+    } elif mode == "release" {
+        build_config.optimization_level = 2
+        build_config.debug = false
+    } elif mode == "release-small" {
+        build_config.optimization_level = 3
+        build_config.debug = false
+    }
+}
+
+pub fn set_target(target) {
+    build_config.target = target
+}
+
+# ============ 辅助 ============
+
+fn trim(s) -> string {
+    var start = 0
+    var end = len(s) - 1
+    while start <= end && char_at(s, start) == ' ' {
+        start = start + 1
+    }
+    while end >= start && char_at(s, end) == ' ' {
+        end = end - 1
+    }
+    var result = ""
+    var i = start
+    while i <= end {
+        result = result + char_at(s, i)
+        i = i + 1
+    }
+    return result
+}
+
+fn starts_with(s, prefix) -> bool {
+    if len(s) < len(prefix) { return false }
+    var i = 0
+    while i < len(prefix) {
+        if char_at(s, i) != char_at(prefix, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn substring(s, start, end) -> string {
+    var result = ""
+    var i = start
+    while i < end and i < len(s) {
+        result = result + char_at(s, i)
+        i = i + 1
+    }
+    return result
+}
+
+fn split(s, sep) -> [string] {
+    var parts = []
+    var current = ""
+    var i = 0
+    while i < len(s) {
+        var match = true
+        var j = 0
+        while j < len(sep) {
+            if char_at(s, i + j) != char_at(sep, j) {
+                match = false
+                break
+            }
+            j = j + 1
+        }
+        if match {
+            stdlib.push(parts, current)
+            current = ""
+            i = i + len(sep)
+        } else {
+            current = current + char_at(s, i)
+            i = i + 1
+        }
+    }
+    stdlib.push(parts, current)
+    return parts
+}
+
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

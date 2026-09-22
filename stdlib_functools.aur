@@ -1,0 +1,118 @@
+# stdlib_functools.aur — 函数工具库（自举版）
+# map / filter / reduce / partial / compose / curry
+
+import stdlib
+
+# map: 对每个元素应用函数
+pub fn map(arr, f) -> [] {
+    var result = []
+    var i = 0
+    while i < len(arr) {
+        stdlib.push(result, f(arr[i]))
+        i = i + 1
+    }
+    return result
+}
+
+# filter: 保留满足条件的元素
+pub fn filter(arr, pred) -> [] {
+    var result = []
+    var i = 0
+    while i < len(arr) {
+        if pred(arr[i]) {
+            stdlib.push(result, arr[i])
+        }
+        i = i + 1
+    }
+    return result
+}
+
+# reduce: 折叠
+pub fn reduce(arr, init, f) {
+    var acc = init
+    var i = 0
+    while i < len(arr) {
+        acc = f(acc, arr[i])
+        i = i + 1
+    }
+    return acc
+}
+
+# partial: 固定部分参数
+pub fn partial(f, ...) -> fn {
+    # 简化版：返回闭包
+    return || {
+        f(...)
+    }
+}
+
+# compose: f(g(x))
+pub fn compose(f, g) -> fn {
+    return |x| {
+        return f(g(x))
+    }
+}
+
+# pipe: f(g(h(x)))
+pub fn pipe(x, ...) {
+    var result = x
+    var i = 0
+    while i < len(...) {
+        result = ...[i](result)
+        i = i + 1
+    }
+    return result
+}
+
+# identity
+pub fn identity(x) {
+    return x
+}
+
+# constant: 返回常量函数
+pub fn constant(c) -> fn {
+    return |x| {
+        return c
+    }
+}
+
+# memoize: 记忆化
+pub fn memoize(f) -> fn {
+    var cache = {}
+    return |x| {
+        var key = stdlib.str(x)
+        if has_key(cache, key) {
+            return cache[key]
+        }
+        var result = f(x)
+        cache[key] = result
+        return result
+    }
+}
+
+# once: 只执行一次
+pub fn once(f) -> fn {
+    var called = false
+    var result = nil
+    return || {
+        if !called {
+            result = f()
+            called = true
+        }
+        return result
+    }
+}
+
+# tap: 执行副作用但返回原值
+pub fn tap(x, f) {
+    f(x)
+    return x
+}
+
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

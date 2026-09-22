@@ -1,0 +1,118 @@
+# db_orm.aur — Aurora 数据库 ORM（自举版）
+# 替代 Python db_orm.py
+
+import stdlib
+
+# 模型基类
+type Model {
+    id: int
+}
+
+# 查询构建器
+type Query {
+    model_name: string,
+    conditions: [],
+    limit_val: int,
+    offset_val: int,
+    order_by: string
+}
+
+# 创建模型表
+pub fn create_table(model) {
+    stdlib.println("CREATE TABLE IF NOT EXISTS " + model.__table_name__)
+    # 实际实现会执行 SQL
+}
+
+# 查询所有
+pub fn all(model) -> [Model] {
+    var q = Query {
+        model_name: model.__table_name__,
+        conditions: [],
+        limit_val: -1,
+        offset_val: 0,
+        order_by: "id ASC"
+    }
+    return execute_query(q)
+}
+
+# 根据 ID 查询
+pub fn find_by_id(model, id) -> Model {
+    var q = Query {
+        model_name: model.__table_name__,
+        conditions: ["id = " + stdlib.str(id)],
+        limit_val: 1,
+        offset_val: 0,
+        order_by: ""
+    }
+    var results = execute_query(q)
+    if len(results) > 0 {
+        return results[0]
+    }
+    return nil
+}
+
+# 条件查询
+pub fn where(model, field, op, value) -> Query {
+    var q = Query {
+        model_name: model.__table_name__,
+        conditions: [field + " " + op + " " + format_value(value)],
+        limit_val: -1,
+        offset_val: 0,
+        order_by: ""
+    }
+    return q
+}
+
+# 排序
+pub fn order_by(q, field, direction) -> Query {
+    q.order_by = field + " " + direction
+    return q
+}
+
+# 限制
+pub fn limit(q, n) -> Query {
+    q.limit_val = n
+    return q
+}
+
+# 偏移
+pub fn offset(q, n) -> Query {
+    q.offset_val = n
+    return q
+}
+
+# 执行查询
+fn execute_query(q) -> [Model] {
+    # 实际实现会连接数据库并执行 SQL
+    stdlib.println("SELECT * FROM " + q.model_name_)
+    return []
+}
+
+# 保存模型
+pub fn save(model) {
+    if model.id > 0 {
+        # 更新
+        stdlib.println("UPDATE " + model.__table_name__ + " SET ... WHERE id = " + stdlib.str(model.id))
+    } else {
+        # 插入
+        stdlib.println("INSERT INTO " + model.__table_name__ + " (...)")
+    }
+}
+
+# 删除模型
+pub fn delete(model) {
+    stdlib.println("DELETE FROM " + model.__table_name__ + " WHERE id = " + stdlib.str(model.id))
+}
+
+# 格式化值
+fn format_value(v) -> string {
+    if type_of(v) == "string" {
+        return "'" + v + "'"
+    }
+    return stdlib.str(v)
+}
+
+# 类型检查
+fn type_of(v) -> string {
+    return "unknown"
+}

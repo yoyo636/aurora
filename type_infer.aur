@@ -1,0 +1,409 @@
+# type_infer.aur — Aurora 类型推断（自举版）
+# 基于 Hindley-Milner 的简化版：
+# 1. 收集约束
+# 2. 解约束（统一）
+# 3. 泛型实例化
+# 对应 Python type_infer.py
+
+import stdlib
+import ast
+
+# 类型变量计数器
+var tv_counter = 0
+
+# 类型错误列表
+var ti_errors = []
+
+# 类型环境：变量名 -> 类型
+var ti_env = {}
+
+# 约束列表：(类型1, 类型2)
+var ti_constraints = []
+
+# ============ 类型表示 ============
+# int / float / string / bool / unit
+# TVar(n) 类型变量
+# Fn(args, ret) 函数类型
+# List(t) 列表类型
+# Dict(k, v) 字典类型
+
+# 创建新类型变量
+fn new_tvar() -> string {
+    tv_counter = tv_counter + 1
+    return "T" + stdlib.str(tv_counter)
+}
+
+# ============ 主入口 ============
+
+pub fn infer(ast_tree) {
+    tv_counter = 0
+    ti_errors = []
+    ti_env = {}
+    ti_constraints = []
+
+    # 第一遍：收集约束
+    collect_constraints(ast_tree, ti_env)
+
+    # 第二遍：统一
+    var substitution = solve(ti_constraints)
+
+    # 第三遍：把解应用到类型环境
+    var inferred = {}
+    for name in ti_env {
+        inferred[name] = apply_subst(ti_env[name], substitution)
+    }
+
+    return {
+        types: inferred,
+        errors: ti_errors,
+        substitution: substitution
+    }
+}
+
+# ============ 收集约束 ============
+
+fn collect_constraints(node, env) {
+    if node == nil { return }
+
+    if node.tag == "Program" {
+        var i = 0
+        while i < len(node.stmts) {
+            collect_constraints(node.stmts[i], env)
+            i = i + 1
+        }
+        return
+    }
+
+    if node.tag == "FnDef" {
+        # fn name(a: A, b: B) -> C { ... }
+        var fn_env = {}
+        # 复制外层环境
+        for k in env {
+            fn_env[k] = env[k]
+        }
+
+        # 参数类型
+        var arg_types = []
+        var i = 0
+        while i < len(node.params) {
+            var p = node.params[i]
+            var t = infer_type_annotation(p.type_annotation)
+            fn_env[p.name] = t
+            push(arg_types, t)
+            i = i + 1
+        }
+
+        # 返回类型
+        var ret_t = infer_type_annotation(node.ret_type)
+        fn_env["_return_"] = ret_t
+
+        # 函数体
+        collect_constraints(node.body, fn_env)
+
+        # 函数类型
+        var fn_t = "Fn(" + join_types(arg_types) + ", " + ret_t + ")"
+        env[node.name] = fn_t
+        return
+    }
+
+    if node.tag == "Let" {
+        var t = infer_expr_type(node.value, env)
+        env[node.name] = t
+        return
+    }
+
+    if node.tag == "Var" {
+        var t = infer_expr_type(node.value, env)
+        env[node.name] = t
+        return
+    }
+
+    if node.tag == "Return" {
+        if node.value != nil {
+            var t = infer_expr_type(node.value, env)
+            if has_key(env, "_return_") {
+                add_constraint(t, env["_return_"])
+            }
+        }
+        return
+    }
+
+    if node.tag == "If" {
+        var cond_t = infer_expr_type(node.cond, env)
+        add_constraint(cond_t, "bool")
+        collect_constraints(node.then_block, env)
+        if node.else_block != nil {
+            collect_constraints(node.else_block, env)
+        }
+        return
+    }
+
+    if node.tag == "While" {
+        var cond_t = infer_expr_type(node.cond, env)
+        add_constraint(cond_t, "bool")
+        collect_constraints(node.body, env)
+        return
+    }
+
+    if node.tag == "Block" {
+        var i = 0
+        while i < len(node.stmts) {
+            collect_constraints(node.stmts[i], env)
+            i = i + 1
+        }
+        return
+    }
+}
+
+# 推断表达式类型
+fn infer_expr_type(expr, env) -> string {
+    if expr == nil { return "unit" }
+
+    if expr.tag == "Int" { return "int" }
+    if expr.tag == "Float" { return "float" }
+    if expr.tag == "String" { return "string" }
+    if expr.tag == "Bool" { return "bool" }
+
+    if expr.tag == "Ident" {
+        if has_key(env, expr.name) {
+            return env[expr.name]
+        }
+        return new_tvar()
+    }
+
+    if expr.tag == "BinOp" {
+        var lt = infer_expr_type(expr.left, env)
+        var rt = infer_expr_type(expr.right, env)
+
+        if expr.op == "+" or expr.op == "-" or expr.op == "*" or expr.op == "/" {
+            add_constraint(lt, rt)
+            return lt
+        }
+
+        if expr.op == "==" or expr.op == "!=" or expr.op == "<" or expr.op == ">" {
+            add_constraint(lt, rt)
+            return "bool"
+        }
+
+        if expr.op == "and" or expr.op == "or" {
+            add_constraint(lt, "bool")
+            add_constraint(rt, "bool")
+            return "bool"
+        }
+
+        return new_tvar()
+    }
+
+    if expr.tag == "UnaryOp" {
+        var t = infer_expr_type(expr.operand, env)
+        if expr.op == "!" or expr.op == "not" {
+            add_constraint(t, "bool")
+            return "bool"
+        }
+        if expr.op == "-" {
+            add_constraint(t, "int")
+            return "int"
+        }
+        return t
+    }
+
+    if expr.tag == "Call" {
+        if has_key(env, expr.name) {
+            var fn_t = env[expr.name]
+            # 实际实现会解析 Fn(args, ret) 并检查参数
+            return new_tvar()
+        }
+        return new_tvar()
+    }
+
+    if expr.tag == "List" {
+        if len(expr.elements) == 0 {
+            return "List(" + new_tvar() + ")"
+        }
+        var elem_t = infer_expr_type(expr.elements[0], env)
+        var i = 1
+        while i < len(expr.elements) {
+            var t = infer_expr_type(expr.elements[i], env)
+            add_constraint(elem_t, t)
+            i = i + 1
+        }
+        return "List(" + elem_t + ")"
+    }
+
+    if expr.tag == "Index" {
+        var base_t = infer_expr_type(expr.base, env)
+        var idx_t = infer_expr_type(expr.index, env)
+        add_constraint(idx_t, "int")
+        return new_tvar()
+    }
+
+    return new_tvar()
+}
+
+# 类型注解 → 类型
+fn infer_type_annotation(annot) -> string {
+    if annot == nil { return new_tvar() }
+    if annot.tag == "TypeInt" { return "int" }
+    if annot.tag == "TypeFloat" { return "float" }
+    if annot.tag == "TypeString" { return "string" }
+    if annot.tag == "TypeBool" { return "bool" }
+    if annot.tag == "TypeList" {
+        return "List(" + infer_type_annotation(annot.inner) + ")"
+    }
+    if annot.tag == "TypeFn" {
+        var arg_types = []
+        var i = 0
+        while i < len(annot.args) {
+            push(arg_types, infer_type_annotation(annot.args[i]))
+            i = i + 1
+        }
+        return "Fn(" + join_types(arg_types) + ", " + infer_type_annotation(annot.ret) + ")"
+    }
+    return new_tvar()
+}
+
+# ============ 约束统一 ============
+
+fn add_constraint(t1, t2) {
+    push(ti_constraints, { left: t1, right: t2 })
+}
+
+fn solve(constraints) -> {} {
+    var subst = {}
+    var i = 0
+    while i < len(constraints) {
+        var c = constraints[i]
+        unify(c.left, c.right, subst)
+        i = i + 1
+    }
+    return subst
+}
+
+fn unify(t1, t2, subst) {
+    # 应用当前替换
+    t1 = apply_subst_single(t1, subst)
+    t2 = apply_subst_single(t2, subst)
+
+    if t1 == t2 { return }
+
+    # tvar α = τ
+    if is_tvar(t1) {
+        subst[t1] = t2
+        return
+    }
+    if is_tvar(t2) {
+        subst[t2] = t1
+        return
+    }
+
+    # List(a) = List(b) → a = b
+    if starts_with(t1, "List(") and starts_with(t2, "List(") {
+        var inner1 = extract_inner(t1)
+        var inner2 = extract_inner(t2)
+        unify(inner1, inner2, subst)
+        return
+    }
+
+    # 类型不匹配 → 错误
+    if t1 != t2 {
+        var err = "类型不匹配: " + t1 + " vs " + t2
+        push(ti_errors, err)
+    }
+}
+
+fn apply_subst_single(t, subst) -> string {
+    if has_key(subst, t) {
+        return subst[t]
+    }
+    return t
+}
+
+fn apply_subst(t, subst) -> string {
+    return apply_subst_single(t, subst)
+}
+
+# ============ 辅助 ============
+
+fn is_tvar(t) -> bool {
+    if len(t) == 0 { return false }
+    return char_at(t, 0) == 'T' and len(t) > 1 and is_digit(t, 1)
+}
+
+fn is_digit(s, i) -> bool {
+    if i >= len(s) { return false }
+    var c = char_at(s, i)
+    return c >= '0' and c <= '9'
+}
+
+fn starts_with(s, prefix) -> bool {
+    if len(s) < len(prefix) { return false }
+    var i = 0
+    while i < len(prefix) {
+        if char_at(s, i) != char_at(prefix, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn extract_inner(container_type) -> string {
+    # List(int) → int
+    var start = index_of(container_type, "(") + 1
+    var end = len(container_type) - 1
+    var result = ""
+    var i = start
+    while i < end {
+        result = result + char_at(container_type, i)
+        i = i + 1
+    }
+    return result
+}
+
+fn index_of(s, c) -> int {
+    var i = 0
+    while i < len(s) {
+        if char_at(s, i) == c { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn join_types(types) -> string {
+    var result = ""
+    var i = 0
+    while i < len(types) {
+        if i > 0 { result = result + ", " }
+        result = result + types[i]
+        i = i + 1
+    }
+    return result
+}
+
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}
+
+# ============ 报告 ============
+
+pub fn report(result) {
+    stdlib.println("=== 类型推断报告 ===")
+    stdlib.println("")
+    stdlib.println("推断出的类型:")
+    for name in result.types {
+        stdlib.println("  " + name + ": " + result.types[name])
+    }
+    stdlib.println("")
+    if len(result.errors) > 0 {
+        stdlib.println("类型错误:")
+        var i = 0
+        while i < len(result.errors) {
+            stdlib.println("  ✗ " + result.errors[i])
+            i = i + 1
+        }
+    } else {
+        stdlib.println("✓ 无类型错误")
+    }
+}

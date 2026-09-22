@@ -1,0 +1,71 @@
+# persistent_cache.aur — 持久化编译缓存（自举版）
+# 对应 Python persistent_cache.py
+# 跨 session 缓存编译结果
+
+import stdlib
+import stdlib_fs
+import stdlib_time
+
+var cache_dir = ".aurora/cache"
+
+# 缓存条目
+type CacheEntry {
+    key: string,
+    data: any,
+    timestamp: int,
+    hash: string
+}
+
+# 从缓存读取
+pub fn get(key) -> any {
+    var path = cache_dir + "/" + key
+    if !stdlib_fs.exists(path) { return nil }
+    var content = stdlib_fs.read_file(path)
+    return deserialize(content)
+}
+
+# 写入缓存
+pub fn put(key, data) {
+    stdlib_fs.mkdir_all(cache_dir)
+    var path = cache_dir + "/" + key
+    var content = serialize(data)
+    stdlib_fs.write_file(path, content)
+}
+
+# 检查缓存是否有效
+pub fn valid(key, source_hash) -> bool {
+    var path = cache_dir + "/" + key
+    if !stdlib_fs.exists(path) { return false }
+    # 对比 hash
+    var cached_hash = stdlib_fs.read_file(path + ".hash")
+    return cached_hash == source_hash
+}
+
+# 清理过期缓存
+pub fn cleanup(max_age_days) {
+    var files = stdlib_fs.list_dir(cache_dir)
+    var now = stdlib_time.now()
+    var max_age = max_age_days * 86400
+    var i = 0
+    while i < len(files) {
+        var path = cache_dir + "/" + files[i]
+        var mtime = stdlib_fs.modified_time(path)
+        if now - mtime > max_age {
+            stdlib_fs.remove(path)
+        }
+        i = i + 1
+    }
+}
+
+# 清空缓存
+pub fn clear() {
+    stdlib_fs.remove(cache_dir)
+}
+
+fn serialize(data) -> string {
+    return stdlib.str(data)
+}
+
+fn deserialize(s) -> any {
+    return s
+}

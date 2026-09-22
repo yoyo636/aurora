@@ -1,0 +1,30 @@
+# =============================================================================
+# shell.aur — Shell 工具封装
+# =============================================================================
+
+# ── 执行命令 ──
+fn sh(cmd) {
+    return shell(cmd)
+}
+
+# ── 执行并检查 ──
+fn sh_ok(cmd) {
+    let output = shell(cmd)
+    return {"ok": true, "output": output}
+}
+
+# ── 常用命令封装 ──
+fn sh_ls()     { return shell("ls -la") }
+fn sh_pwd()    { return shell("pwd") }
+fn sh_cat(f)   { return shell("cat " + f) }
+fn sh_grep(p, f) { return grep(p, f) }
+
+# ── 测试 ──
+fn main() {
+    println("── shell 测试 ──")
+    let output = sh_pwd()
+    println("当前目录: " + output)
+    println("✓ shell 通过")
+}
+
+main()

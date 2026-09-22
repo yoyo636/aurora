@@ -1,0 +1,202 @@
+// ai_tensor.aur — Aurora AI 张量库
+// 打破 Python 在 AI 领域垄断的核心模块
+
+mod ai_tensor;
+
+pub struct Tensor {
+    data: List<f64>,
+    shape: List<int>,
+    grad: Option<Tensor>,
+    requires_grad: bool,
+}
+
+// 创建张量
+pub fn new(data: List<f64>, shape: List<int>) -> Tensor {
+    return Tensor {
+        data: data,
+        shape: shape,
+        grad: None,
+        requires_grad: false,
+    };
+}
+
+// 全零张量
+pub fn zeros(shape: List<int>) -> Tensor {
+    let mut size = 1;
+    for s in shape { size = size * s; }
+    let mut data = list_new();
+    for i in range(size) { list_push(data, 0.0); }
+    return new(data, shape);
+}
+
+// 全一张量
+pub fn ones(shape: List<int>) -> Tensor {
+    let mut size = 1;
+    for s in shape { size = size * s; }
+    let mut data = list_new();
+    for i in range(size) { list_push(data, 1.0); }
+    return new(data, shape);
+}
+
+// 随机张量 (正态分布)
+pub fn randn(shape: List<int>) -> Tensor {
+    let mut size = 1;
+    for s in shape { size = size * s; }
+    let mut data = list_new();
+    for i in range(size) { list_push(data, random_normal()); }
+    return new(data, shape);
+}
+
+// 加法
+pub fn add(a: Tensor, b: Tensor) -> Tensor {
+    let mut result_data = list_new();
+    for i in range(list_len(a.data)) {
+        list_push(result_data, list_get(a.data, i) + list_get(b.data, i));
+    }
+    return new(result_data, a.shape);
+}
+
+// 减法
+pub fn sub(a: Tensor, b: Tensor) -> Tensor {
+    let mut result_data = list_new();
+    for i in range(list_len(a.data)) {
+        list_push(result_data, list_get(a.data, i) - list_get(b.data, i));
+    }
+    return new(result_data, a.shape);
+}
+
+// 乘法 (element-wise)
+pub fn mul(a: Tensor, b: Tensor) -> Tensor {
+    let mut result_data = list_new();
+    for i in range(list_len(a.data)) {
+        list_push(result_data, list_get(a.data, i) * list_get(b.data, i));
+    }
+    return new(result_data, a.shape);
+}
+
+// 矩阵乘法
+pub fn matmul(a: Tensor, b: Tensor) -> Tensor {
+    let m = list_get(a.shape, 0);
+    let k = list_get(a.shape, 1);
+    let n = list_get(b.shape, 1);
+    let mut result_data = list_new();
+    for i in range(m) {
+        for j in range(n) {
+            let mut sum = 0.0;
+            for p in range(k) {
+                sum = sum + list_get(a.data, i*k + p) * list_get(b.data, p*n + j);
+            }
+            list_push(result_data, sum);
+        }
+    }
+    let result_shape = [m, n];
+    return new(result_data, result_shape);
+}
+
+// ReLU 激活
+pub fn relu(x: Tensor) -> Tensor {
+    let mut result_data = list_new();
+    for v in x.data {
+        if v > 0.0 { list_push(result_data, v); }
+        else { list_push(result_data, 0.0); }
+    }
+    return new(result_data, x.shape);
+}
+
+// Sigmoid
+pub fn sigmoid(x: Tensor) -> Tensor {
+    let mut result_data = list_new();
+    for v in x.data {
+        list_push(result_data, 1.0 / (1.0 + exp(-v)));
+    }
+    return new(result_data, x.shape);
+}
+
+// Softmax
+pub fn softmax(x: Tensor) -> Tensor {
+    let mut max_val = -1e9;
+    for v in x.data { if v > max_val { max_val = v; } }
+    let mut sum_exp = 0.0;
+    let mut exps = list_new();
+    for v in x.data {
+        let e = exp(v - max_val);
+        list_push(exps, e);
+        sum_exp = sum_exp + e;
+    }
+    let mut result_data = list_new();
+    for e in exps {
+        list_push(result_data, e / sum_exp);
+    }
+    return new(result_data, x.shape);
+}
+
+// 求和
+pub fn sum(x: Tensor) -> f64 {
+    let mut s = 0.0;
+    for v in x.data { s = s + v; }
+    return s;
+}
+
+// 均值
+pub fn mean(x: Tensor) -> f64 {
+    return sum(x) / list_len(x.data);
+}
+
+// 方差
+pub fn variance(x: Tensor) -> f64 {
+    let m = mean(x);
+    let mut s = 0.0;
+    for v in x.data { s = s + (v - m) * (v - m); }
+    return s / list_len(x.data);
+}
+
+// 形状
+pub fn shape(x: Tensor) -> List<int> {
+    return x.shape;
+}
+
+// 元素个数
+pub fn numel(x: Tensor) -> int {
+    let mut n = 1;
+    for s in x.shape { n = n * s; }
+    return n;
+}
+
+// 转置
+pub fn transpose(x: Tensor) -> Tensor {
+    let rows = list_get(x.shape, 0);
+    let cols = list_get(x.shape, 1);
+    let mut result_data = list_new();
+    for j in range(cols) {
+        for i in range(rows) {
+            list_push(result_data, list_get(x.data, i*cols + j));
+        }
+    }
+    let result_shape = [cols, rows];
+    return new(result_data, result_shape);
+}
+
+// 交叉熵损失
+pub fn cross_entropy(pred: Tensor, target: Tensor) -> f64 {
+    let mut loss = 0.0;
+    let n = list_len(pred.data);
+    for i in range(n) {
+        let p = list_get(pred.data, i);
+        let t = list_get(target.data, i);
+        if t > 0.5 {
+            loss = loss - log(p + 1e-10);
+        }
+    }
+    return loss / n;
+}
+
+// MSE 损失
+pub fn mse(pred: Tensor, target: Tensor) -> f64 {
+    let mut loss = 0.0;
+    let n = list_len(pred.data);
+    for i in range(n) {
+        let diff = list_get(pred.data, i) - list_get(target.data, i);
+        loss = loss + diff * diff;
+    }
+    return loss / n;
+}

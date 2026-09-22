@@ -1,0 +1,90 @@
+# fullstack.aur — 全栈开发框架（自举版）
+# 对应 Python fullstack.py
+# 前后端一体：同一套代码同时跑在 server 和 browser
+
+import stdlib
+import web_framework
+
+# 全栈应用
+type FullstackApp {
+    routes: {},
+    components: {},
+    middleware: []
+}
+
+var app = FullstackApp {
+    routes: {},
+    components: {},
+    middleware: []
+}
+
+# 注册前端组件
+pub fn component(name, render_fn) {
+    app.components[name] = render_fn
+}
+
+# 注册 API 路由
+pub fn api(method, path, handler) {
+    var key = method + " " + path
+    app.routes[key] = handler
+}
+
+# 注册页面路由
+pub fn page(path, component_name) {
+    app.routes["GET " + path] = || {
+        var html = render_page(component_name)
+        return web_framework.html(html)
+    }
+}
+
+# 渲染页面
+fn render_page(component_name) -> string {
+    var html = "<!DOCTYPE html>\n<html>\n<head>\n"
+    html = html + "<meta charset='utf-8'>\n"
+    html = html + "<title>Aurora App</title>\n"
+    html = html + "</head>\n<body>\n"
+
+    # 渲染组件
+    if has_key(app.components, component_name) {
+        html = html + app.components[component_name]()
+    }
+
+    html = html + "\n</body>\n</html>"
+    return html
+}
+
+# 启动全栈应用
+pub fn serve(port) {
+    stdlib.println("Aurora 全栈应用启动在 http://localhost:" + stdlib.str(port))
+    stdlib.println("API 路由: " + stdlib.str(count_api_routes()))
+    stdlib.println("页面组件: " + stdlib.str(len(app.components)))
+    web_framework.listen(port)
+}
+
+fn count_api_routes() -> int {
+    var count = 0
+    for key in app.routes {
+        if starts_with(key, "GET /api") or starts_with(key, "POST /api") {
+            count = count + 1
+        }
+    }
+    return count
+}
+
+fn starts_with(s, prefix) -> bool {
+    if len(s) < len(prefix) { return false }
+    var i = 0
+    while i < len(prefix) {
+        if char_at(s, i) != char_at(prefix, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

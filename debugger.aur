@@ -1,0 +1,86 @@
+# =============================================================================
+# debugger.aur — 调试器
+# 用法:
+#   let dbg = dbg_new()
+#   dbg_break(dbg, "main.aur", 10)
+#   dbg_run(dbg)
+# =============================================================================
+
+# ── 创建调试器 ──
+fn dbg_new() {
+    return {"breakpoints": [], "running": false, "step": false, "current_line": 0}
+}
+
+# ── 设置断点 ──
+fn dbg_break(dbg, file, line) {
+    dbg.breakpoints = dbg.breakpoints + [{"file": file, "line": line}]
+    println("[DBG] 断点: " + file + ":" + str(line))
+    return dbg
+}
+
+# ── 清除断点 ──
+fn dbg_clear(dbg, file, line) {
+    var remaining = []
+    for bp in dbg.breakpoints {
+        if not (bp.file == file and bp.line == line) {
+            remaining = remaining + [bp]
+        }
+    }
+    dbg.breakpoints = remaining
+    return dbg
+}
+
+# ── 运行 ──
+fn dbg_run(dbg) {
+    dbg.running = true
+    println("[DBG] 运行, 断点 " + str(len(dbg.breakpoints)) + " 个")
+    return dbg
+}
+
+# ── 单步 ──
+fn dbg_step(dbg) {
+    dbg.step = true
+    dbg.current_line = dbg.current_line + 1
+    println("[DBG] 单步, 行 " + str(dbg.current_line))
+    return dbg
+}
+
+# ── 继续 ──
+fn dbg_continue(dbg) {
+    dbg.step = false
+    println("[DBG] 继续运行")
+    return dbg
+}
+
+# ── 查看变量 ──
+fn dbg_print_var(dbg, name, value) {
+    println("[DBG] " + name + " = " + str(value))
+    return dbg
+}
+
+# ── 调用栈 ──
+fn dbg_stack(dbg) {
+    return [{"file": "main.aur", "line": dbg.current_line, "fn": "main"}]
+}
+
+# ── 测试 ──
+fn main() {
+    println("── debugger 测试 ──")
+
+    let dbg = dbg_new()
+    dbg_break(dbg, "main.aur", 10)
+    dbg_break(dbg, "main.aur", 20)
+
+    dbg_run(dbg)
+    dbg_step(dbg)
+
+    dbg_print_var(dbg, "x", 42)
+    dbg_print_var(dbg, "name", "aurora")
+
+    let stack = dbg_stack(dbg)
+    println("调用栈: " + str(len(stack)) + " 帧")
+
+    println("✓ debugger 通过")
+}
+
+main()

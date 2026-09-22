@@ -2,6 +2,64 @@
 
 本项目遵循语义化版本,详见 `docs/VERSIONING.md`。
 
+## [4.0.0] - 2026-09-18
+
+### 概述
+Aurora v4.0.0 是自举（self-hosting）大版本——Aurora 语言第一次能写自己的词法分析器、AST、解析器和解释器。用 Aurora 本身写的 `selfhost/lexer.aur`（379 行）逐 token 对齐 Python 版词法器；`selfhost/parser.aur`（417 行）递归下降解析 Aurora 子集；`selfhost/interpreter.aur`（373 行）树遍历执行 Aurora 子集程序。同时为自举补齐了字符串增强方法（char_at / char_code_at / substring / index_of / repeat / is_digit / is_alpha 等）、栈/队列/树/链表数据结构、错误处理（throw / catch）和文件 I/O 增强。新增测试 `tests/test_selfhost_v400.py`（36 用例），全量 1122 测试通过。
+
+### 自举核心：Aurora 写 Aurora
+- **`selfhost/lexer.aur`** — `pub fn tokenize(source) -> list`，支持关键字、标识符、整数/浮点（`..` 识别为区间而非小数）、带转义的字符串、单/双字符运算符、`//` 和 `#` 注释、换行与行列追踪。输出与 Python 词法器逐 token 一致
+- **`selfhost/ast.aur`** — 15 个 AST 节点工厂函数（program / fn_def / let_stmt / var_stmt / return_stmt / if_stmt / while_stmt / for_stmt / binary_expr / unary_expr / call_expr / literal / identifier / list_literal / assign_expr）
+- **`selfhost/parser.aur`** — `pub fn parse(tokens) -> dict`，递归下降，优先级 `||` → `&&` → 相等 → 比较 → 加减 → 乘除 → 一元 → 后缀（调用）→ 主表达式；支持 let/var/fn/return/if-else/while/for（区间与列表）
+- **`selfhost/interpreter.aur`** — `pub fn interpret(program) -> any`，树遍历执行：作用域链、闭包、返回信号、算术/比较/逻辑、if/else、while、for、`print/println/len` 内置、列表 append/下标
+- **`selfhost/test_selfhost.aur`** — 在 Aurora 内自检词法/语法/解释（11 项断言全过）
+
+### 标准库增强（支撑自举）
+- **字符串方法**（interpreter `_get_method` 扩展）：`char_at(i)` / `char_code_at(i)` / `substring(start, end)` / `index_of(sub)` / `last_index_of(sub)` / `repeat(n)` / `is_digit()` / `is_alpha()` / `is_alpha_num()` / `is_space()` / `trim_start()` / `trim_end()`
+- **`std.str` 自由函数**：`from_char_code(code)` 及上述方法的函数式版本
+- **`std.stack`** / **`std.queue`** / **`std.tree`** / **`std.linked_list`**：栈（push/pop/peek/is_empty/size）、队列（enqueue/dequeue/peek/is_empty）、树节点（value/children/add_child）、链表（append/prepend/get/size）
+- **`std.error`**：`throw(msg)` 抛出异常（可被 try/catch 捕获）、`catch(fn, handler)` 异常捕获
+- **`std.fs` 增强**：`read_file(path)` / `write_file(path, content)` / `read_lines(path)`
+
+### 新增文件
+- `selfhost/lexer.aur`（379 行）— Aurora 词法分析器
+- `selfhost/ast.aur`（83 行）— AST 节点工厂
+- `selfhost/parser.aur`（417 行）— Aurora 递归下降解析器
+- `selfhost/interpreter.aur`（373 行）— Aurora 树遍历解释器
+- `selfhost/test_selfhost.aur`（64 行）— Aurora 内自检
+- `stdlib_selfhost.py`（216 行）— 自举支撑标准库
+- `tests/test_selfhost_v400.py`（323 行，36 用例）
+
+### 后续路线
+- 本版本是自举第一步：证明 Aurora 语言足够强大，能写出自己的词法分析器和解释器
+- 后续版本逐步扩展自举解析器/解释器覆盖范围，最终替换 Python 实现
+
+## [3.4.0] - 2026-09-18
+
+### 概述
+Aurora v3.4.0 是标准库补齐大版本——一次性把 Python 标准库里最常用的 14 个模块能力以 `std.*` 命名空间的形式接入,补齐正则、日志、CSV、压缩归档、加密哈希、日期时间、容器数据结构、迭代器工具、函数式工具、数学/统计、文件系统、线程与测试增强等日常开发高频场景。13 个新模块文件均为纯包装(返回普通 Python 类型,不引入新的运行时语义),通过 `_register_v340_modules()` 统一注册进 `STDLIB_MODULES`,已有的 `std.time` / `std.math` / `std.collections` 旧成员原样保留,只追加新成员。新增测试 `tests/test_stdlib_v340.py`(140+ 用例)。
+
+### 新增 std.* 模块(14 个命名空间)
+- **`std.re`(8 成员)**:正则匹配 `match` / `search` / `findall` / `finditer` / `sub` / `split` / `compile` 与可复用 `Regex` 对象,匹配结果以 dict 返回(`match/start/end/groups`),无匹配返回 `None`
+- **`std.log`(11 成员)**:五级别日志 `debug` / `info` / `warn` / `error` / `critical`,`set_level` 与 `add_file`,可多实例 `Logger`,支持 `%s` printf 格式化;附 `Formatter` / `ConsoleHandler` / `FileHandler`
+- **`std.csv`(6 成员)**:`parse` / `stringify` 内存往返,`read` / `write` 文件读写,自动引号转义与自定义分隔符;流式 `CsvReader` / `CsvWriter`
+- **`std.archive`(4 成员)**:`gzip_compress` / `gzip_decompress` 单流 gzip 往返,`zip_create` / `zip_extract` zip 打包解压
+- **`std.crypto`(9 成员)**:`md5` / `sha1` / `sha256` / `sha512` 已知答案哈希,`hmac`,UUID v4,`random_bytes` 加密安全随机,`b64encode` / `b64decode` Base64 往返
+- **`std.time`(增强,新增 12)**:在旧 `now` / `format` / `timestamp` / `sleep` 基础上补充 `today` / `parse` / `add_days` / `add_hours` / `diff` / `from_timestamp`,以及 `DateTime` / `Date` / `Duration`(暴露 days/hours/minutes/seconds 字段)
+- **`std.collections`(增强,新增 12)**:在旧 `Vec` / `HashMap` / `HashSet` 基础上补充 `deque` / `heap` / `priority_queue` / `counter` / `defaultdict` / `ordered_dict` 及对应类,含 most_common、最小堆 replace、优先级队列
+- **`std.itertools`(10 成员)**:`chain` / `zip_longest` / `groupby` / `accumulate` / `product` / `permutations` / `combinations` 统一返回 list;`count` / `cycle` / `repeat` 为无限序列包装,暴露 `take(n)` 取前 n 个
+- **`std.functools`(5 成员)**:`partial` 偏函数绑定,`reduce` 归约,`lru_cache` 装饰器缓存命中,`singledispatch` 按类型泛型分发,`wraps`
+- **`std.math`(增强,新增 6)**:`Complex` 复数四则与共轭/模/辐角,`Decimal` 精确十进制(`0.1+0.2==0.3` 无浮点误差),`Fraction` 分数
+- **`std.stats`(7 成员)**:新命名空间,`mean` / `median` / `mode` / `stdev` / `variance` / `percentile` / `correlation`,与 Python `statistics` 对照
+- **`std.fs`(19 成员)**:`path_*` 路径操作,`path_exists` / `is_file` / `is_dir`, `list_dir` / `walk`, `mkdir` / `mkdir_all`, `remove` / `remove_all`, `copy` / `move`, `size` / `modified_time`, `glob`,面向对象 `Path` 链式 API
+- **`std.thread`(4 成员)**:`spawn` 立即起线程,`Thread` 包装(start/join/is_alive),`sleep`, `current`
+- **`std.test`(5 成员)**:`mock` 记录方法调用,`assert_eq` / `assert_approx` / `assert_throws` 断言,`timeout` 装饰器+上下文管理器超时控制
+
+### 集成方式
+- **注册胶水**:在 `stdlib.py` 末尾新增 `_register_v340_modules()`,遍历 13 个新模块文件,`importlib` 导入后取 `STDLIB_REGISTRATION`,用 `STDLIB_MODULES[std_path].update(members)` 合并;模块缺失或导入失败时静默跳过,不影响核心功能
+- **向后兼容**:`std.time` / `std.math` / `std.collections` 为已存在命名空间,`.update()` 只追加新成员,旧成员(如 `std.math.PI` / `std.collections.Vec` / `std.time.sleep`)原样可用
+- **新增测试**:`tests/test_stdlib_v340.py`,unittest 风格,覆盖全部 14 个命名空间的每个成员;文件系统/线程/压缩测试一律使用 `tempfile.TemporaryDirectory`,不触碰项目内文件
+
 ## [3.3.0] - 2026-09-18
 
 ### 概述

@@ -1,0 +1,41 @@
+# =============================================================================
+# stdlib_json.aur — JSON 处理
+# =============================================================================
+
+# ── 解析 JSON ──
+fn json_parse(text) {
+    return json(text)
+}
+
+# ── 序列化为 JSON ──
+fn json_stringify(data) {
+    return to_json(data)
+}
+
+# ── 读取 JSON 文件 ──
+fn json_read_file(path) {
+    let text = read(path)
+    return json(text)
+}
+
+# ── 写入 JSON 文件 ──
+fn json_write_file(path, data) {
+    write(path, to_json(data))
+    return "已写入: " + path
+}
+
+# ── 测试 ──
+fn main() {
+    println("── stdlib_json 测试 ──")
+
+    let data = {"name": "Aurora", "version": 4, "tags": ["lang", "compiler"]}
+    let j = json_stringify(data)
+    println("序列化: " + j)
+
+    let back = json_parse(j)
+    println("解析: " + back["name"])
+
+    println("✓ stdlib_json 通过")
+}
+
+main()

@@ -1,0 +1,106 @@
+# =============================================================================
+# agent.aur — AI Agent（工具调用循环 + LLM 集成）
+# 用法:
+#   let a = agent_new("你是一个编程助手")
+#   agent_add_tool(a, "read_file", "读取文件", tool_read)
+#   agent_run(a, "读取 README.md")
+# =============================================================================
+
+# ── 创建 Agent ──
+fn agent_new(system_prompt) {
+    return {
+        "system": system_prompt,
+        "tools": [],
+        "messages": [{"role": "system", "content": system_prompt}],
+        "max_steps": 10
+    }
+}
+
+# ── 注册工具 ──
+fn agent_add_tool(agent, name, desc, handler) {
+    agent.tools = agent.tools + [{"name": name, "desc": desc, "handler": handler}]
+    return agent
+}
+
+# ── 查找工具 ──
+fn agent_find_tool(agent, name) {
+    for t in agent.tools {
+        if t.name == name {
+            return t
+        }
+    }
+    return ""
+}
+
+# ── 执行工具 ──
+fn agent_exec_tool(agent, name, arg) {
+    let tool = agent_find_tool(agent, name)
+    if tool == "" {
+        return "错误: 未知工具 " + name
+    }
+    return tool.handler(arg)
+}
+
+# ── 决策（简化版，实际由 LLM 驱动）──
+fn agent_decide(agent, task) {
+    if contains(task, "完成") or contains(task, "已完成") {
+        return {"type": "done", "result": task}
+    }
+    if contains(task, "读取") or contains(task, "read") {
+        return {"type": "tool", "name": "read_file", "arg": task}
+    }
+    if contains(task, "写入") or contains(task, "write") {
+        return {"type": "tool", "name": "write_file", "arg": task}
+    }
+    if contains(task, "列出") or contains(task, "目录") {
+        return {"type": "tool", "name": "list_dir", "arg": "."}
+    }
+    if contains(task, "执行") or contains(task, "命令") {
+        return {"type": "tool", "name": "shell", "arg": task}
+    }
+    if contains(task, "搜索") {
+        return {"type": "tool", "name": "grep", "arg": task}
+    }
+    return {"type": "done", "result": task}
+}
+
+# ── 运行 Agent 循环 ──
+fn agent_run(agent, task) {
+    println("")
+    println("🤖 Agent: " + task)
+
+    var steps = 0
+    var current = task
+
+    while steps < agent.max_steps {
+        steps = steps + 1
+        let action = agent_decide(agent, current)
+
+        if action.type == "done" {
+            println("  ✓ 完成: " + action.result)
+            return action.result
+        }
+
+        if action.type == "tool" {
+            println("  → " + action.name + ": " + action.arg)
+            let result = agent_exec_tool(agent, action.name, action.arg)
+            println("  ← " + result)
+            current = result
+        }
+    }
+
+    println("  ⚠ 达到最大步数")
+    return "超时"
+}
+
+# ── 测试 ──
+fn main() {
+    println("── agent 测试 ──")
+
+    let a = agent_new("你是 Aurora Code 的 AI 助手")
+    println("Agent 已创建: " + a.system)
+
+    println("✓ agent 通过")
+}
+
+main()

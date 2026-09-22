@@ -1,0 +1,562 @@
+# =============================================================================
+# asmgen.aur — 自举版 Aurora -> ARM64 (macOS arm64) 简化后端
+# -----------------------------------------------------------------------------
+# 用 Aurora 自身语言写的简化代码生成器，语义蓝本是 Python 侧 asmgen.py。
+# 范围：
+#   - 整数算术 + - * / % 与比较 == != < <= > >=
+#   - 函数定义与调用（含递归、基本栈帧）
+#   - 控制流 if/else、while
+#   - print/println 一个整数结果（write 系统调用）
+#
+# 寄存器约定：
+#   x0          表达式目标 / 参数0 / 返回值
+#   x9, x10, x11 表达式求值临时寄存器（caller-saved）
+#   x29=FP, x30=LR
+#   所有局部变量与参数一律放在栈上 [x29, #-off]，不做寄存器分配。
+#   二元运算左操作数先求值进 x9， spilling 到临时槽，再求右操作数进 x10，
+#   恢复 x9，最后执行运算——这样右操作数里的函数调用不会破坏左操作数。
+#
+# 入口：
+#   pub fn compile(src) -> string   返回完整 ARM64 汇编文本
+# =============================================================================
+
+import selfhost.lexer as lexer
+import selfhost.parser as parser
+
+# ---- 代码生成器状态 ----------------------------------------------------------
+var ag_lines = []
+var ag_funcs = {}
+var ag_var_index = {}
+var ag_label_cnt = 0
+var ag_tempoff = 8
+var ag_epilogue = ""
+
+# ---- 输出工具 ----------------------------------------------------------------
+fn emit(s) {
+    ag_lines.append(s)
+}
+
+fn new_label(prefix) {
+    ag_label_cnt = ag_label_cnt + 1
+    return prefix + "_" + str(ag_label_cnt)
+}
+
+fn list_has(lst, x) {
+    for item in lst {
+        if item == x {
+            return true
+        }
+    }
+    return false
+}
+
+# 函数名 -> 汇编符号
+fn c_ident(name) {
+    return "_aurora_" + name
+}
+
+# ---- 变量收集（参数 + let/var 声明，扁平化到当前函数栈帧） -------------------
+fn block_collect(stmts, out) {
+    for s in stmts {
+        collect_vars(s, out)
+    }
+}
+
+fn collect_vars(stmt, out) {
+    let k = stmt["kind"]
+    if k == "LetStmt" || k == "VarStmt" {
+        let n = stmt["name"]
+        if !list_has(out, n) {
+            out.append(n)
+        }
+        return
+    }
+    if k == "IfStmt" {
+        block_collect(stmt["then"], out)
+        let el = stmt["else"]
+        if el != nil {
+            block_collect(el, out)
+        }
+        return
+    }
+    if k == "WhileStmt" {
+        block_collect(stmt["body"], out)
+        return
+    }
+}
+
+# 变量在栈上的偏移（相对 x29，取负）
+fn var_off(name) {
+    let idx = ag_var_index.get(name)
+    if idx == nil {
+        return 0
+    }
+    return 8 * (idx + 1)
+}
+
+# ---- 比较条件助记符 ----------------------------------------------------------
+# cset 用的正条件
+fn cond_cond(op) {
+    if op == "==" {
+        return "eq"
+    }
+    if op == "!=" {
+        return "ne"
+    }
+    if op == "<" {
+        return "lt"
+    }
+    if op == "<=" {
+        return "le"
+    }
+    if op == ">" {
+        return "gt"
+    }
+    if op == ">=" {
+        return "ge"
+    }
+    return "eq"
+}
+
+# 分支用的"条件为假则跳转"反条件
+fn cond_inv(op) {
+    if op == "==" {
+        return "ne"
+    }
+    if op == "!=" {
+        return "eq"
+    }
+    if op == "<" {
+        return "ge"
+    }
+    if op == "<=" {
+        return "gt"
+    }
+    if op == ">" {
+        return "le"
+    }
+    if op == ">=" {
+        return "lt"
+    }
+    return "eq"
+}
+
+# ---- 表达式求值 -> 目标寄存器 ----------------------------------------------
+fn gen_expr(node, reg) {
+    if node == nil {
+        emit("  mov " + reg + ", #0")
+        return
+    }
+    let k = node["kind"]
+
+    if k == "Literal" {
+        let v = node["value"]
+        if v == true {
+            emit("  mov " + reg + ", #1")
+            return
+        }
+        if v == false {
+            emit("  mov " + reg + ", #0")
+            return
+        }
+        if v == nil {
+            emit("  mov " + reg + ", #0")
+            return
+        }
+        emit("  mov " + reg + ", #" + str(v))
+        return
+    }
+
+    if k == "Identifier" {
+        emit("  ldr " + reg + ", [x29, #-" + str(var_off(node["name"])) + "]")
+        return
+    }
+
+    if k == "UnaryExpr" {
+        gen_expr(node["operand"], "x9")
+        if node["op"] == "-" {
+            emit("  neg " + reg + ", x9")
+        } else {
+            # "!" 逻辑非
+            emit("  cmp x9, #0")
+            emit("  cset " + reg + ", eq")
+        }
+        return
+    }
+
+    if k == "BinaryExpr" {
+        gen_binary(node, reg)
+        return
+    }
+
+    if k == "CallExpr" {
+        gen_call(node, reg)
+        return
+    }
+
+    # 其它节点不支持，置 0
+    emit("  mov " + reg + ", #0")
+}
+
+# 二元运算：先把左操作数算进 x9 并 spill，再算右操作数进 x10，恢复 x9
+fn gen_binary(node, reg) {
+    let op = node["op"]
+
+    # 比较运算
+    if op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=" {
+        gen_expr(node["left"], "x9")
+        emit("  str x9, [x29, #-" + str(ag_tempoff) + "]")
+        gen_expr(node["right"], "x10")
+        emit("  ldr x9, [x29, #-" + str(ag_tempoff) + "]")
+        emit("  cmp x9, x10")
+        emit("  cset " + reg + ", " + cond_cond(op))
+        return
+    }
+
+    # 算术运算
+    gen_expr(node["left"], "x9")
+    emit("  str x9, [x29, #-" + str(ag_tempoff) + "]")
+    gen_expr(node["right"], "x10")
+    emit("  ldr x9, [x29, #-" + str(ag_tempoff) + "]")
+
+    if op == "+" {
+        emit("  add " + reg + ", x9, x10")
+        return
+    }
+    if op == "-" {
+        emit("  sub " + reg + ", x9, x10")
+        return
+    }
+    if op == "*" {
+        emit("  mul " + reg + ", x9, x10")
+        return
+    }
+    if op == "/" {
+        emit("  sdiv " + reg + ", x9, x10")
+        return
+    }
+    if op == "%" {
+        emit("  sdiv x11, x9, x10")
+        emit("  msub " + reg + ", x11, x10, x9")
+        return
+    }
+    emit("  mov " + reg + ", #0")
+}
+
+# 函数调用
+fn gen_call(node, reg) {
+    let callee = node["callee"]
+    if callee["kind"] != "Identifier" {
+        emit("  mov " + reg + ", #0")
+        return
+    }
+    let fname = callee["name"]
+
+    # print(x)：打印 x0 中的整数，无换行
+    if fname == "print" {
+        let args = node["args"]
+        if len(args) > 0 {
+            gen_expr(args[0], "x0")
+            emit("  bl _print_int")
+        }
+        emit("  mov " + reg + ", #0")
+        return
+    }
+
+    # println(x)：打印整数 + 换行
+    if fname == "println" {
+        let args = node["args"]
+        if len(args) > 0 {
+            gen_expr(args[0], "x0")
+            emit("  bl _print_int")
+        }
+        emit("  bl _print_nl")
+        emit("  mov " + reg + ", #0")
+        return
+    }
+
+    # 用户函数：实参放 x0..x7
+    let param_regs = ["x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"]
+    let args = node["args"]
+    let nargs = len(args)
+    var i = 0
+    while i < nargs && i < 8 {
+        gen_expr(args[i], param_regs[i])
+        i = i + 1
+    }
+    emit("  bl " + c_ident(fname))
+    emit("  mov " + reg + ", x0")
+}
+
+# ---- 条件分支（条件为假则跳转到 false_label） ------------------------------
+fn gen_cond(cond, false_label) {
+    if cond["kind"] == "BinaryExpr" {
+        let op = cond["op"]
+        if op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=" {
+            gen_expr(cond["left"], "x9")
+            emit("  str x9, [x29, #-" + str(ag_tempoff) + "]")
+            gen_expr(cond["right"], "x10")
+            emit("  ldr x9, [x29, #-" + str(ag_tempoff) + "]")
+            emit("  cmp x9, x10")
+            emit("  b." + cond_inv(op) + " " + false_label)
+            return
+        }
+    }
+    gen_expr(cond, "x9")
+    emit("  cmp x9, #0")
+    emit("  b.eq " + false_label)
+}
+
+# ---- 语句 --------------------------------------------------------------------
+fn block_gen(stmts) {
+    for s in stmts {
+        gen_stmt(s)
+    }
+}
+
+fn gen_if(stmt) {
+    let end_lab = new_label("if_end")
+    let else_lab = new_label("if_else")
+    gen_cond(stmt["cond"], else_lab)
+    block_gen(stmt["then"])
+    emit("  b " + end_lab)
+    emit(else_lab + ":")
+    let el = stmt["else"]
+    if el != nil {
+        block_gen(el)
+    }
+    emit(end_lab + ":")
+}
+
+fn gen_while(stmt) {
+    let cond_lab = new_label("while_cond")
+    let end_lab = new_label("while_end")
+    emit(cond_lab + ":")
+    gen_cond(stmt["cond"], end_lab)
+    block_gen(stmt["body"])
+    emit("  b " + cond_lab)
+    emit(end_lab + ":")
+}
+
+fn gen_stmt(stmt) {
+    let k = stmt["kind"]
+
+    if k == "LetStmt" || k == "VarStmt" {
+        gen_expr(stmt["value"], "x9")
+        emit("  str x9, [x29, #-" + str(var_off(stmt["name"])) + "]")
+        return
+    }
+
+    if k == "AssignExpr" {
+        gen_expr(stmt["value"], "x9")
+        emit("  str x9, [x29, #-" + str(var_off(stmt["name"])) + "]")
+        return
+    }
+
+    if k == "ReturnStmt" {
+        gen_expr(stmt["value"], "x0")
+        emit("  b " + ag_epilogue)
+        return
+    }
+
+    if k == "IfStmt" {
+        gen_if(stmt)
+        return
+    }
+
+    if k == "WhileStmt" {
+        gen_while(stmt)
+        return
+    }
+
+    # 其它：表达式语句，结果丢弃
+    gen_expr(stmt, "x9")
+}
+
+# ---- 函数定义生成 ------------------------------------------------------------
+fn gen_function(name, params, body) {
+    # 收集变量：参数在前，声明在后
+    let vars = []
+    for p in params {
+        vars.append(p)
+    }
+    block_collect(body, vars)
+
+    ag_var_index = {}
+    var idx = 0
+    while idx < len(vars) {
+        ag_var_index[vars[idx]] = idx
+        idx = idx + 1
+    }
+    let nvars = len(vars)
+    ag_tempoff = 8 * (nvars + 1)
+
+    # 栈帧额外大小 = 8*(nvars+1)，向上取整到 16 的倍数
+    # 8*(nvars+1) 已是 16 倍数当且仅当 (nvars+1) 为偶数
+    var extra = 8 * (nvars + 1)
+    if (nvars + 1) % 2 != 0 {
+        extra = extra + 8
+    }
+
+    ag_epilogue = new_label("epil")
+
+    emit("")
+    emit(c_ident(name) + ":")
+    emit("  stp x29, x30, [sp, #-16]!")
+    emit("  mov x29, sp")
+    if extra > 0 {
+        emit("  sub sp, sp, #" + str(extra))
+    }
+
+    # 参数从 x0..x7 存入栈槽
+    var pi = 0
+    while pi < len(params) {
+        emit("  str x" + str(pi) + ", [x29, #-" + str(8 * (pi + 1)) + "]")
+        pi = pi + 1
+    }
+
+    block_gen(body)
+
+    # 隐式返回 0
+    emit("  mov x0, #0")
+    emit(ag_epilogue + ":")
+    if extra > 0 {
+        emit("  add sp, sp, #" + str(extra))
+    }
+    emit("  ldp x29, x30, [sp], #16")
+    emit("  ret")
+}
+
+# ---- 内置辅助函数 ------------------------------------------------------------
+fn gen_helpers() {
+    # _print_int: 打印 x0 中的非负/负整数（十进制），不换行
+    emit("")
+    emit("_print_int:")
+    emit("  stp x29, x30, [sp, #-80]!")
+    emit("  mov x29, sp")
+    emit("  stp x19, x20, [sp, #16]")
+    emit("  stp x21, x22, [sp, #32]")
+    emit("  stp x23, x24, [sp, #48]")
+    emit("  mov x19, x0")
+    emit("  mov x20, #0")
+    emit("  add x21, sp, #76")
+    emit("  mov w22, #10")
+    emit("  mov x23, #0")
+    emit("  cmp x19, #0")
+    emit("  b.ge pi_loop")
+    emit("  neg x19, x19")
+    emit("  mov x23, #1")
+    emit("pi_loop:")
+    emit("  cmp x19, #0")
+    emit("  b.eq pi_sign")
+    emit("  sdiv x8, x19, x22")
+    emit("  msub x9, x8, x22, x19")
+    emit("  add w9, w9, #48")
+    emit("  strb w9, [x21, #-1]!")
+    emit("  mov x19, x8")
+    emit("  add x20, x20, #1")
+    emit("  b pi_loop")
+    emit("pi_sign:")
+    emit("  cmp x23, #0")
+    emit("  b.eq pi_zero")
+    emit("  mov w8, #45")
+    emit("  strb w8, [x21, #-1]!")
+    emit("  add x20, x20, #1")
+    emit("pi_zero:")
+    emit("  cmp x20, #0")
+    emit("  b.ne pi_write")
+    emit("  mov w8, #48")
+    emit("  strb w8, [x21, #-1]!")
+    emit("  add x20, x20, #1")
+    emit("pi_write:")
+    emit("  mov x0, #1")
+    emit("  mov x1, x21")
+    emit("  mov x2, x20")
+    emit("  mov x16, #4")
+    emit("  svc #0")
+    emit("  ldp x23, x24, [sp, #48]")
+    emit("  ldp x19, x20, [sp, #16]")
+    emit("  ldp x21, x22, [sp, #32]")
+    emit("  ldp x29, x30, [sp], #80")
+    emit("  ret")
+
+    # _print_nl: 打印一个换行符
+    emit("")
+    emit("_print_nl:")
+    emit("  stp x29, x30, [sp, #-16]!")
+    emit("  mov x29, sp")
+    emit("  mov x0, #1")
+    emit("  adrp x1, _nl@PAGE")
+    emit("  add x1, x1, _nl@PAGEOFF")
+    emit("  mov x2, #1")
+    emit("  mov x16, #4")
+    emit("  svc #0")
+    emit("  ldp x29, x30, [sp], #16")
+    emit("  ret")
+}
+
+# ---- 主入口 ------------------------------------------------------------------
+pub fn compile(src) {
+    ag_lines = []
+    ag_funcs = {}
+    ag_label_cnt = 0
+
+    let toks = lexer.tokenize(src)
+    let prog = parser.parse(toks)
+    let body = prog["body"]
+
+    # 分离函数定义与顶层语句
+    var top = []
+    for s in body {
+        if s["kind"] == "FnDef" {
+            ag_funcs[s["name"]] = s
+        } else {
+            top.append(s)
+        }
+    }
+
+    # 文件头
+    emit("  // generated by selfhost/asmgen.aur (Aurora v4.0.0 selfhost ARM64 backend)")
+    emit("  .global _main")
+    emit("  .align 2")
+    emit("  .text")
+
+    # 生成所有函数
+    for s in body {
+        if s["kind"] == "FnDef" {
+            gen_function(s["name"], s["params"], s["body"])
+        }
+    }
+
+    # 顶层语句包装函数
+    var has_top = false
+    if len(top) > 0 {
+        has_top = true
+        gen_function("_top_level", [], top)
+    }
+
+    # _main 入口
+    emit("")
+    emit("_main:")
+    emit("  stp x29, x30, [sp, #-16]!")
+    emit("  mov x29, sp")
+    if ag_funcs.get("main") != nil {
+        emit("  bl " + c_ident("main"))
+    }
+    if has_top {
+        emit("  bl " + c_ident("_top_level"))
+    }
+    emit("  mov x0, #0")
+    emit("  mov x16, #1")
+    emit("  svc #0")
+
+    gen_helpers()
+
+    # 数据段：换行符
+    emit("")
+    emit("  .data")
+    emit("  .align 3")
+    emit("_nl: .asciz \"\\n\"")
+
+    return ag_lines.join("\n")
+}

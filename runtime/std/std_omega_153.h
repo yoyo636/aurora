@@ -1,0 +1,15 @@
+/*
+ * Aurora 标准库 - 标准库欧米伽模块 153
+ */
+
+#ifndef AURORA_STD_OMEGA_153_H
+#define AURORA_STD_OMEGA_153_H
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int std_omega_153_run_000(int x);
+void* std_omega_153_make_000(void* p);
+
+#endif /* AURORA_STD_OMEGA_153_H */

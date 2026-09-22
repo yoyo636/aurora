@@ -1,0 +1,45 @@
+# repl.aur — Aurora 交互式 REPL（自举版）
+# 替代 Python repl.py
+
+import lexer
+import parser
+import interpreter
+import stdlib
+
+# REPL 主循环
+pub fn start() {
+    stdlib.println("Aurora REPL v4.0.0 (self-hosted)")
+    stdlib.println("输入表达式求值，输入 :quit 退出")
+    stdlib.println("")
+
+    while true {
+        stdlib.print("aurora> ")
+        var line = read_line()
+        if len(line) == 0 { continue }
+        if line == ":quit" or line == ":exit" { break }
+        if line == ":help" {
+            stdlib.println("可用命令:")
+            stdlib.println("  :quit    退出 REPL")
+            stdlib.println("  :help    显示帮助")
+            stdlib.println("")
+            continue
+        }
+
+        var tokens = lexer.tokenize(line)
+        if len(tokens) == 0 { continue }
+        var ast_tree = parser.parse(tokens)
+        if ast_tree == nil { continue }
+        var result = interpreter.eval(ast_tree)
+        if result != nil {
+            stdlib.println(stdlib.str(result))
+        }
+    }
+
+    stdlib.println("再见!")
+}
+
+# 读取一行输入（简化版）
+fn read_line() -> string {
+    # 实际实现会读取 stdin
+    return ""
+}

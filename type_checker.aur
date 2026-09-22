@@ -1,0 +1,116 @@
+# =============================================================================
+# type_checker.aur — 类型检查器
+# 用法:
+#   let tc = tc_new()
+#   tc_check_expr(tc, "x + 1", "int")
+# =============================================================================
+
+# ── 创建类型环境 ──
+fn tc_new() {
+    return {"vars": {}, "functions": {}, "errors": []}
+}
+
+# ── 推断表达式类型 ──
+fn tc_infer(tc, expr) {
+    # 简化: 根据值判断类型
+    if isinstance(expr, int) or isinstance(expr, float) { return "number" }
+    if isinstance(expr, str) { return "string" }
+    if isinstance(expr, bool) { return "boolean" }
+    if isinstance(expr, list) { return "list" }
+    if isinstance(expr, dict) { return "dict" }
+    return "unknown"
+}
+
+# ── 声明变量类型 ──
+fn tc_declare(tc, name, expected_type) {
+    tc.vars[name] = expected_type
+    return tc
+}
+
+# ── 检查表达式类型 ──
+fn tc_check(tc, name, expected_type) {
+    let actual = tc.vars[name]
+    if actual == expected_type {
+        return {"ok": true, "message": name + ": " + actual + " ✓"}
+    }
+    let err = "类型错误: " + name + " 期望 " + expected_type + " 实际 " + actual
+    tc.errors = tc.errors + [err]
+    return {"ok": false, "message": err}
+}
+
+# ── 注册函数签名 ──
+fn tc_register_fn(tc, name, params, ret_type) {
+    tc.functions[name] = {"params": params, "ret": ret_type}
+    return tc
+}
+
+# ── 检查函数调用 ──
+fn tc_check_call(tc, fn_name, args) {
+    if not contains(tc.functions, fn_name) {
+        let err = "未定义函数: " + fn_name
+        tc.errors = tc.errors + [err]
+        return {"ok": false, "message": err}
+    }
+    let sig = tc.functions[fn_name]
+    if len(args) != len(sig.params) {
+        let err = fn_name + " 参数数量错误: 期望 " + str(len(sig.params)) + " 实际 " + str(len(args))
+        tc.errors = tc.errors + [err]
+        return {"ok": false, "message": err}
+    }
+    return {"ok": true, "message": fn_name + "() ✓"}
+}
+
+# ── 类型兼容检查 ──
+fn tc_compatible(a, b) {
+    # number 兼容 int/float
+    if a == "number" and (b == "int" or b == "float") { return true }
+    if b == "number" and (a == "int" or a == "float") { return true }
+    return a == b
+}
+
+# ── 报告 ──
+fn tc_report(tc) {
+    println("")
+    println("═══════════════════════════════════════")
+    println("  类型检查报告")
+    println("═══════════════════════════════════════")
+    println("  变量: " + str(len(tc.vars)))
+    println("  函数: " + str(len(tc.functions)))
+    println("  错误: " + str(len(tc.errors)))
+    if len(tc.errors) > 0 {
+        println("")
+        for e in tc.errors {
+            println("    ✗ " + e)
+        }
+    }
+    println("═══════════════════════════════════════")
+}
+
+# ── 测试 ──
+fn main() {
+    println("── type_checker 测试 ──")
+
+    let tc = tc_new()
+
+    # 注册函数
+    tc_register_fn(tc, "add", ["int", "int"], "int")
+    tc_register_fn(tc, "greet", ["string"], "string")
+
+    # 声明变量
+    tc_declare(tc, "x", "int")
+    tc_declare(tc, "name", "string")
+
+    # 检查
+    let r1 = tc_check(tc, "x", "int")
+    println("  " + r1.message)
+
+    let r2 = tc_check_call(tc, "add", [1, 2])
+    println("  " + r2.message)
+
+    let r3 = tc_compatible("int", "number")
+    println("  int/number 兼容: " + str(r3))
+
+    tc_report(tc)
+}
+
+main()

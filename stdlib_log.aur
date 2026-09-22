@@ -1,0 +1,131 @@
+# stdlib_log.aur — 日志标准库（自举版）
+# 对应 Python stdlib_log.py
+# 分级日志、格式化、文件输出
+
+import stdlib
+import stdlib_time
+
+# 日志级别
+var LOG_DEBUG = 0
+var LOG_INFO = 1
+var LOG_WARN = 2
+var LOG_ERROR = 3
+var LOG_FATAL = 4
+
+# 当前日志级别
+var log_level = 1  # 默认 INFO
+
+# 日志文件
+var log_file = ""
+
+# 设置日志级别
+pub fn set_level(level) {
+    log_level = level
+}
+
+# 设置日志文件
+pub fn set_file(path) {
+    log_file = path
+}
+
+# ============ 各级别日志 ============
+
+pub fn debug(msg) {
+    if log_level <= LOG_DEBUG {
+        log("DEBUG", msg)
+    }
+}
+
+pub fn info(msg) {
+    if log_level <= LOG_INFO {
+        log("INFO", msg)
+    }
+}
+
+pub fn warn(msg) {
+    if log_level <= LOG_WARN {
+        log("WARN", msg)
+    }
+}
+
+pub fn error(msg) {
+    if log_level <= LOG_ERROR {
+        log("ERROR", msg)
+    }
+}
+
+pub fn fatal(msg) {
+    log("FATAL", msg)
+    stdlib.exit(1)
+}
+
+# ============ 核心 ============
+
+fn log(level_str, msg) {
+    var timestamp = stdlib_time.format_time(stdlib_time.now())
+    var line = timestamp + " [" + level_str + "] " + msg
+
+    # 输出到终端
+    stdlib.println(line)
+
+    # 写入文件
+    if log_file != "" {
+        stdlib_fs_append(log_file, line + "\n")
+    }
+}
+
+# 格式化日志
+pub fn logf(level, format, args...) {
+    var msg = format
+    var i = 0
+    while i < len(args) {
+        var placeholder = "{" + stdlib.str(i) + "}"
+        msg = replace_all(msg, placeholder, stdlib.str(args[i]))
+        i = i + 1
+    }
+    log(level, msg)
+}
+
+# ============ 辅助 ============
+
+fn stdlib_fs_append(path, content) {
+    # FFI: 追加写入
+}
+
+fn replace_all(s, old, new) -> string {
+    var result = ""
+    var i = 0
+    while i < len(s) {
+        if i + len(old) <= len(s) {
+            var match = true
+            var j = 0
+            while j < len(old) {
+                if char_at(s, i + j) != char_at(old, j) {
+                    match = false
+                    break
+                }
+                j = j + 1
+            }
+            if match {
+                result = result + new
+                i = i + len(old)
+                continue
+            }
+        }
+        result = result + char_at(s, i)
+        i = i + 1
+    }
+    return result
+}
+
+# ============ 性能计时 ============
+
+# 记录耗时
+pub fn time_it(operation, fn) {
+    var start = stdlib_time.now_ms()
+    var result = fn()
+    var end = stdlib_time.now_ms()
+    var duration = end - start
+    info(operation + " 耗时: " + stdlib.str(duration) + "ms")
+    return result
+}

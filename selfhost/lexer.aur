@@ -1,0 +1,382 @@
+# =============================================================================
+# lexer.aur — 自举词法分析器
+# -----------------------------------------------------------------------------
+# 输入：源码字符串
+# 输出：token dict 列表，每个 token 形如
+#   {"type": "INTEGER", "value": "123", "line": 1, "column": 5}
+#
+# 关键字的 type 直接使用大写关键字文本（LET / FN / IF ...）。
+# 运算符使用符号对应的大写名（PLUS / EQ / LPAREN ...）。
+# =============================================================================
+
+# ---- 模块级扫描状态 ----------------------------------------------------------
+var lx_src = ""
+var lx_pos = 0
+var lx_line = 1
+var lx_col = 1
+var lx_tokens = []
+
+# ---- 字符分类 ----------------------------------------------------------------
+fn is_digit(c) {
+    return c >= "0" && c <= "9"
+}
+
+fn is_alpha(c) {
+    return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c == "_"
+}
+
+fn is_alnum(c) {
+    return is_alpha(c) || is_digit(c)
+}
+
+# ---- 扫描辅助 ----------------------------------------------------------------
+fn lx_len() {
+    return lx_src.len()
+}
+
+fn lx_char(i) {
+    if i < 0 || i >= lx_len() {
+        return ""
+    }
+    return lx_src.char_at(i)
+}
+
+fn lx_peek() {
+    return lx_char(lx_pos)
+}
+
+fn lx_peek2() {
+    return lx_char(lx_pos + 1)
+}
+
+fn lx_advance() {
+    lx_pos = lx_pos + 1
+    lx_col = lx_col + 1
+}
+
+fn lx_emit(ttype, tvalue, sl, sc) {
+    let t = {"type": ttype, "value": tvalue, "line": sl, "column": sc}
+    lx_tokens.append(t)
+}
+
+# 关键字 → 大写 type 名
+fn keyword_type(text) {
+    let table = {
+        "fn": "FN",
+        "let": "LET",
+        "var": "VAR",
+        "if": "IF",
+        "else": "ELSE",
+        "while": "WHILE",
+        "for": "FOR",
+        "return": "RETURN",
+        "break": "BREAK",
+        "continue": "CONTINUE",
+        "true": "TRUE",
+        "false": "FALSE",
+        "nil": "NIL",
+        "import": "IMPORT",
+        "pub": "PUB",
+        "struct": "STRUCT",
+        "enum": "ENUM",
+        "match": "MATCH",
+        "and": "AND",
+        "or": "OR",
+        "not": "NOT"
+    }
+    let v = table.get(text)
+    if v == nil {
+        return ""
+    }
+    return v
+}
+
+# ---- 数字 --------------------------------------------------------------------
+fn read_number() {
+    let sl = lx_line
+    let sc = lx_col
+    let start = lx_pos
+    let mut has_dot = false
+    let n = lx_len()
+    while lx_pos < n {
+        let cc = lx_char(lx_pos)
+        if is_digit(cc) {
+            lx_advance()
+        } else {
+            if cc == "." && !has_dot {
+                # `1..5` 中的 `..` 是区间运算符，不是小数点
+                if lx_pos + 1 < n && lx_char(lx_pos + 1) == "." {
+                    break
+                }
+                has_dot = true
+                lx_advance()
+            } else {
+                break
+            }
+        }
+    }
+    let text = lx_src.substring(start, lx_pos)
+    # 与 Python lexer 一致：标识符/数字记录结束位置
+    if has_dot {
+        lx_emit("FLOAT", text, lx_line, lx_col)
+    } else {
+        lx_emit("INTEGER", text, lx_line, lx_col)
+    }
+}
+
+# ---- 字符串（处理转义）-------------------------------------------------------
+fn read_string() {
+    let sl = lx_line
+    let sc = lx_col
+    lx_advance()  # 跳过起始 "
+    let mut out = ""
+    let n = lx_len()
+    while lx_pos < n {
+        let cc = lx_char(lx_pos)
+        if cc == "\"" {
+            # 与 Python lexer 一致：字符串记录结束位置（结束引号处）
+            lx_emit("STRING", out, lx_line, lx_col)
+            lx_advance()  # 跳过结束 "
+            return
+        }
+        if cc == "\\" {
+            lx_advance()
+            if lx_pos >= n {
+                break
+            }
+            let esc = lx_char(lx_pos)
+            lx_advance()
+            if esc == "n" {
+                out = out + "\n"
+            } else {
+                if esc == "t" {
+                    out = out + "\t"
+                } else {
+                    if esc == "r" {
+                        out = out + "\r"
+                    } else {
+                        if esc == "\\" {
+                            out = out + "\\"
+                        } else {
+                            if esc == "\"" {
+                                out = out + "\""
+                            } else {
+                                if esc == "'" {
+                                    out = out + "'"
+                                } else {
+                                    out = out + esc
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            out = out + cc
+            lx_advance()
+        }
+    }
+    lx_emit("STRING", out, sl, sc)
+}
+
+# ---- 标识符 / 关键字 ---------------------------------------------------------
+fn read_identifier() {
+    let sl = lx_line
+    let sc = lx_col
+    let start = lx_pos
+    let n = lx_len()
+    while lx_pos < n {
+        let cc = lx_char(lx_pos)
+        if is_alnum(cc) {
+            lx_advance()
+        } else {
+            break
+        }
+    }
+    let text = lx_src.substring(start, lx_pos)
+    let kt = keyword_type(text)
+    # 与 Python lexer 一致：标识符/关键字记录结束位置
+    if kt == "" {
+        lx_emit("IDENTIFIER", text, lx_line, lx_col)
+    } else {
+        lx_emit(kt, text, lx_line, lx_col)
+    }
+}
+
+# ---- 双字符运算符 ------------------------------------------------------------
+fn read_double_symbol(c) {
+    let sl = lx_line
+    let sc = lx_col
+    let c2 = lx_peek2()
+    let two = c + c2
+    if two == "==" {
+        lx_emit("EQ", "==", sl, sc); lx_advance(); lx_advance(); return true
+    }
+    if two == "!=" {
+        lx_emit("NE", "!=", sl, sc); lx_advance(); lx_advance(); return true
+    }
+    if two == "<=" {
+        lx_emit("LE", "<=", sl, sc); lx_advance(); lx_advance(); return true
+    }
+    if two == ">=" {
+        lx_emit("GE", ">=", sl, sc); lx_advance(); lx_advance(); return true
+    }
+    if two == "&&" {
+        lx_emit("AND", "&&", sl, sc); lx_advance(); lx_advance(); return true
+    }
+    if two == "||" {
+        lx_emit("OR", "||", sl, sc); lx_advance(); lx_advance(); return true
+    }
+    if two == "->" {
+        lx_emit("ARROW", "->", sl, sc); lx_advance(); lx_advance(); return true
+    }
+    if two == "=>" {
+        lx_emit("FAT_ARROW", "=>", sl, sc); lx_advance(); lx_advance(); return true
+    }
+    if two == ".." {
+        lx_emit("RANGE", "..", sl, sc); lx_advance(); lx_advance(); return true
+    }
+    return false
+}
+
+# ---- 单字符运算符 ------------------------------------------------------------
+fn read_single_symbol(c) {
+    let sl = lx_line
+    let sc = lx_col
+    if c == "+" {
+        lx_emit("PLUS", "+", sl, sc); lx_advance(); return
+    }
+    if c == "-" {
+        lx_emit("MINUS", "-", sl, sc); lx_advance(); return
+    }
+    if c == "*" {
+        lx_emit("STAR", "*", sl, sc); lx_advance(); return
+    }
+    if c == "/" {
+        lx_emit("SLASH", "/", sl, sc); lx_advance(); return
+    }
+    if c == "%" {
+        lx_emit("PERCENT", "%", sl, sc); lx_advance(); return
+    }
+    if c == "<" {
+        lx_emit("LT", "<", sl, sc); lx_advance(); return
+    }
+    if c == ">" {
+        lx_emit("GT", ">", sl, sc); lx_advance(); return
+    }
+    if c == "!" {
+        lx_emit("NOT", "!", sl, sc); lx_advance(); return
+    }
+    if c == "=" {
+        lx_emit("ASSIGN", "=", sl, sc); lx_advance(); return
+    }
+    if c == "(" {
+        lx_emit("LPAREN", "(", sl, sc); lx_advance(); return
+    }
+    if c == ")" {
+        lx_emit("RPAREN", ")", sl, sc); lx_advance(); return
+    }
+    if c == "[" {
+        lx_emit("LBRACKET", "[", sl, sc); lx_advance(); return
+    }
+    if c == "]" {
+        lx_emit("RBRACKET", "]", sl, sc); lx_advance(); return
+    }
+    if c == "{" {
+        lx_emit("LBRACE", "{", sl, sc); lx_advance(); return
+    }
+    if c == "}" {
+        lx_emit("RBRACE", "}", sl, sc); lx_advance(); return
+    }
+    if c == "," {
+        lx_emit("COMMA", ",", sl, sc); lx_advance(); return
+    }
+    if c == ":" {
+        lx_emit("COLON", ":", sl, sc); lx_advance(); return
+    }
+    if c == ";" {
+        lx_emit("SEMICOLON", ";", sl, sc); lx_advance(); return
+    }
+    if c == "." {
+        lx_emit("DOT", ".", sl, sc); lx_advance(); return
+    }
+    # 未知字符：跳过，保持健壮
+    lx_advance()
+}
+
+fn read_symbol() {
+    let c = lx_peek()
+    if read_double_symbol(c) {
+        return
+    }
+    read_single_symbol(c)
+}
+
+# ---- 主入口 ------------------------------------------------------------------
+pub fn tokenize(src_input) {
+    lx_src = src_input
+    lx_pos = 0
+    lx_line = 1
+    lx_col = 1
+    lx_tokens = []
+    let n = lx_len()
+
+    while lx_pos < n {
+        let c = lx_peek()
+
+        # 空白：空格 / tab / 回车跳过
+        if c == " " || c == "\t" || c == "\r" {
+            lx_advance()
+            continue
+        }
+
+        # 换行：产出 NEWLINE token
+        if c == "\n" {
+            lx_emit("NEWLINE", "\n", lx_line, lx_col)
+            lx_advance()
+            lx_line = lx_line + 1
+            lx_col = 1
+            continue
+        }
+
+        # 行注释 // ...
+        if c == "/" && lx_peek2() == "/" {
+            while lx_pos < n && lx_char(lx_pos) != "\n" {
+                lx_advance()
+            }
+            continue
+        }
+
+        # 行注释 # ...
+        if c == "#" {
+            while lx_pos < n && lx_char(lx_pos) != "\n" {
+                lx_advance()
+            }
+            continue
+        }
+
+        # 数字
+        if is_digit(c) {
+            read_number()
+            continue
+        }
+
+        # 字符串
+        if c == "\"" {
+            read_string()
+            continue
+        }
+
+        # 标识符 / 关键字
+        if is_alpha(c) {
+            read_identifier()
+            continue
+        }
+
+        # 运算符 / 分隔符
+        read_symbol()
+    }
+
+    lx_emit("EOF", "", lx_line, lx_col)
+    return lx_tokens
+}

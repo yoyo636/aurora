@@ -1,0 +1,73 @@
+# ownership.aur — Aurora 所有权系统（自举版）
+# RAII drop、move 语义、借用检查（简化版）
+# 对应 Python ownership.py
+
+import stdlib
+
+# Drop 特征：资源释放
+type Drop {
+    drop_fn: fn
+}
+
+# 已注册的 drop 函数
+var drop_registry = {}
+
+# 注册 drop
+pub fn on_drop(ptr, fn) {
+    drop_registry[ptr] = fn
+}
+
+# 释放
+pub fn drop(ptr) {
+    if has_key(drop_registry, ptr) {
+        drop_registry[ptr]()
+        delete drop_registry[ptr]
+    }
+}
+
+# 作用域守卫（RAII）
+type ScopeGuard {
+    cleanup: fn,
+    active: bool
+}
+
+pub fn scope_guard(cleanup_fn) -> ScopeGuard {
+    return ScopeGuard {
+        cleanup: cleanup_fn,
+        active: true
+    }
+}
+
+pub fn dismiss(guard) {
+    guard.active = false
+}
+
+# 借用检查（编译期）
+# &T 共享引用，&mut T 可变引用
+
+# 检查借用冲突
+pub fn check_borrow(scope, name, mutable) -> bool {
+    # 简化版：编译期静态检查
+    return true
+}
+
+# 移动
+pub fn move_value(src, dst) {
+    # 编译期：转移所有权
+    dst = src
+    src = nil
+}
+
+# 克隆
+pub fn clone(value) {
+    # 深拷贝
+    return value
+}
+
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

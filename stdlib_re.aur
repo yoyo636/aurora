@@ -1,0 +1,388 @@
+# stdlib_re.aur — 正则表达式标准库（自举版）
+# 对应 Python stdlib_re.py
+# 支持：. * + ? ^ $ | () [] \d \w \s
+
+import stdlib
+
+# 编译后的正则表达式
+type Regex {
+    pattern: string,
+    groups: int
+}
+
+# ============ 编译 ============
+
+pub fn compile(pattern) -> Regex {
+    var groups = count_groups(pattern)
+    return Regex {
+        pattern: pattern,
+        groups: groups
+    }
+}
+
+# ============ 匹配 ============
+
+# 检查是否匹配
+pub fn matches(re, text) -> bool {
+    return find(re, text) != nil
+}
+
+# 查找第一个匹配
+pub fn find(re, text) -> {} {
+    # 简化版：逐位置尝试匹配
+    var i = 0
+    while i <= len(text) {
+        var result = match_at(re.pattern, 0, text, i)
+        if result.matched {
+            return {
+                start: i,
+                end: i + result.length,
+                groups: result.groups
+            }
+        }
+        i = i + 1
+    }
+    return nil
+}
+
+# 查找所有匹配
+pub fn find_all(re, text) -> [{}] {
+    var results = []
+    var pos = 0
+    while pos <= len(text) {
+        var result = match_at(re.pattern, 0, text, pos)
+        if result.matched {
+            push(results, {
+                start: pos,
+                end: pos + result.length
+            })
+            pos = pos + result.length
+        } else {
+            pos = pos + 1
+        }
+    }
+    return results
+}
+
+# 替换
+pub fn replace(re, text, replacement) -> string {
+    var result = ""
+    var pos = 0
+    var last_end = 0
+    while pos <= len(text) {
+        var result2 = match_at(re.pattern, 0, text, pos)
+        if result2.matched {
+            # 保留匹配前的文本
+            var i = last_end
+            while i < pos {
+                result = result + char_at(text, i)
+                i = i + 1
+            }
+            result = result + replacement
+            pos = pos + result2.length
+            last_end = pos
+        } else {
+            pos = pos + 1
+        }
+    }
+    # 保留剩余文本
+    var i = last_end
+    while i < len(text) {
+        result = result + char_at(text, i)
+        i = i + 1
+    }
+    return result
+}
+
+# 分割
+pub fn split(re, text) -> [string] {
+    var parts = []
+    var last_end = 0
+    var pos = 0
+    while pos <= len(text) {
+        var result = match_at(re.pattern, 0, text, pos)
+        if result.matched {
+            var part = ""
+            var i = last_end
+            while i < pos {
+                part = part + char_at(text, i)
+                i = i + 1
+            }
+            push(parts, part)
+            pos = pos + result.length
+            last_end = pos
+        } else {
+            pos = pos + 1
+        }
+    }
+    var part = ""
+    var i = last_end
+    while i < len(text) {
+        part = part + char_at(text, i)
+        i = i + 1
+    }
+    push(parts, part)
+    return parts
+}
+
+# ============ 核心匹配引擎 ============
+# 递归下降匹配
+
+fn match_at(pattern, pat_idx, text, text_idx) -> {} {
+    if pat_idx >= len(pattern) {
+        return { matched: true, length: 0, groups: [] }
+    }
+
+    var c = char_at(pattern, pat_idx)
+
+    # ^ 开头
+    if c == '^' {
+        if text_idx == 0 {
+            return match_at(pattern, pat_idx + 1, text, text_idx)
+        }
+        return { matched: false, length: 0, groups: [] }
+    }
+
+    # $ 结尾
+    if c == '$' {
+        if text_idx >= len(text) {
+            return { matched: true, length: 0, groups: [] }
+        }
+        return { matched: false, length: 0, groups: [] }
+    }
+
+    # \d \w \s
+    if c == '\\' and pat_idx + 1 < len(pattern) {
+        var next = char_at(pattern, pat_idx + 1)
+        if text_idx >= len(text) {
+            return { matched: false, length: 0, groups: [] }
+        }
+        var tc = char_at(text, text_idx)
+        var match = false
+        if next == 'd' {
+            match = is_digit_char(tc)
+        } elif next == 'w' {
+            match = is_word_char(tc)
+        } elif next == 's' {
+            match = is_space_char(tc)
+        }
+        if match {
+            var rest = match_at(pattern, pat_idx + 2, text, text_idx + 1)
+            if rest.matched {
+                return { matched: true, length: 1 + rest.length, groups: rest.groups }
+            }
+        }
+        return { matched: false, length: 0, groups: [] }
+    }
+
+    # . 任意字符
+    if c == '.' {
+        if text_idx >= len(text) {
+            return { matched: false, length: 0, groups: [] }
+        }
+        var rest = match_at(pattern, pat_idx + 1, text, text_idx + 1)
+        if rest.matched {
+            return { matched: true, length: 1 + rest.length, groups: rest.groups }
+        }
+        return { matched: false, length: 0, groups: [] }
+    }
+
+    # * 零或多次
+    if c == '*' {
+        return match_star(pattern, pat_idx, text, text_idx)
+    }
+
+    # + 一或多次
+    if c == '+' {
+        var first = match_at(pattern, pat_idx - 1, text, text_idx)
+        if first.matched {
+            return match_star(pattern, pat_idx, text, text_idx + first.length)
+        }
+        return { matched: false, length: 0, groups: [] }
+    }
+
+    # ? 零或一次
+    if c == '?' {
+        var yes = match_at(pattern, pat_idx - 1, text, text_idx)
+        if yes.matched {
+            var rest = match_at(pattern, pat_idx + 1, text, text_idx + yes.length)
+            if rest.matched {
+                return { matched: true, length: yes.length + rest.length, groups: rest.groups }
+            }
+        }
+        # 不匹配这个字符
+        var rest2 = match_at(pattern, pat_idx + 1, text, text_idx)
+        if rest2.matched {
+            return rest2
+        }
+        return { matched: false, length: 0, groups: [] }
+    }
+
+    # | 或
+    if c == '|' {
+        # 尝试匹配右侧
+        var right = match_at(pattern, pat_idx + 1, text, text_idx)
+        if right.matched {
+            return right
+        }
+        return { matched: false, length: 0, groups: [] }
+    }
+
+    # ( 分组
+    if c == '(' {
+        var close_idx = find_close_paren(pattern, pat_idx)
+        if close_idx < 0 {
+            return { matched: false, length: 0, groups: [] }
+        }
+        var inner = substring(pattern, pat_idx + 1, close_idx)
+        var result = match_at(inner, 0, text, text_idx)
+        if result.matched {
+            var rest = match_at(pattern, close_idx + 1, text, text_idx + result.length)
+            if rest.matched {
+                return {
+                    matched: true,
+                    length: result.length + rest.length,
+                    groups: push(result.groups, { start: text_idx, end: text_idx + result.length })
+                }
+            }
+        }
+        return { matched: false, length: 0, groups: [] }
+    }
+
+    # [ 字符类
+    if c == '[' {
+        var close_idx = find_close_bracket(pattern, pat_idx)
+        if close_idx < 0 or text_idx >= len(text) {
+            return { matched: false, length: 0, groups: [] }
+        }
+        var tc = char_at(text, text_idx)
+        var char_class = substring(pattern, pat_idx + 1, close_idx)
+        if in_char_class(tc, char_class) {
+            var rest = match_at(pattern, close_idx + 1, text, text_idx + 1)
+            if rest.matched {
+                return { matched: true, length: 1 + rest.length, groups: rest.groups }
+            }
+        }
+        return { matched: false, length: 0, groups: [] }
+    }
+
+    # 普通字符
+    if text_idx >= len(text) {
+        return { matched: false, length: 0, groups: [] }
+    }
+    if c == char_at(text, text_idx) {
+        var rest = match_at(pattern, pat_idx + 1, text, text_idx + 1)
+        if rest.matched {
+            return { matched: true, length: 1 + rest.length, groups: rest.groups }
+        }
+    }
+
+    return { matched: false, length: 0, groups: [] }
+}
+
+fn match_star(pattern, pat_idx, text, text_idx) -> {} {
+    var char_pattern = substring(pattern, pat_idx - 1, pat_idx)
+
+    # 贪婪：尽可能多地匹配
+    var consumed = 0
+    var try_pos = text_idx
+    while true {
+        var one = match_at(char_pattern, 0, text, try_pos)
+        if one.matched {
+            consumed = consumed + one.length
+            try_pos = try_pos + one.length
+        } else {
+            break
+        }
+    }
+
+    # 回溯：尝试少匹配一些
+    while consumed >= 0 {
+        var rest = match_at(pattern, pat_idx + 1, text, text_idx + consumed)
+        if rest.matched {
+            return { matched: true, length: consumed + rest.length, groups: rest.groups }
+        }
+        consumed = consumed - 1
+    }
+
+    return { matched: false, length: 0, groups: [] }
+}
+
+# ============ 辅助 ============
+
+fn count_groups(pattern) -> int {
+    var count = 0
+    var i = 0
+    while i < len(pattern) {
+        if char_at(pattern, i) == '(' {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+fn find_close_paren(pattern, open_idx) -> int {
+    var depth = 1
+    var i = open_idx + 1
+    while i < len(pattern) {
+        var c = char_at(pattern, i)
+        if c == '(' { depth = depth + 1 }
+        if c == ')' {
+            depth = depth - 1
+            if depth == 0 { return i }
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn find_close_bracket(pattern, open_idx) -> int {
+    var i = open_idx + 1
+    while i < len(pattern) {
+        if char_at(pattern, i) == ']' {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn in_char_class(c, class) -> bool {
+    var i = 0
+    while i < len(class) {
+        var ch = char_at(class, i)
+        if ch == '-' and i > 0 and i + 1 < len(class) {
+            var start = char_at(class, i - 1)
+            var end = char_at(class, i + 1)
+            if c >= start and c <= end { return true }
+            i = i + 2
+        } else {
+            if c == ch { return true }
+            i = i + 1
+        }
+    }
+    return false
+}
+
+fn is_digit_char(c) -> bool {
+    return c >= '0' and c <= '9'
+}
+
+fn is_word_char(c) -> bool {
+    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '_'
+}
+
+fn is_space_char(c) -> bool {
+    return c == ' ' or c == '\t' or c == '\n' or c == '\r'
+}
+
+fn substring(s, start, end) -> string {
+    var result = ""
+    var i = start
+    while i < end and i < len(s) {
+        result = result + char_at(s, i)
+        i = i + 1
+    }
+    return result
+}

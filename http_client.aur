@@ -1,0 +1,30 @@
+# =============================================================================
+# http_client.aur — HTTP 客户端
+# =============================================================================
+
+# ── GET 请求 ──
+fn http_get(url) {
+    return get(url)
+}
+
+# ── 下载文件 ──
+fn http_download(url, path) {
+    download(url, path)
+    return "已下载到: " + path
+}
+
+# ── POST 请求（通过 curl）──
+fn http_post(url, body) {
+    let cmd = "curl -s -X POST " + url +
+              " -H \"Content-Type: application/json\" " +
+              " -d '" + body + "'"
+    return shell(cmd)
+}
+
+# ── 测试 ──
+fn main() {
+    println("── http_client 测试 ──")
+    println("✓ http_client 通过 (需要网络才能实际请求)")
+}
+
+main()

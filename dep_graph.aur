@@ -1,0 +1,143 @@
+# dep_graph.aur — 真实依赖图（自举版）
+# 对应 Python dep_graph.py
+# 拓扑排序、循环依赖检测、脏标记
+
+import stdlib
+
+type DepGraph {
+    nodes: {},
+    edges: {}
+}
+
+var graph = DepGraph {
+    nodes: {},
+    edges: {}
+}
+
+# 添加节点
+pub fn add_node(name, data) {
+    graph.nodes[name] = {
+        data: data,
+        dirty: false,
+        deps: []
+    }
+}
+
+# 添加依赖：from 依赖 to
+pub fn depends_on(from, to) {
+    if !has_key(graph.edges, from) {
+        graph.edges[from] = []
+    }
+    stdlib.push(graph.edges[from], to)
+}
+
+# 标记节点为脏
+pub fn mark_dirty(name) {
+    if has_key(graph.nodes, name) {
+        graph.nodes[name].dirty = true
+    }
+    # 递归标记下游
+    if has_key(graph.edges, name) {
+        var i = 0
+        while i < len(graph.edges[name]) {
+            mark_dirty(graph.edges[name][i])
+            i = i + 1
+        }
+    }
+}
+
+# 检查循环依赖
+pub fn check_cycles() -> [string] {
+    var cycles = []
+    var visited = {}
+    var stack = {}
+
+    for node in graph.nodes {
+        if has_cycle_dfs(node, visited, stack, []) {
+            stdlib.push(cycles, node)
+        }
+    }
+    return cycles
+}
+
+fn has_cycle_dfs(node, visited, stack, path) -> bool {
+    if has_key(stack, node) { return true }
+    if has_key(visited, node) { return false }
+
+    visited[node] = true
+    stack[node] = true
+
+    if has_key(graph.edges, node) {
+        var i = 0
+        while i < len(graph.edges[node]) {
+            if has_cycle_dfs(graph.edges[node][i], visited, stack, path) {
+                return true
+            }
+            i = i + 1
+        }
+    }
+
+    delete stack[node]
+    return false
+}
+
+# 拓扑排序
+pub fn topological_sort() -> [string] {
+    var in_degree = {}
+    for node in graph.nodes {
+        in_degree[node] = 0
+    }
+
+    for node in graph.edges {
+        var i = 0
+        while i < len(graph.edges[node]) {
+            in_degree[graph.edges[node][i]] = in_degree[graph.edges[node][i]] + 1
+            i = i + 1
+        }
+    }
+
+    var queue = []
+    for node in in_degree {
+        if in_degree[node] == 0 {
+            stdlib.push(queue, node)
+        }
+    }
+
+    var result = []
+    while len(queue) > 0 {
+        var n = stdlib.pop(queue)
+        stdlib.push(result, n)
+
+        if has_key(graph.edges, n) {
+            var i = 0
+            while i < len(graph.edges[n]) {
+                in_degree[graph.edges[n][i]] = in_degree[graph.edges[n][i]] - 1
+                if in_degree[graph.edges[n][i]] == 0 {
+                    stdlib.push(queue, graph.edges[n][i])
+                }
+                i = i + 1
+            }
+        }
+    }
+
+    return result
+}
+
+# 获取需要重新编译的节点
+pub fn dirty_nodes() -> [string] {
+    var result = []
+    for node in graph.nodes {
+        if graph.nodes[node].dirty {
+            stdlib.push(result, node)
+        }
+    }
+    return result
+}
+
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

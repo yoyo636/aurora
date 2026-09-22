@@ -1,0 +1,102 @@
+# lsp.aur — Aurora 语言服务器协议（自举版）
+# 替代 Python lsp.py
+
+import stdlib
+import lexer
+import parser
+import type_checker
+
+# LSP 服务器
+var server = {
+    initialized: false,
+    root_uri: "",
+    capabilities: {}
+}
+
+# 初始化
+pub fn initialize(root_uri) {
+    server.root_uri = root_uri
+    server.initialized = true
+    server.capabilities = {
+        "textDocumentSync": 1,
+        "hoverProvider": true,
+        "completionProvider": {
+            "triggerCharacters": [".", ":", "("]
+        },
+        "definitionProvider": true,
+        "referencesProvider": true,
+        "documentFormattingProvider": true,
+        "renameProvider": true
+    }
+    stdlib.println("Aurora LSP 服务器已初始化: " + root_uri)
+}
+
+# 文档同步
+pub fn did_open(uri, language_id, version, text) {
+    # 解析并缓存文档
+    var tokens = lexer.tokenize(text)
+    var ast_tree = parser.parse(tokens)
+    var errors = type_checker.check(ast_tree)
+    # 发布诊断
+    publish_diagnostics(uri, errors)
+}
+
+# 悬停提示
+pub fn hover(uri, line, char) -> string {
+    # 返回符号信息
+    return "Aurora 符号"
+}
+
+# 补全
+pub fn completion(uri, line, char) -> [] {
+    var items = [
+        {"label": "fn", "kind": 14, "detail": "函数定义"},
+        {"label": "let", "kind": 14, "detail": "不可变绑定"},
+        {"label": "var", "kind": 14, "detail": "可变绑定"},
+        {"label": "if", "kind": 14, "detail": "条件语句"},
+        {"label": "else", "kind": 14, "detail": "否则"},
+        {"label": "for", "kind": 14, "detail": "循环"},
+        {"label": "while", "kind": 14, "detail": "当循环"},
+        {"label": "return", "kind": 14, "detail": "返回"},
+        {"label": "import", "kind": 14, "detail": "导入模块"},
+        {"label": "struct", "kind": 14, "detail": "结构体"},
+        {"label": "enum", "kind": 14, "detail": "枚举"},
+        {"label": "impl", "kind": 14, "detail": "实现块"},
+        {"label": "trait", "kind": 14, "detail": "特征"},
+        {"label": "match", "kind": 14, "detail": "模式匹配"},
+        {"label": "try", "kind": 14, "detail": "异常处理"},
+        {"label": "catch", "kind": 14, "detail": "捕获异常"}
+    ]
+    return items
+}
+
+# 定义跳转
+pub fn goto_definition(uri, line, char) -> any {
+    return nil
+}
+
+# 引用查找
+pub fn references(uri, line, char) -> [] {
+    return []
+}
+
+# 格式化
+pub fn formatting(uri, options) -> [] {
+    return []
+}
+
+# 重命名
+pub fn rename(uri, line, char, new_name) -> any {
+    return nil
+}
+
+# 发布诊断
+fn publish_diagnostics(uri, errors) {
+    stdlib.println("诊断: " + stdlib.str(len(errors)) + " 个错误")
+}
+
+# 运行服务器
+pub fn run() {
+    stdlib.println("Aurora LSP 服务器启动 (stdio)")
+    # 实际实现会读取 stdin 并写入 stdout
+}

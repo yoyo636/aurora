@@ -1,0 +1,464 @@
+# =============================================================================
+# interpreter.aur — 自举树遍历解释器
+# -----------------------------------------------------------------------------
+# 输入：Program AST dict（来自 selfhost.parser.parse）
+# 执行其中的语句，返回最后一条 return 的值（或 nil）。
+# 值直接使用 Aurora 原生类型：int / float / str / bool / nil / list / dict。
+# =============================================================================
+
+# ---- 环境（作用域链）---------------------------------------------------------
+fn make_env(parent) {
+    return {"parent": parent, "vars": {}}
+}
+
+fn scope_has(env, name) {
+    let keys = env["vars"].keys()
+    for k in keys {
+        if k == name {
+            return true
+        }
+    }
+    return false
+}
+
+fn env_get(env, name) {
+    if scope_has(env, name) {
+        return env["vars"].get(name)
+    }
+    let p = env["parent"]
+    if p == nil {
+        return nil
+    }
+    return env_get(p, name)
+}
+
+# 声明（绑定到当前作用域）
+fn env_decl(env, name, value) {
+    env["vars"][name] = value
+}
+
+# 赋值：沿链向上找到定义处更新；找不到则写到当前作用域
+fn env_assign(env, name, value) {
+    if scope_has(env, name) {
+        env["vars"][name] = value
+        return
+    }
+    let p = env["parent"]
+    if p == nil {
+        env["vars"][name] = value
+        return
+    }
+    env_assign(p, name, value)
+}
+
+# ---- 真值 --------------------------------------------------------------------
+fn truthy(v) {
+    if v == nil {
+        return false
+    }
+    if v == false {
+        return false
+    }
+    if v == true {
+        return true
+    }
+    if v == 0 {
+        return false
+    }
+    if v == 0.0 {
+        return false
+    }
+    if v == "" {
+        return false
+    }
+    return true
+}
+
+# ---- 表达式求值 --------------------------------------------------------------
+fn eval_list_expr(elements, env) {
+    let out = []
+    for e in elements {
+        out.append(eval_expr(e, env))
+    }
+    return out
+}
+
+fn eval_args(arg_nodes, env) {
+    let out = []
+    for a in arg_nodes {
+        out.append(eval_expr(a, env))
+    }
+    return out
+}
+
+# 调用一个自举函数值（dict: params/body/closure）
+fn invoke_fn(fnval, args) {
+    let params = fnval["params"]
+    let fenv = make_env(fnval["closure"])
+    let nparams = len(params)
+    let mut i = 0
+    while i < nparams {
+        let pname = params[i]
+        if i < len(args) {
+            env_decl(fenv, pname, args[i])
+        } else {
+            env_decl(fenv, pname, nil)
+        }
+        i = i + 1
+    }
+    let ctrl = exec_block(fnval["body"], fenv)
+    if ctrl["kind"] == "return" {
+        return ctrl["value"]
+    }
+    return nil
+}
+
+fn eval_call_expr(node, env) {
+    let callee = node["callee"]
+    let args = eval_args(node["args"], env)
+
+    # 内置函数
+    if callee["kind"] == "Identifier" {
+        let fname = callee["name"]
+        if fname == "print" {
+            for a in args {
+                print(a)
+            }
+            return nil
+        }
+        if fname == "println" {
+            for a in args {
+                print(a)
+            }
+            print("")
+            return nil
+        }
+        if fname == "len" {
+            return len(args[0])
+        }
+        if fname == "int" {
+            return int(args[0])
+        }
+        if fname == "float" {
+            return float(args[0])
+        }
+        if fname == "str" {
+            return str(args[0])
+        }
+    }
+
+    # 用户函数
+    let fnval = eval_expr(callee, env)
+    if fnval == nil {
+        return nil
+    }
+    return invoke_fn(fnval, args)
+}
+
+fn eval_method_call(node, env) {
+    let obj = eval_expr(node["object"], env)
+    let args = eval_args(node["args"], env)
+    let method = node["method"]
+    if method == "append" {
+        obj.append(args[0])
+        return nil
+    }
+    if method == "push" {
+        obj.append(args[0])
+        return nil
+    }
+    if method == "pop" {
+        return obj.pop()
+    }
+    if method == "len" {
+        return len(obj)
+    }
+    # 字符串方法
+    if method == "char_at" {
+        return obj.char_at(args[0])
+    }
+    if method == "substring" {
+        if len(args) >= 2 {
+            return obj.substring(args[0], args[1])
+        }
+        return obj.substring(args[0])
+    }
+    # 字典方法
+    if method == "get" {
+        return obj.get(args[0])
+    }
+    if method == "keys" {
+        let out = []
+        let ks = obj.keys()
+        for k in ks {
+            out.append(k)
+        }
+        return out
+    }
+    if method == "values" {
+        let out = []
+        let vs = obj.values()
+        for v in vs {
+            out.append(v)
+        }
+        return out
+    }
+    # 通用：模块/字典方法路由 obj.method(args...) -> obj[method](args...)
+    # 用于自举解析器调用 ast.program(...) 这类工厂函数。
+    let maybe = obj.get(method)
+    if maybe != nil {
+        return invoke_fn(maybe, args)
+    }
+    return nil
+}
+
+fn eval_expr(node, env) {
+    if node == nil {
+        return nil
+    }
+    let kind = node["kind"]
+
+    if kind == "Literal" {
+        return node["value"]
+    }
+    if kind == "Identifier" {
+        return env_get(env, node["name"])
+    }
+    if kind == "ListLiteral" {
+        return eval_list_expr(node["elements"], env)
+    }
+    if kind == "DictLiteral" {
+        let out = {}
+        for pair in node["entries"] {
+            let k = eval_expr(pair[0], env)
+            let v = eval_expr(pair[1], env)
+            out[k] = v
+        }
+        return out
+    }
+    if kind == "BinaryExpr" {
+        return eval_binary(node, env)
+    }
+    if kind == "UnaryExpr" {
+        let v = eval_expr(node["operand"], env)
+        if node["op"] == "-" {
+            return -v
+        }
+        # "!"
+        if truthy(v) {
+            return false
+        }
+        return true
+    }
+    if kind == "CallExpr" {
+        return eval_call_expr(node, env)
+    }
+    if kind == "MethodCall" {
+        return eval_method_call(node, env)
+    }
+    if kind == "IndexExpr" {
+        let obj = eval_expr(node["object"], env)
+        let idx = eval_expr(node["index"], env)
+        return obj[idx]
+    }
+    if kind == "AssignExpr" {
+        let v = eval_expr(node["value"], env)
+        env_assign(env, node["name"], v)
+        return v
+    }
+    return nil
+}
+
+fn eval_binary(node, env) {
+    let op = node["op"]
+    let l = eval_expr(node["left"], env)
+    let r = eval_expr(node["right"], env)
+
+    if op == "+" {
+        return l + r
+    }
+    if op == "-" {
+        return l - r
+    }
+    if op == "*" {
+        return l * r
+    }
+    if op == "/" {
+        return l / r
+    }
+    if op == "%" {
+        return l % r
+    }
+    if op == "==" {
+        return l == r
+    }
+    if op == "!=" {
+        return l != r
+    }
+    if op == "<" {
+        return l < r
+    }
+    if op == ">" {
+        return l > r
+    }
+    if op == "<=" {
+        return l <= r
+    }
+    if op == ">=" {
+        return l >= r
+    }
+    if op == "&&" {
+        if !truthy(l) {
+            return false
+        }
+        return truthy(r)
+    }
+    if op == "||" {
+        if truthy(l) {
+            return true
+        }
+        return truthy(r)
+    }
+    return nil
+}
+
+# ---- 语句执行（返回控制信号）------------------------------------------------
+fn normal_ctrl() {
+    return {"kind": "normal"}
+}
+
+fn exec_block(stmts, env) {
+    for s in stmts {
+        let ctrl = exec_stmt(s, env)
+        if ctrl["kind"] != "normal" {
+            return ctrl
+        }
+    }
+    return normal_ctrl()
+}
+
+fn exec_stmt(node, env) {
+    let kind = node["kind"]
+
+    if kind == "LetStmt" {
+        let v = eval_expr(node["value"], env)
+        env_decl(env, node["name"], v)
+        return normal_ctrl()
+    }
+    if kind == "VarStmt" {
+        let v = eval_expr(node["value"], env)
+        env_decl(env, node["name"], v)
+        return normal_ctrl()
+    }
+    if kind == "AssignExpr" {
+        eval_expr(node, env)
+        return normal_ctrl()
+    }
+    if kind == "IndexAssign" {
+        let obj = eval_expr(node["object"], env)
+        let idx = eval_expr(node["index"], env)
+        let v = eval_expr(node["value"], env)
+        obj[idx] = v
+        return normal_ctrl()
+    }
+    if kind == "BreakStmt" {
+        return {"kind": "break"}
+    }
+    if kind == "ContinueStmt" {
+        return {"kind": "continue"}
+    }
+    if kind == "ImportStmt" {
+        return normal_ctrl()
+    }
+    if kind == "FnDef" {
+        let fv = {
+            "kind": "Function",
+            "params": node["params"],
+            "body": node["body"],
+            "closure": env
+        }
+        env_decl(env, node["name"], fv)
+        return normal_ctrl()
+    }
+    if kind == "ReturnStmt" {
+        let v = eval_expr(node["value"], env)
+        return {"kind": "return", "value": v}
+    }
+    if kind == "IfStmt" {
+        let cond = eval_expr(node["cond"], env)
+        if truthy(cond) {
+            return exec_block(node["then"], env)
+        }
+        let else_b = node["else"]
+        if else_b != nil {
+            return exec_block(else_b, env)
+        }
+        return normal_ctrl()
+    }
+    if kind == "WhileStmt" {
+        while true {
+            let cond = eval_expr(node["cond"], env)
+            if !truthy(cond) {
+                break
+            }
+            let ctrl = exec_block(node["body"], env)
+            if ctrl["kind"] == "return" {
+                return ctrl
+            }
+            if ctrl["kind"] == "break" {
+                break
+            }
+            # continue: 落到下一轮循环
+        }
+        return normal_ctrl()
+    }
+    if kind == "ForStmt" {
+        let it = node["iterable"]
+        if it["kind"] == "RangeExpr" {
+            let lo = eval_expr(it["start"], env)
+            let hi = eval_expr(it["end"], env)
+            let mut i = lo
+            while i <= hi {
+                env_decl(env, node["var"], i)
+                let ctrl = exec_block(node["body"], env)
+                if ctrl["kind"] == "return" {
+                    return ctrl
+                }
+                if ctrl["kind"] == "break" {
+                    break
+                }
+                i = i + 1
+            }
+        } else {
+            let lst = eval_expr(it, env)
+            for item in lst {
+                env_decl(env, node["var"], item)
+                let ctrl = exec_block(node["body"], env)
+                if ctrl["kind"] == "return" {
+                    return ctrl
+                }
+                if ctrl["kind"] == "break" {
+                    break
+                }
+            }
+        }
+        return normal_ctrl()
+    }
+
+    # 表达式语句
+    eval_expr(node, env)
+    return normal_ctrl()
+}
+
+# ---- 主入口 ------------------------------------------------------------------
+pub fn interpret(program) {
+    let env = make_env(nil)
+    let body = program["body"]
+    for s in body {
+        let ctrl = exec_stmt(s, env)
+        if ctrl["kind"] == "return" {
+            return ctrl["value"]
+        }
+    }
+    return nil
+}

@@ -1,0 +1,91 @@
+# =============================================================================
+# lsp_server.aur — LSP 服务器
+# 用法:
+#   let lsp = lsp_new()
+#   lsp_start(lsp, 8080)
+# =============================================================================
+
+# ── 创建 LSP 服务器 ──
+fn lsp_new() {
+    return {
+        "port": 8080,
+        "capabilities": {
+            "textDocumentSync": 1,
+            "hoverProvider": true,
+            "completionProvider": {"triggerCharacters": ["."]},
+            "definitionProvider": true,
+            "referencesProvider": true,
+            "documentFormattingProvider": true
+        },
+        "documents": {}
+    }
+}
+
+# ── 启动服务器 ──
+fn lsp_start(lsp, port) {
+    lsp.port = port
+    println("[LSP] 启动服务器, 端口 " + str(port))
+    println("[LSP] 能力: hover, completion, definition, references, formatting")
+    return lsp
+}
+
+# ── 打开文档 ──
+fn lsp_open(lsp, uri, content) {
+    lsp.documents[uri] = content
+    println("[LSP] 打开: " + uri + " (" + str(len(content)) + " 字符)")
+    return lsp
+}
+
+# ── 悬停信息 ──
+fn lsp_hover(lsp, uri, line, col) {
+    return {"contents": "fn " + uri + "(" + str(line) + ":" + str(col) + ")"}
+}
+
+# ── 补全 ──
+fn lsp_completion(lsp, uri, prefix) {
+    return [
+        {"label": "fn", "kind": "keyword"},
+        {"label": "let", "kind": "keyword"},
+        {"label": "var", "kind": "keyword"},
+        {"label": "if", "kind": "keyword"},
+        {"label": "for", "kind": "keyword"},
+        {"label": "while", "kind": "keyword"},
+        {"label": "return", "kind": "keyword"},
+        {"label": "println", "kind": "function"},
+        {"label": "read", "kind": "function"},
+        {"label": "write", "kind": "function"}
+    ]
+}
+
+# ── 跳转定义 ──
+fn lsp_definition(lsp, uri, symbol) {
+    return {"uri": uri, "line": 1, "col": 0}
+}
+
+# ── 引用查找 ──
+fn lsp_references(lsp, uri, symbol) {
+    return [{"uri": uri, "line": 10, "col": 5}]
+}
+
+# ── 格式化 ──
+fn lsp_format(lsp, uri) {
+    println("[LSP] 格式化: " + uri)
+    return lsp
+}
+
+# ── 测试 ──
+fn main() {
+    println("── lsp_server 测试 ──")
+
+    let lsp = lsp_new()
+    lsp_start(lsp, 8080)
+
+    lsp_open(lsp, "file:///main.aur", "fn main() {\n    println(\"hello\")\n}")
+
+    let completions = lsp_completion(lsp, "main.aur", "p")
+    println("补全项: " + str(len(completions)))
+
+    println("✓ lsp_server 通过")
+}
+
+main()

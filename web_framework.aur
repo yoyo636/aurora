@@ -1,0 +1,154 @@
+# web_framework.aur — Aurora Web 框架（自举版）
+# 替代 Python web_framework.py
+
+import stdlib
+import stdlib_fs
+
+# HTTP 请求
+type Request {
+    method: string,
+    path: string,
+    headers: {},
+    body: string
+}
+
+# HTTP 响应
+type Response {
+    status: int,
+    headers: {},
+    body: string
+}
+
+# 路由表
+var routes = {}
+var middlewares = []
+
+# GET 路由
+pub fn get(path, handler) {
+    routes["GET " + path] = handler
+}
+
+# POST 路由
+pub fn post(path, handler) {
+    routes["POST " + path] = handler
+}
+
+# PUT 路由
+pub fn put(path, handler) {
+    routes["PUT " + path] = handler
+}
+
+# DELETE 路由
+pub fn delete(path, handler) {
+    routes["DELETE " + path] = handler
+}
+
+# 中间件
+pub fn use(middleware) {
+    push(middlewares, middleware)
+}
+
+# 启动服务器
+pub fn listen(port) {
+    stdlib.println("Aurora Web 服务器启动在 http://localhost:" + stdlib.str(port))
+    # 实际实现会绑定 socket 并接受连接
+}
+
+# 静态文件服务
+pub fn static(path, dir) {
+    get(path + "/*", |req| {
+        var filepath = dir + req.path[len(path):]
+        var content = stdlib_fs.read_file(filepath)
+        return Response {
+            status: 200,
+            headers: {"Content-Type": "text/plain"},
+            body: content
+        }
+    })
+}
+
+# JSON 响应
+pub fn json(data) -> Response {
+    return Response {
+        status: 200,
+        headers: {"Content-Type": "application/json"},
+        body: to_json(data)
+    }
+}
+
+# HTML 响应
+pub fn html(content) -> Response {
+    return Response {
+        status: 200,
+        headers: {"Content-Type": "text/html"},
+        body: content
+    }
+}
+
+# 重定向
+pub fn redirect(url) -> Response {
+    return Response {
+        status: 302,
+        headers: {"Location": url},
+        body: ""
+    }
+}
+
+# 404 响应
+pub fn not_found() -> Response {
+    return Response {
+        status: 404,
+        headers: {"Content-Type": "text/plain"},
+        body: "404 Not Found"
+    }
+}
+
+# 500 响应
+pub fn server_error(msg) -> Response {
+    return Response {
+        status: 500,
+        headers: {"Content-Type": "text/plain"},
+        body: "500 Internal Server Error: " + msg
+    }
+}
+
+# 对象转 JSON（简化版）
+fn to_json(data) -> string {
+    if type_of(data) == "string" {
+        return "\"" + data + "\""
+    }
+    if type_of(data) == "int" or type_of(data) == "float" {
+        return stdlib.str(data)
+    }
+    if type_of(data) == "bool" {
+        if data { return "true" }
+        return "false"
+    }
+    if type_of(data) == "list" {
+        var result = "["
+        var i = 0
+        while i < len(data) {
+            if i > 0 { result = result + ", " }
+            result = result + to_json(data[i])
+            i = i + 1
+        }
+        return result + "]"
+    }
+    if type_of(data) == "dict" {
+        var result = "{"
+        var first = true
+        for key in data {
+            if !first { result = result + ", " }
+            result = result + "\"" + key + "\": " + to_json(data[key])
+            first = false
+        }
+        return result + "}"
+    }
+    return "null"
+}
+
+# 类型检查（简化版）
+fn type_of(v) -> string {
+    # 实际实现会检查值的类型
+    return "unknown"
+}

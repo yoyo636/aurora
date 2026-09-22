@@ -1,0 +1,86 @@
+# workspace_manager.aur — 工作区管理（自举版）
+# 对应 Python workspace_manager.py
+# 多 crate workspace、成员管理、共享配置
+
+import stdlib
+import stdlib_fs
+
+# 工作区配置
+type Workspace {
+    root: string,
+    members: [],
+    excludes: [],
+    shared_deps: {}
+}
+
+var current_workspace = nil
+
+# 初始化工作区
+pub fn init_workspace(root, members) {
+    stdlib_fs.mkdir_all(root)
+    current_workspace = Workspace {
+        root: root,
+        members: members,
+        excludes: [],
+        shared_deps: {}
+    }
+
+    # 创建 workspace.toml
+    var toml = "[workspace]\n"
+    toml = toml + "members = ["
+    var i = 0
+    while i < len(members) {
+        if i > 0 { toml = toml + ", " }
+        toml = toml + "\"" + members[i] + "\""
+        i = i + 1
+    }
+    toml = toml + "]\n"
+    stdlib_fs.write_file(root + "/aurora.toml", toml)
+
+    stdlib.println("✓ 工作区已初始化: " + root)
+}
+
+# 发现工作区
+pub fn discover(start_dir) -> Workspace {
+    var dir = start_dir
+    var i = 0
+    while i < 10 {
+        var config = dir + "/aurora.toml"
+        if stdlib_fs.exists(config) {
+            return load_workspace(dir)
+        }
+        dir = dir + "/.."
+        i = i + 1
+    }
+    return nil
+}
+
+fn load_workspace(root) -> Workspace {
+    return Workspace {
+        root: root,
+        members: [],
+        excludes: [],
+        shared_deps: {}
+    }
+}
+
+# 获取成员列表
+pub fn members() -> [string] {
+    if current_workspace == nil { return [] }
+    return current_workspace.members
+}
+
+# 构建所有成员
+pub fn build_all() {
+    stdlib.println("构建工作区...")
+    var i = 0
+    while i < len(current_workspace.members) {
+        stdlib.println("  构建 " + current_workspace.members[i])
+        i = i + 1
+    }
+}
+
+# 测试所有成员
+pub fn test_all() {
+    stdlib.println("测试工作区...")
+}

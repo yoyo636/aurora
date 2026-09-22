@@ -1,0 +1,234 @@
+# stdlib_fs.aur — 文件系统标准库（自举版，补全 FFI 声明）
+# 所有底层操作通过 @ffi 绑定到 POSIX 系统调用
+
+import stdlib
+
+# @ffi open(path: string, flags: int, mode: int) -> int
+# @ffi read(fd: int, buf: bytes, count: int) -> int
+# @ffi write(fd: int, buf: bytes, count: int) -> int
+# @ffi close(fd: int) -> int
+# @ffi stat(path: string) -> { size: int, mtime: int, is_dir: bool }
+# @ffi access(path: string, mode: int) -> int
+# @ffi mkdir(path: string, mode: int) -> int
+# @ffi opendir(path: string) -> dir_handle
+# @ffi readdir(dir_handle) -> string
+# @ffi closedir(dir_handle) -> int
+# @ffi unlink(path: string) -> int
+# @ffi rename(old: string, new: string) -> int
+
+# 读取整个文件
+pub fn read_file(path) -> string {
+    var fd = sys_open(path, 0, 0)  # O_RDONLY
+    if fd < 0 { return "" }
+    var content = sys_read_all(fd)
+    sys_close(fd)
+    return content
+}
+
+# 写入文件（覆盖）
+pub fn write_file(path, content) {
+    var fd = sys_open(path, 101, 420)  # O_WRONLY|O_CREAT|O_TRUNC, 0644
+    if fd < 0 { return }
+    sys_write_str(fd, content)
+    sys_close(fd)
+}
+
+# 追加到文件
+pub fn append_file(path, content) {
+    var fd = sys_open(path, 1089, 420)  # O_WRONLY|O_CREAT|O_APPEND, 0644
+    if fd < 0 { return }
+    sys_write_str(fd, content)
+    sys_close(fd)
+}
+
+# 文件是否存在
+pub fn exists(path) -> bool {
+    return sys_access(path, 0) == 0
+}
+
+# 是否是目录
+pub fn is_dir(path) -> bool {
+    var s = sys_stat(path)
+    if s == nil { return false }
+    return s.is_dir
+}
+
+# 文件大小（字节）
+pub fn file_size(path) -> int {
+    var s = sys_stat(path)
+    if s == nil { return 0 }
+    return s.size
+}
+
+# 创建目录
+pub fn mkdir(path) {
+    sys_mkdir(path, 493)  # 0755
+}
+
+# 递归创建目录
+pub fn mkdir_all(path) {
+    var parts = split_path(path)
+    var current = ""
+    var i = 0
+    while i < len(parts) {
+        if i == 0 {
+            current = parts[i]
+        } else {
+            current = current + "/" + parts[i]
+        }
+        if !exists(current) {
+            sys_mkdir(current, 493)
+        }
+        i = i + 1
+    }
+}
+
+# 删除文件
+pub fn remove(path) {
+    sys_unlink(path)
+}
+
+# 重命名/移动
+pub fn rename(old_path, new_path) {
+    sys_rename(old_path, new_path)
+}
+
+# 列出目录内容
+pub fn list_dir(path) -> [string] {
+    var result = []
+    var dir = sys_opendir(path)
+    if dir == nil { return result }
+    var entry = sys_readdir(dir)
+    while entry != nil {
+        if entry != "." and entry != ".." {
+            stdlib.push(result, entry)
+        }
+        entry = sys_readdir(dir)
+    }
+    sys_closedir(dir)
+    return result
+}
+
+# 读取文件所有行
+pub fn read_lines(path) -> [string] {
+    var content = read_file(path)
+    var lines = []
+    var current = ""
+    var i = 0
+    while i < len(content) {
+        var c = char_at(content, i)
+        if c == '\n' {
+            stdlib.push(lines, current)
+            current = ""
+        } else {
+            current = current + c
+        }
+        i = i + 1
+    }
+    if len(current) > 0 {
+        stdlib.push(lines, current)
+    }
+    return lines
+}
+
+# 写入行到文件
+pub fn write_lines(path, lines) {
+    var content = ""
+    var i = 0
+    while i < len(lines) {
+        content = content + lines[i] + "\n"
+        i = i + 1
+    }
+    write_file(path, content)
+}
+
+# 复制文件
+pub fn copy(src, dst) {
+    var content = read_file(src)
+    write_file(dst, content)
+}
+
+# 文件最后修改时间（Unix 时间戳）
+pub fn modified_time(path) -> int {
+    var s = sys_stat(path)
+    if s == nil { return 0 }
+    return s.mtime
+}
+
+# ============ FFI 桥接（这些函数在 codegen 阶段绑定到系统调用）============
+
+fn sys_open(path, flags, mode) -> int {
+    # FFI: open()
+    return -1
+}
+
+fn sys_read_all(fd) -> string {
+    # FFI: 循环 read() 直到 EOF
+    return ""
+}
+
+fn sys_write_str(fd, s) {
+    # FFI: write()
+}
+
+fn sys_close(fd) {
+    # FFI: close()
+}
+
+fn sys_access(path, mode) -> int {
+    # FFI: access()
+    return -1
+}
+
+fn sys_stat(path) -> {} {
+    # FFI: stat()
+    return nil
+}
+
+fn sys_mkdir(path, mode) {
+    # FFI: mkdir()
+}
+
+fn sys_opendir(path) {
+    # FFI: opendir()
+    return nil
+}
+
+fn sys_readdir(dir) -> string {
+    # FFI: readdir()
+    return nil
+}
+
+fn sys_closedir(dir) {
+    # FFI: closedir()
+}
+
+fn sys_unlink(path) {
+    # FFI: unlink()
+}
+
+fn sys_rename(old_p, new_p) {
+    # FFI: rename()
+}
+
+fn split_path(path) -> [string] {
+    var parts = []
+    var current = ""
+    var i = 0
+    while i < len(path) {
+        var c = char_at(path, i)
+        if c == '/' {
+            if len(current) > 0 {
+                stdlib.push(parts, current)
+                current = ""
+            }
+        } else {
+            current = current + c
+        }
+        i = i + 1
+    }
+    if len(current) > 0 {
+        stdlib.push(parts, current)
+    }
+    return parts
+}

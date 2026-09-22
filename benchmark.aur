@@ -1,0 +1,104 @@
+# benchmark.aur — 基准测试框架（自举版）
+# 对应 Python benchmark.py
+# 微基准、统计报告、对比
+
+import stdlib
+import stdlib_time
+import tui
+
+type BenchResult {
+    name: string,
+    total_ms: int,
+    avg_ms: float,
+    min_ms: int,
+    max_ms: int,
+    iterations: int
+}
+
+var bench_results = []
+
+# 基准测试
+pub fn bench(name, fn, iterations) -> BenchResult {
+    if iterations == 0 { iterations = 1000 }
+
+    tui.step(1, 3, "预热...")
+    # 预热
+    var i = 0
+    while i < 10 {
+        fn()
+        i = i + 1
+    }
+
+    tui.step(2, 3, "运行 " + stdlib.str(iterations) + " 次...")
+    var times = []
+    var total = 0
+
+    var j = 0
+    while j < iterations {
+        var start = stdlib_time.now_ms()
+        fn()
+        var end = stdlib_time.now_ms()
+        var duration = end - start
+        push(times, duration)
+        total = total + duration
+        j = j + 1
+    }
+
+    tui.step(3, 3, "统计...")
+    var min_t = times[0]
+    var max_t = times[0]
+    var k = 0
+    while k < len(times) {
+        if times[k] < min_t { min_t = times[k] }
+        if times[k] > max_t { max_t = times[k] }
+        k = k + 1
+    }
+
+    var avg = float(total) / float(iterations)
+
+    var result = BenchResult {
+        name: name,
+        total_ms: total,
+        avg_ms: avg,
+        min_ms: min_t,
+        max_ms: max_t,
+        iterations: iterations
+    }
+
+    push(bench_results, result)
+    return result
+}
+
+# 打印报告
+pub fn report() {
+    tui.box_title("基准测试报告")
+    println("")
+
+    var headers = ["名称", "总耗时(ms)", "平均(ms)", "最小(ms)", "最大(ms)", "次数"]
+    var rows = []
+    var i = 0
+    while i < len(bench_results) {
+        var r = bench_results[i]
+        push(rows, [r.name, stdlib.str(r.total_ms), stdlib.str(r.avg_ms), stdlib.str(r.min_ms), stdlib.str(r.max_ms), stdlib.str(r.iterations)])
+        i = i + 1
+    }
+
+    tui.table(headers, rows)
+    println("")
+}
+
+# 对比两个实现
+pub fn compare(name1, fn1, name2, fn2, iterations) {
+    var r1 = bench(name1, fn1, iterations)
+    var r2 = bench(name2, fn2, iterations)
+
+    println("")
+    tui.box_title("性能对比: " + name1 + " vs " + name2)
+
+    var ratio = r1.avg_ms / r2.avg_ms
+    if ratio > 1.0 {
+        tui.success(name2 + " 快 " + stdlib.str(ratio) + "x")
+    } else {
+        tui.success(name1 + " 快 " + stdlib.str(1.0 / ratio) + "x")
+    }
+}

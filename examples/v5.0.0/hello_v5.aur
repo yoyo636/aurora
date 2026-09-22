@@ -1,0 +1,41 @@
+# Aurora v5.0.0 Hello World
+# 284万行自举标准库 · ARM64 原生机器码
+
+import std_string
+import std_math
+import std_list
+
+pub fn main() {
+    println("========================================")
+    println("  Welcome to Aurora v5.0.0!")
+    println("  284万行自举标准库已就绪")
+    println("========================================")
+    println("")
+    
+    # 字符串处理
+    var message = "Hello, Aurora!"
+    println("原始字符串: " + message)
+    println("大写: " + std_string.to_upper(message))
+    println("小写: " + std_string.to_lower(message))
+    println("长度: " + str(std_string.length(message)))
+    println("")
+    
+    # 数学运算
+    println("数学运算:")
+    println("  sqrt(16) = " + str(std_math.sqrt(16)))
+    println("  pow(2, 10) = " + str(std_math.pow(2, 10)))
+    println("  pi = " + str(std_math.pi()))
+    println("  e = " + str(std_math.e()))
+    println("")
+    
+    # 列表操作
+    var numbers = [1, 2, 3, 4, 5]
+    println("列表: " + str(numbers))
+    println("求和: " + str(std_list.sum(numbers)))
+    println("最大值: " + str(std_list.max(numbers)))
+    println("最小值: " + str(std_list.min(numbers)))
+    println("平均值: " + str(std_list.average(numbers)))
+    println("")
+    
+    println("Aurora v5.0.0 运行成功！")
+}

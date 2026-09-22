@@ -1,0 +1,114 @@
+# test_selfhost_v2.aur — 自举版完整测试
+# 测试自举编译器各阶段
+
+import stdlib
+
+println("=== Aurora 自举版测试 v2.0 ===")
+println("")
+
+# 测试 1: 基础算术
+println("[测试 1] 基础算术...")
+let a = 10 + 20
+let b = a * 2
+let c = b - 5
+if c == 55 {
+    println("  ✓ 算术正确: 10+20=30, 30*2=60, 60-5=55")
+} else {
+    println("  ✗ 算术错误")
+}
+
+# 测试 2: 字符串
+println("[测试 2] 字符串操作...")
+let s1 = "Hello"
+let s2 = "Aurora"
+let s3 = s1 + " " + s2
+if s3 == "Hello Aurora" {
+    println("  ✓ 字符串拼接正确: " + s3)
+} else {
+    println("  ✗ 字符串拼接错误")
+}
+
+# 测试 3: 列表
+println("[测试 3] 列表操作...")
+let arr = [1, 2, 3, 4, 5]
+let sum = 0
+for x in arr {
+    sum = sum + x
+}
+if sum == 15 {
+    println("  ✓ 列表求和正确: 1+2+3+4+5=15")
+} else {
+    println("  ✗ 列表求和错误: " + str(sum))
+}
+
+# 测试 4: 字典
+println("[测试 4] 字典操作...")
+let dict = {"name": "Aurora", "version": "4.0.0"}
+if dict["name"] == "Aurora" {
+    println("  ✓ 字典访问正确: name=" + dict["name"])
+} else {
+    println("  ✗ 字典访问错误")
+}
+
+# 测试 5: 函数
+println("[测试 5] 函数定义...")
+fn factorial(n) {
+    if n <= 1 { return 1 }
+    return n * factorial(n - 1)
+}
+let f5 = factorial(5)
+if f5 == 120 {
+    println("  ✓ 递归正确: factorial(5)=" + str(f5))
+} else {
+    println("  ✗ 递归错误: " + str(f5))
+}
+
+# 测试 6: 条件分支
+println("[测试 6] 条件分支...")
+let score = 85
+var grade = "F"
+if score >= 90 {
+    grade = "A"
+} elif score >= 80 {
+    grade = "B"
+} elif score >= 70 {
+    grade = "C"
+} else {
+    grade = "D"
+}
+if grade == "B" {
+    println("  ✓ 条件分支正确: 85分=B")
+} else {
+    println("  ✗ 条件分支错误: " + grade)
+}
+
+# 测试 7: 循环
+println("[测试 7] 循环...")
+let count = 0
+var i = 0
+while i < 10 {
+    count = count + i
+    i = i + 1
+}
+if count == 45 {
+    println("  ✓ while 循环正确: 0+1+...+9=45")
+} else {
+    println("  ✗ while 循环错误: " + str(count))
+}
+
+# 测试 8: 布尔逻辑
+println("[测试 8] 布尔逻辑...")
+let t = true
+let f = false
+let and_result = t and f
+let or_result = t or f
+let not_result = not f
+if and_result == false and or_result == true and not_result == true {
+    println("  ✓ 布尔运算正确: and/or/not")
+} else {
+    println("  ✗ 布尔运算错误")
+}
+
+# 总结
+println("")
+println("=== 测试完成 ===")

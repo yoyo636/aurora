@@ -1,0 +1,325 @@
+// ai_nn.aur — Aurora 神经网络层库
+// 对标 PyTorch nn.Module
+
+mod ai_nn;
+
+// ============ 模块基类 ============
+pub struct Module {
+    params: List<Var>,
+    submodules: List<Module>,
+    training: bool,
+}
+
+pub fn module_new() -> Module {
+    return Module {
+        params: [],
+        submodules: [],
+        training: true,
+    };
+}
+
+pub fn parameters(m: Module) -> List<Var> {
+    let mut result = list_new();
+    for p in m.params { list_push(result, p); }
+    for sub in m.submodules {
+        for p in parameters(sub) { list_push(result, p); }
+    }
+    return result;
+}
+
+pub fn train(m: Module) -> unit {
+    m.training = true;
+    for sub in m.submodules { train(sub); }
+}
+
+pub fn eval(m: Module) -> unit {
+    m.training = false;
+    for sub in m.submodules { eval(sub); }
+}
+
+// ============ Linear ============
+pub struct Linear {
+    weight: Tensor,
+    bias: Tensor,
+}
+
+pub fn linear(in_features: int, out_features: int) -> Linear {
+    let w = ai_tensor.randn([out_features, in_features]);
+    // He initialization
+    let scale = sqrt(2.0 / float(in_features));
+    let w_scaled = ai_tensor.mul_scalar(w, scale);
+    let b = ai_tensor.zeros([out_features]);
+    return Linear { weight: w_scaled, bias: b };
+}
+
+pub fn linear_forward(l: Linear, x: Tensor) -> Tensor {
+    // x: [batch, in], weight: [out, in] -> [batch, out]
+    let out = ai_tensor.matmul(x, ai_tensor.transpose(l.weight));
+    // add bias
+    let mut result = out;
+    for i in range(ai_tensor.numel(out)) {
+        let row = i / list_get(out.shape, 1);
+        let col = i % list_get(out.shape, 1);
+        list_set(result.data, i,
+            list_get(result.data, i) + list_get(l.bias.data, col));
+    }
+    return result;
+}
+
+// ============ Conv2d ============
+pub struct Conv2d {
+    weight: Tensor,  // [out_channels, in_channels, kh, kw]
+    bias: Tensor,    // [out_channels]
+    stride: int,
+    padding: int,
+}
+
+pub fn conv2d(in_ch: int, out_ch: int, kernel: int, stride: int, padding: int) -> Conv2d {
+    let w = ai_tensor.randn([out_ch, in_ch, kernel, kernel]);
+    let scale = sqrt(2.0 / float(in_ch * kernel * kernel));
+    let w_scaled = ai_tensor.mul_scalar(w, scale);
+    let b = ai_tensor.zeros([out_ch]);
+    return Conv2d { weight: w_scaled, bias: b, stride: stride, padding: padding };
+}
+
+pub fn conv2d_forward(c: Conv2d, x: Tensor) -> Tensor {
+    // x: [batch, in_ch, h, w]
+    let batch = list_get(x.shape, 0);
+    let in_ch = list_get(x.shape, 1);
+    let h = list_get(x.shape, 2);
+    let w = list_get(x.shape, 3);
+    let out_ch = list_get(c.weight.shape, 0);
+    let kh = list_get(c.weight.shape, 2);
+    let kw = list_get(c.weight.shape, 3);
+    let out_h = (h + 2*c.padding - kh) / c.stride + 1;
+    let out_w = (w + 2*c.padding - kw) / c.stride + 1;
+
+    let out = ai_tensor.zeros([batch, out_ch, out_h, out_w]);
+    // 简化：双循环卷积
+    for b in range(batch) {
+        for oc in range(out_ch) {
+            for i in range(out_h) {
+                for j in range(out_w) {
+                    let mut sum = list_get(c.bias.data, oc);
+                    for ic in range(in_ch) {
+                        for ki in range(kh) {
+                            for kj in range(kw) {
+                                let hi = i * c.stride + ki - c.padding;
+                                let wi = j * c.stride + kj - c.padding;
+                                if hi >= 0 && hi < h && wi >= 0 && wi < w {
+                                    let x_idx = ((b * in_ch + ic) * h + hi) * w + wi;
+                                    let k_idx = ((oc * in_ch + ic) * kh + ki) * kw + kj;
+                                    sum = sum + list_get(x.data, x_idx) * list_get(c.weight.data, k_idx);
+                                }
+                            }
+                        }
+                    }
+                    let o_idx = ((b * out_ch + oc) * out_h + i) * out_w + j;
+                    list_set(out.data, o_idx, sum);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+// ============ Pooling ============
+pub struct MaxPool2d {
+    kernel_size: int,
+    stride: int,
+}
+
+pub fn maxpool2d(kernel: int, stride: int) -> MaxPool2d {
+    return MaxPool2d { kernel_size: kernel, stride: stride };
+}
+
+pub fn maxpool2d_forward(p: MaxPool2d, x: Tensor) -> Tensor {
+    let batch = list_get(x.shape, 0);
+    let ch = list_get(x.shape, 1);
+    let h = list_get(x.shape, 2);
+    let w = list_get(x.shape, 3);
+    let out_h = (h - p.kernel_size) / p.stride + 1;
+    let out_w = (w - p.kernel_size) / p.stride + 1;
+    let out = ai_tensor.zeros([batch, ch, out_h, out_w]);
+
+    for b in range(batch) {
+        for c in range(ch) {
+            for i in range(out_h) {
+                for j in range(out_w) {
+                    let mut max_val = -1e9;
+                    for ki in range(p.kernel_size) {
+                        for kj in range(p.kernel_size) {
+                            let hi = i * p.stride + ki;
+                            let wi = j * p.stride + kj;
+                            let idx = ((b * ch + c) * h + hi) * w + wi;
+                            let v = list_get(x.data, idx);
+                            if v > max_val { max_val = v; }
+                        }
+                    }
+                    let o_idx = ((b * ch + c) * out_h + i) * out_w + j;
+                    list_set(out.data, o_idx, max_val);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+// ============ Activation 函数 ============
+pub fn relu(x: Tensor) -> Tensor {
+    return ai_tensor.relu(x);
+}
+
+pub fn leaky_relu(x: Tensor, negative_slope: f64) -> Tensor {
+    let mut result_data = list_new();
+    for v in x.data {
+        if v > 0.0 { list_push(result_data, v); }
+        else { list_push(result_data, v * negative_slope); }
+    }
+    return ai_tensor.new(result_data, x.shape);
+}
+
+pub fn gelu(x: Tensor) -> Tensor {
+    // GELU: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+    let mut result_data = list_new();
+    let sqrt_2pi = sqrt(2.0 / 3.141592653589793);
+    for v in x.data {
+        let inner = sqrt_2pi * (v + 0.044715 * v * v * v);
+        let t = tanh(inner);
+        list_push(result_data, 0.5 * v * (1.0 + t));
+    }
+    return ai_tensor.new(result_data, x.shape);
+}
+
+pub fn silu(x: Tensor) -> Tensor {
+    // SiLU / Swish: x * sigmoid(x)
+    let mut result_data = list_new();
+    for v in x.data {
+        let s = 1.0 / (1.0 + exp(-v));
+        list_push(result_data, v * s);
+    }
+    return ai_tensor.new(result_data, x.shape);
+}
+
+pub fn tanh(x: Tensor) -> Tensor {
+    let mut result_data = list_new();
+    for v in x.data {
+        list_push(result_data, tanh(v));
+    }
+    return ai_tensor.new(result_data, x.shape);
+}
+
+// ============ Normalization ============
+pub struct BatchNorm2d {
+    weight: Tensor,
+    bias: Tensor,
+    running_mean: Tensor,
+    running_var: Tensor,
+    eps: f64,
+    momentum: f64,
+}
+
+pub fn batchnorm2d(num_features: int) -> BatchNorm2d {
+    return BatchNorm2d {
+        weight: ai_tensor.ones([num_features]),
+        bias: ai_tensor.zeros([num_features]),
+        running_mean: ai_tensor.zeros([num_features]),
+        running_var: ai_tensor.ones([num_features]),
+        eps: 1e-5,
+        momentum: 0.1,
+    };
+}
+
+pub fn batchnorm2d_forward(b: BatchNorm2d, x: Tensor, training: bool) -> Tensor {
+    // 简化：沿 batch 维归一化
+    let batch = list_get(x.shape, 0);
+    let ch = list_get(x.shape, 1);
+    let rest = list_get(x.shape, 2) * list_get(x.shape, 3);
+    let out = ai_tensor.zeros(x.shape);
+
+    for c in range(ch) {
+        let mut mean = 0.0;
+        let mut var = 0.0;
+        // 计算均值和方差
+        for b_idx in range(batch) {
+            for i in range(rest) {
+                let idx = ((b_idx * ch + c) * rest) + i;
+                mean = mean + list_get(x.data, idx);
+            }
+        }
+        mean = mean / float(batch * rest);
+        for b_idx in range(batch) {
+            for i in range(rest) {
+                let idx = ((b_idx * ch + c) * rest) + i;
+                let diff = list_get(x.data, idx) - mean;
+                var = var + diff * diff;
+            }
+        }
+        var = var / float(batch * rest);
+        // 归一化
+        let scale = list_get(b.weight.data, c) / sqrt(var + b.eps);
+        let shift = list_get(b.bias.data, c) - mean * scale;
+        for b_idx in range(batch) {
+            for i in range(rest) {
+                let idx = ((b_idx * ch + c) * rest) + i;
+                list_set(out.data, idx, list_get(x.data, idx) * scale + shift);
+            }
+        }
+    }
+    return out;
+}
+
+// ============ Dropout ============
+pub fn dropout(x: Tensor, p: f64, training: bool) -> Tensor {
+    if !training || p == 0.0 { return x; }
+    let mut result_data = list_new();
+    for v in x.data {
+        if random_float() < p {
+            list_push(result_data, 0.0);
+        } else {
+            list_push(result_data, v / (1.0 - p));
+        }
+    }
+    return ai_tensor.new(result_data, x.shape);
+}
+
+// ============ Embedding ============
+pub struct Embedding {
+    weight: Tensor,  // [vocab_size, embed_dim]
+}
+
+pub fn embedding(vocab_size: int, embed_dim: int) -> Embedding {
+    let w = ai_tensor.randn([vocab_size, embed_dim]);
+    return Embedding { weight: ai_tensor.mul_scalar(w, 0.1) };
+}
+
+pub fn embedding_forward(e: Embedding, indices: List<int>) -> Tensor {
+    let embed_dim = list_get(e.weight.shape, 1);
+    let seq_len = list_len(indices);
+    let out = ai_tensor.zeros([seq_len, embed_dim]);
+    for i in range(seq_len) {
+        let idx = list_get(indices, i);
+        for j in range(embed_dim) {
+            let w_idx = idx * embed_dim + j;
+            list_set(out.data, i * embed_dim + j, list_get(e.weight.data, w_idx));
+        }
+    }
+    return out;
+}
+
+// ============ Flatten ============
+pub fn flatten(x: Tensor) -> Tensor {
+    let batch = list_get(x.shape, 0);
+    let mut rest = 1;
+    for i in range(1, list_len(x.shape)) {
+        rest = rest * list_get(x.shape, i);
+    }
+    let mut flat = list_new();
+    for v in x.data { list_push(flat, v); }
+    return ai_tensor.new(flat, [batch, rest]);
+}
+
+// ============ Reshape ============
+pub fn reshape(x: Tensor, shape: List<int>) -> Tensor {
+    return ai_tensor.new(x.data, shape);
+}

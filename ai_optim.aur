@@ -1,0 +1,188 @@
+// ai_optim.aur — Aurora 优化器库
+// 对标 PyTorch optim
+
+mod ai_optim;
+
+// ============ SGD with Momentum ============
+pub struct SGD {
+    params: List<Tensor>,
+    lr: f64,
+    momentum: f64,
+    weight_decay: f64,
+    velocities: List<Tensor>,
+}
+
+pub fn sgd(params: List<Tensor>, lr: f64, momentum: f64, weight_decay: f64) -> SGD {
+    let mut vels = list_new();
+    for p in params {
+        list_push(vels, ai_tensor.zeros(p.shape));
+    }
+    return SGD {
+        params: params,
+        lr: lr,
+        momentum: momentum,
+        weight_decay: weight_decay,
+        velocities: vels,
+    };
+}
+
+pub fn sgd_step(opt: SGD) -> unit {
+    for i in range(list_len(opt.params)) {
+        let p = list_get(opt.params, i);
+        let v = list_get(opt.velocities, i);
+        for j in range(ai_tensor.numel(p)) {
+            let mut grad = list_get(p.grad.data, j);
+            // weight decay
+            if opt.weight_decay > 0.0 {
+                grad = grad + opt.weight_decay * list_get(p.data, j);
+            }
+            // momentum
+            let new_v = opt.momentum * list_get(v.data, j) + grad;
+            list_set(v.data, j, new_v);
+            // update
+            list_set(p.data, j, list_get(p.data, j) - opt.lr * new_v);
+        }
+    }
+}
+
+// ============ Adam ============
+pub struct Adam {
+    params: List<Tensor>,
+    lr: f64,
+    beta1: f64,
+    beta2: f64,
+    eps: f64,
+    weight_decay: f64,
+    m: List<Tensor>,
+    v: List<Tensor>,
+    t: int,
+}
+
+pub fn adam(params: List<Tensor>, lr: f64) -> Adam {
+    return adam_full(params, lr, 0.9, 0.999, 1e-8, 0.0);
+}
+
+pub fn adam_full(params: List<Tensor>, lr: f64, beta1: f64, beta2: f64, eps: f64, wd: f64) -> Adam {
+    let mut ms = list_new();
+    let mut vs = list_new();
+    for p in params {
+        list_push(ms, ai_tensor.zeros(p.shape));
+        list_push(vs, ai_tensor.zeros(p.shape));
+    }
+    return Adam {
+        params: params,
+        lr: lr,
+        beta1: beta1,
+        beta2: beta2,
+        eps: eps,
+        weight_decay: wd,
+        m: ms,
+        v: vs,
+        t: 0,
+    };
+}
+
+pub fn adam_step(opt: Adam) -> unit {
+    opt.t = opt.t + 1;
+    let t_f = float(opt.t);
+    let bias_correction1 = 1.0 - pow(opt.beta1, t_f);
+    let bias_correction2 = 1.0 - pow(opt.beta2, t_f);
+
+    for i in range(list_len(opt.params)) {
+        let p = list_get(opt.params, i);
+        let m = list_get(opt.m, i);
+        let v = list_get(opt.v, i);
+        for j in range(ai_tensor.numel(p)) {
+            let mut grad = list_get(p.grad.data, j);
+            // weight decay
+            if opt.weight_decay > 0.0 {
+                grad = grad + opt.weight_decay * list_get(p.data, j);
+            }
+            // m = beta1 * m + (1-beta1) * grad
+            let new_m = opt.beta1 * list_get(m.data, j) + (1.0 - opt.beta1) * grad;
+            list_set(m.data, j, new_m);
+            // v = beta2 * v + (1-beta2) * grad^2
+            let new_v = opt.beta2 * list_get(v.data, j) + (1.0 - opt.beta2) * grad * grad;
+            list_set(v.data, j, new_v);
+            // bias correction
+            let m_hat = new_m / bias_correction1;
+            let v_hat = new_v / bias_correction2;
+            // update
+            let update = opt.lr * m_hat / (sqrt(v_hat) + opt.eps);
+            list_set(p.data, j, list_get(p.data, j) - update);
+        }
+    }
+}
+
+// ============ AdamW ============
+pub fn adamw(params: List<Tensor>, lr: f64, weight_decay: f64) -> Adam {
+    return adam_full(params, lr, 0.9, 0.999, 1e-8, weight_decay);
+}
+
+// ============ RMSprop ============
+pub struct RMSprop {
+    params: List<Tensor>,
+    lr: f64,
+    alpha: f64,
+    eps: f64,
+    square_avg: List<Tensor>,
+}
+
+pub fn rmsprop(params: List<Tensor>, lr: f64, alpha: f64) -> RMSprop {
+    let mut avgs = list_new();
+    for p in params {
+        list_push(avgs, ai_tensor.zeros(p.shape));
+    }
+    return RMSprop {
+        params: params,
+        lr: lr,
+        alpha: alpha,
+        eps: 1e-8,
+        square_avg: avgs,
+    };
+}
+
+pub fn rmsprop_step(opt: RMSprop) -> unit {
+    for i in range(list_len(opt.params)) {
+        let p = list_get(opt.params, i);
+        let avg = list_get(opt.square_avg, i);
+        for j in range(ai_tensor.numel(p)) {
+            let grad = list_get(p.grad.data, j);
+            let new_avg = opt.alpha * list_get(avg.data, j) + (1.0 - opt.alpha) * grad * grad;
+            list_set(avg.data, j, new_avg);
+            let update = opt.lr * grad / (sqrt(new_avg) + opt.eps);
+            list_set(p.data, j, list_get(p.data, j) - update);
+        }
+    }
+}
+
+// ============ Learning Rate Scheduler ============
+pub struct LRScheduler {
+    optimizer: Adam,
+    initial_lr: f64,
+    current_epoch: int,
+}
+
+pub fn lr_scheduler(opt: Adam, initial_lr: f64) -> LRScheduler {
+    return LRScheduler { optimizer: opt, initial_lr: initial_lr, current_epoch: 0 };
+}
+
+pub fn step_lr(sched: LRScheduler, epoch: int, decay_epoch: int, gamma: f64) -> unit {
+    if epoch % decay_epoch == 0 {
+        sched.optimizer.lr = sched.initial_lr * pow(gamma, float(epoch / decay_epoch));
+    }
+}
+
+pub fn cosine_annealing(sched: LRScheduler, epoch: int, T_max: int, eta_min: f64) -> unit {
+    sched.optimizer.lr = eta_min + 0.5 * (sched.initial_lr - eta_min) *
+        (1.0 + cos(3.14159265 * float(epoch) / float(T_max)));
+}
+
+// ============ Zero Grad ============
+pub fn zero_grad(params: List<Tensor>) -> unit {
+    for p in params {
+        for i in range(ai_tensor.numel(p)) {
+            list_set(p.grad.data, i, 0.0);
+        }
+    }
+}

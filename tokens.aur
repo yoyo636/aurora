@@ -1,0 +1,107 @@
+# tokens.aur — Aurora 词法单元定义
+# 自举版，替代 Python tokens.py
+
+# Token 类型常量
+var TT_EOF = 0
+var TT_IDENT = 1
+var TT_INT = 2
+var TT_FLOAT = 3
+var TT_STRING = 4
+var TT_STRING_INTERP = 5
+
+# 关键字
+var TT_FN = 10
+var TT_RETURN = 11
+var TT_LET = 12
+var TT_VAR = 13
+var TT_IF = 14
+var TT_ELSE = 15
+var TT_WHILE = 16
+var TT_FOR = 17
+var TT_IN = 18
+var TT_BREAK = 19
+var TT_CONTINUE = 20
+var TT_STRUCT = 21
+var TT_ENUM = 22
+var TT_IMPL = 23
+var TT_TRAIT = 24
+var TT_IMPORT = 25
+var TT_PUB = 26
+var TT_TYPE = 27
+var TT_MATCH = 28
+var TT_CASE = 29
+var TT_WHEN = 30
+var TT_TRY = 31
+var TT_CATCH = 32
+var TT_FINALLY = 33
+var TT_THROW = 34
+var TT_DEFER = 35
+var TT_YIELD = 36
+var TT_ASYNC = 37
+var TT_AWAIT = 38
+var TT_SPAWN = 39
+var TT_SELECT = 40
+var TT_SOURCE = 41
+var TT_LIVE = 42
+var TT_TRANSACT = 43
+var TT_TRUE = 44
+var TT_FALSE = 45
+var TT_NULL = 46
+var TT_NONE = 47
+var TT_WALRUS = 48
+var TT_WITH = 49
+
+# 运算符
+var TT_PLUS = 60
+var TT_MINUS = 61
+var TT_STAR = 62
+var TT_SLASH = 63
+var TT_PERCENT = 64
+var TT_EQ = 65
+var TT_EQEQ = 66
+var TT_NEQ = 67
+var TT_LT = 68
+var TT_LE = 69
+var TT_GT = 70
+var TT_GE = 71
+var TT_AND = 72
+var TT_OR = 73
+var TT_NOT = 74
+var TT_ARROW = 75
+var TT_FAT_ARROW = 76
+var TT_PIPE = 77
+var TT_DOT = 78
+var TT_DOTDOT = 79
+var TT_DOTDOTDOT = 80
+var TT_COLON = 81
+var TT_COLONCOLON = 82
+var TT_SEMI = 83
+var TT_COMMA = 84
+var TT_LPAREN = 85
+var TT_RPAREN = 86
+var TT_LBRACE = 87
+var TT_RBRACE = 88
+var TT_LBRACKET = 89
+var TT_RBRACKET = 90
+var TT_QUESTION = 91
+var TT_QUESTIONDOT = 92
+var TT_QUESTIONQUESTION = 93
+var TT_AMP = 94
+var TT_AMPMUT = 95
+var TT_STARSTAR = 96
+var TT_PLUSEQ = 97
+var TT_MINUSEQ = 98
+var TT_STAREQ = 99
+var TT_SLASHEQ = 100
+var TT_ANDEQ = 101
+var TT_OREQ = 102
+var TT_HASHTAG = 103
+var TT_AT = 104
+
+# Token 结构体
+type Token {
+    type: int,
+    value: string,
+    line: int,
+    col: int
+}

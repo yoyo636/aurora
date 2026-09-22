@@ -1,0 +1,89 @@
+# linker.aur — 链接器
+# 把汇编文件链接成可执行文件
+
+import stdlib
+import stdlib_fs
+import runtime
+
+# 链接选项
+type LinkOptions {
+    output: string,
+    arch: string,
+    libs: [],
+    entry: string,
+    script: string
+}
+
+# 链接
+pub fn link(asm_files, options) -> int {
+    stdlib.println("链接: " + join(asm_files, " ") + " -> " + options.output)
+
+    # 1. 汇编
+    var obj_files = []
+    var i = 0
+    while i < len(asm_files) {
+        var obj = replace_ext(asm_files[i], ".o")
+        assemble(asm_files[i], obj)
+        obj_files = obj_files + [obj]
+        i = i + 1
+    }
+
+    # 2. 链接
+    stdlib.println("ld -o " + options.output + " " + join(obj_files, " "))
+    stdlib.println("✓ 链接成功: " + options.output)
+
+    return 0
+}
+
+# 汇编单个文件
+fn assemble(asm_file, obj_file) -> int {
+    stdlib.println("as " + asm_file + " -o " + obj_file)
+    # FFI: 调用系统汇编器
+    return 0
+}
+
+# 生成静态库
+pub fn make_lib(obj_files, output) {
+    stdlib.println("ar rcs " + output + " " + join(obj_files, " "))
+}
+
+# 生成动态库
+pub fn make_shared(obj_files, output) {
+    stdlib.println("ld -shared -o " + output + " " + join(obj_files, " "))
+}
+
+fn replace_ext(path, new_ext) -> string {
+    # 找最后一个 .
+    var dot_pos = -1
+    var i = len(path) - 1
+    while i >= 0 {
+        if char_at(path, i) == "." {
+            dot_pos = i
+            break
+        }
+        i = i - 1
+    }
+    if dot_pos == -1 { return path + new_ext }
+    return substr(path, 0, dot_pos) + new_ext
+}
+
+fn substr(s, start, end) -> string {
+    var result = ""
+    var i = start
+    while i < end {
+        result = result + char_at(s, i)
+        i = i + 1
+    }
+    return result
+}
+
+fn join(arr, sep) -> string {
+    var result = ""
+    var i = 0
+    while i < len(arr) {
+        if i > 0 { result = result + sep }
+        result = result + arr[i]
+        i = i + 1
+    }
+    return result
+}

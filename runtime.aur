@@ -1,0 +1,160 @@
+# runtime.aur — Aurora 自举运行时
+# 真正的系统调用接口（ARM64 macOS/Linux）
+# 所有 FFI 桥接在这里集中定义
+
+import stdlib
+
+# ============ 系统调用号（ARM64 Linux）============
+# macOS 不同，但我们先按 Linux ABI 定义
+
+var SYS_READ = 63
+var SYS_WRITE = 64
+var SYS_OPEN = 56
+var SYS_CLOSE = 57
+var SYS_STAT = 79
+var SYS_FSTAT = 80
+var SYS_MMAP = 222
+var SYS_MUNMAP = 215
+var SYS_EXIT = 93
+var SYS_EXIT_GROUP = 94
+var SYS_NANOSLEEP = 101
+var SYS_GETTIMEOFDAY = 169
+var SYS_CLOCK_GETTIME = 113
+var SYS_FORK = 220
+var SYS_EXECVE = 221
+var SYS_WAIT4 = 260
+var SYS_GETPID = 172
+var SYS_BRK = 214
+
+# 文件描述符
+var STDIN = 0
+var STDOUT = 1
+var STDERR = 2
+
+# open flags
+var O_RDONLY = 0
+var O_WRONLY = 1
+var O_RDWR = 2
+var O_CREAT = 64
+var O_TRUNC = 512
+var O_APPEND = 1024
+
+# mmap flags
+var PROT_READ = 1
+var PROT_WRITE = 2
+var PROT_EXEC = 4
+var MAP_PRIVATE = 2
+var MAP_ANONYMOUS = 32768
+
+# ============ 原始系统调用 ============
+# 这些函数在 codegen 阶段会被翻译成 svc #0 指令
+
+# syscall(number, arg0, arg1, arg2, arg3, arg4, arg5) -> int
+# FFI: 真正的 ARM64 svc 指令
+fn syscall(n, a0, a1, a2, a3, a4, a5) -> int {
+    # 在解释器中，这是一个内置原语
+    # 在编译后，这是 svc #0
+    return 0
+}
+
+# ============ 文件 IO ============
+
+pub fn write(fd, buf, count) -> int {
+    return syscall(SYS_WRITE, fd, buf, count, 0, 0, 0)
+}
+
+pub fn read(fd, buf, count) -> int {
+    return syscall(SYS_READ, fd, buf, count, 0, 0, 0)
+}
+
+pub fn open(path, flags, mode) -> int {
+    return syscall(SYS_OPEN, path, flags, mode, 0, 0, 0)
+}
+
+pub fn close(fd) -> int {
+    return syscall(SYS_CLOSE, fd, 0, 0, 0, 0, 0)
+}
+
+# ============ 内存 ============
+
+pub fn mmap(addr, length, prot, flags, fd, offset) -> int {
+    return syscall(SYS_MMAP, addr, length, prot, flags, fd, offset)
+}
+
+pub fn munmap(addr, length) -> int {
+    return syscall(SYS_MUNMAP, addr, length, 0, 0, 0, 0)
+}
+
+pub fn brk(addr) -> int {
+    return syscall(SYS_BRK, addr, 0, 0, 0, 0, 0)
+}
+
+# ============ 时间 ============
+
+pub fn clock_gettime(clock_id, ts) -> int {
+    return syscall(SYS_CLOCK_GETTIME, clock_id, ts, 0, 0, 0, 0)
+}
+
+pub fn nanosleep(req, rem) -> int {
+    return syscall(SYS_NANOSLEEP, req, rem, 0, 0, 0, 0)
+}
+
+# ============ 进程 ============
+
+pub fn exit(code) -> int {
+    return syscall(SYS_EXIT_GROUP, code, 0, 0, 0, 0, 0)
+}
+
+pub fn getpid() -> int {
+    return syscall(SYS_GETPID, 0, 0, 0, 0, 0, 0)
+}
+
+pub fn fork() -> int {
+    return syscall(SYS_FORK, 0, 0, 0, 0, 0, 0)
+}
+
+pub fn execve(path, argv, envp) -> int {
+    return syscall(SYS_EXECVE, path, argv, envp, 0, 0, 0)
+}
+
+# ============ 标准输出 ============
+
+pub fn print_str(s) {
+    write(STDOUT, s, str_len(s))
+}
+
+pub fn println_str(s) {
+    print_str(s)
+    print_str("\n")
+}
+
+pub fn print_err(s) {
+    write(STDERR, s, str_len(s))
+}
+
+# ============ 字符串工具 ============
+
+fn str_len(s) -> int {
+    var n = 0
+    while n < 10000 {
+        if char_at(s, n) == '\0' { return n }
+        n = n + 1
+    }
+    return n
+}
+
+# ============ 启动初始化 ============
+
+# 运行时初始化
+pub fn init() {
+    # 分配初始堆
+    var heap_size = 65536
+    var heap_ptr = mmap(0, heap_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+    # 设置 brk
+    brk(heap_ptr + heap_size)
+}
+
+# 运行时退出
+pub fn shutdown(code) {
+    exit(code)
+}

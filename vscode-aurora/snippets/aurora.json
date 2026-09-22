@@ -1,0 +1,260 @@
+{
+  "函数定义": {
+    "prefix": "fn",
+    "body": [
+      "pub fn ${1:name}(${2:args}) {",
+      "    $0",
+      "}"
+    ],
+    "description": "定义公共函数"
+  },
+  "私有函数": {
+    "prefix": "pfn",
+    "body": [
+      "fn ${1:name}(${2:args}) {",
+      "    $0",
+      "}"
+    ],
+    "description": "定义私有函数"
+  },
+  "带返回类型的函数": {
+    "prefix": "fnt",
+    "body": [
+      "pub fn ${1:name}(${2:args}) -> ${3:type} {",
+      "    $0",
+      "}"
+    ],
+    "description": "定义带返回类型的函数"
+  },
+  "变量声明": {
+    "prefix": "var",
+    "body": [
+      "var ${1:name} = ${2:value}"
+    ],
+    "description": "声明变量"
+  },
+  "常量声明": {
+    "prefix": "const",
+    "body": [
+      "const ${1:NAME} = ${2:value}"
+    ],
+    "description": "声明常量"
+  },
+  "if 语句": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} {",
+      "    $0",
+      "}"
+    ],
+    "description": "if 语句"
+  },
+  "if-else 语句": {
+    "prefix": "ife",
+    "body": [
+      "if ${1:condition} {",
+      "    $0",
+      "} else {",
+      "    ",
+      "}"
+    ],
+    "description": "if-else 语句"
+  },
+  "while 循环": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition} {",
+      "    $0",
+      "}"
+    ],
+    "description": "while 循环"
+  },
+  "for 循环": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} in ${2:collection} {",
+      "    $0",
+      "}"
+    ],
+    "description": "for 循环"
+  },
+  "import 导入": {
+    "prefix": "import",
+    "body": [
+      "import ${1:module}"
+    ],
+    "description": "导入模块"
+  },
+  "return 返回": {
+    "prefix": "ret",
+    "body": [
+      "return ${1:value}"
+    ],
+    "description": "返回值"
+  },
+  "结构体": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name} {",
+      "    ${2:field}: ${3:type},",
+      "}"
+    ],
+    "description": "定义结构体"
+  },
+  "枚举": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name} {",
+      "    ${2:Variant},",
+      "}"
+    ],
+    "description": "定义枚举"
+  },
+  "trait 特征": {
+    "prefix": "trait",
+    "body": [
+      "trait ${1:Name} {",
+      "    fn ${2:method}(${3:args}) -> ${4:type};",
+      "}"
+    ],
+    "description": "定义 trait"
+  },
+  "impl 实现": {
+    "prefix": "impl",
+    "body": [
+      "impl ${1:Trait} for ${2:Type} {",
+      "    $0",
+      "}"
+    ],
+    "description": "实现 trait"
+  },
+  "match 匹配": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value} {",
+      "    ${2:pattern} => ${3:result},",
+      "    _ => ${4:default},",
+      "}"
+    ],
+    "description": "match 模式匹配"
+  },
+  "try-catch 异常": {
+    "prefix": "try",
+    "body": [
+      "try {",
+      "    $0",
+      "} catch (${1:error}) {",
+      "    ",
+      "}"
+    ],
+    "description": "try-catch 异常处理"
+  },
+  "with 上下文管理器": {
+    "prefix": "with",
+    "body": [
+      "with ${1:resource} as ${2:name} {",
+      "    $0",
+      "}"
+    ],
+    "description": "with 上下文管理器"
+  },
+  "lambda 匿名函数": {
+    "prefix": "lambda",
+    "body": [
+      "|${1:args}| ${2:expression}"
+    ],
+    "description": "lambda 匿名函数"
+  },
+  "增量计算活计算": {
+    "prefix": "live",
+    "body": [
+      "live ${1:name} = ${2:expression}"
+    ],
+    "description": "定义增量计算活计算"
+  },
+  "可变源": {
+    "prefix": "source",
+    "body": [
+      "source ${1:name} = ${2:value}"
+    ],
+    "description": "定义可变源"
+  },
+  "批量事务": {
+    "prefix": "transaction",
+    "body": [
+      "transaction {",
+      "    $0",
+      "}"
+    ],
+    "description": "批量事务更新"
+  },
+  "异步函数": {
+    "prefix": "async",
+    "body": [
+      "async fn ${1:name}(${2:args}) {",
+      "    $0",
+      "}"
+    ],
+    "description": "异步函数"
+  },
+  "await 等待": {
+    "prefix": "await",
+    "body": [
+      "await ${1:future}"
+    ],
+    "description": "等待异步结果"
+  },
+  "main 函数": {
+    "prefix": "main",
+    "body": [
+      "pub fn main() {",
+      "    $0",
+      "}"
+    ],
+    "description": "主函数"
+  },
+  "println 输出": {
+    "prefix": "pln",
+    "body": [
+      "println(${1:value})"
+    ],
+    "description": "打印并换行"
+  },
+  "print 输出": {
+    "prefix": "pr",
+    "body": [
+      "print(${1:value})"
+    ],
+    "description": "打印不换行"
+  },
+  "测试函数": {
+    "prefix": "test",
+    "body": [
+      "#[test]",
+      "fn test_${1:name}() {",
+      "    assert(${2:condition});",
+      "}"
+    ],
+    "description": "测试函数"
+  },
+  "断言": {
+    "prefix": "assert",
+    "body": [
+      "assert(${1:condition})"
+    ],
+    "description": "断言"
+  },
+  "文档注释": {
+    "prefix": "doc",
+    "body": [
+      "/// ${1:description}",
+      "/// ",
+      "/// # Parameters",
+      "/// - ${2:param}: ${3:description}",
+      "/// ",
+      "/// # Returns",
+      "/// ${4:description}"
+    ],
+    "description": "文档注释"
+  }
+}

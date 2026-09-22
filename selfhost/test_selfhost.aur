@@ -1,0 +1,64 @@
+# =============================================================================
+# test_selfhost.aur — 自举模块自检（在 Aurora 内运行）
+# -----------------------------------------------------------------------------
+# 运行方式：由 Python 解释器加载本文件，它会自检 lexer / parser / interpreter。
+# =============================================================================
+
+import selfhost.lexer as lexer
+import selfhost.parser as parser
+import selfhost.interpreter as interp
+import std.str as strmod
+
+# 构造花括号，避免字符串插值把 {} 吞掉
+let LB = strmod.from_char_code(123)
+let RB = strmod.from_char_code(125)
+
+var passed = 0
+var failed = 0
+
+fn check(name, cond) {
+    if cond {
+        passed = passed + 1
+        println("PASS: " + name)
+    } else {
+        failed = failed + 1
+        println("FAIL: " + name)
+    }
+}
+
+# ---- 1. 词法分析自检 ---------------------------------------------------------
+let toks = lexer.tokenize("let x = 42")
+# 期望: LET, IDENTIFIER(x), ASSIGN, INTEGER(42), EOF
+check("lexer count", len(toks) == 5)
+check("lexer LET", toks[0]["type"] == "LET" && toks[0]["value"] == "let")
+check("lexer IDENTIFIER", toks[1]["type"] == "IDENTIFIER" && toks[1]["value"] == "x")
+check("lexer ASSIGN", toks[2]["type"] == "ASSIGN")
+check("lexer INTEGER", toks[3]["type"] == "INTEGER" && toks[3]["value"] == "42")
+check("lexer EOF", toks[4]["type"] == "EOF")
+
+# ---- 2. 语法分析自检 ---------------------------------------------------------
+let fn_src = "fn add(a, b) " + LB + " return a + b " + RB
+let ast = parser.parse(lexer.tokenize(fn_src))
+check("parse Program", ast["kind"] == "Program")
+let fn_node = ast["body"][0]
+check("parse FnDef", fn_node["kind"] == "FnDef" && fn_node["name"] == "add")
+check("parse params", len(fn_node["params"]) == 2)
+let ret_node = fn_node["body"][0]
+check("parse Return", ret_node["kind"] == "ReturnStmt")
+check("parse BinOp", ret_node["value"]["op"] == "+")
+
+# ---- 3. 解释执行自检 ---------------------------------------------------------
+# 3a. 算术
+let prog1_src = "print(1 + 2 * 3)"
+interp.interpret(parser.parse(lexer.tokenize(prog1_src)))
+
+# 3b. 函数调用
+let prog2_src = "fn add(a, b) " + LB + " return a + b " + RB + "\nprint(add(3, 4))"
+interp.interpret(parser.parse(lexer.tokenize(prog2_src)))
+
+# 3c. while 循环求和
+let prog3_src = "var i = 0\nvar s = 0\nwhile i < 5 " + LB + " s = s + i; i = i + 1 " + RB + "\nprint(s)"
+interp.interpret(parser.parse(lexer.tokenize(prog3_src)))
+
+# ---- 汇总 -------------------------------------------------------------------
+println("==== self-host self-test: " + str(passed) + " passed, " + str(failed) + " failed ====")

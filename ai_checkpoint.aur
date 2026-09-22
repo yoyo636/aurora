@@ -1,0 +1,117 @@
+// ai_checkpoint.aur — Aurora 模型保存/加载
+// 对标 PyTorch save/load
+
+mod ai_checkpoint;
+
+// 保存模型参数到文件
+pub fn save(model_state: Dict<String, Tensor>, path: String) -> unit {
+    let mut obj = dict_new();
+    for key in dict_keys(model_state) {
+        let t = dict_get(model_state, key);
+        let tensor_obj = dict_new();
+        // 保存形状
+        let shape_arr = list_new();
+        for s in t.shape { list_push(shape_arr, s); }
+        dict_set(tensor_obj, "shape", shape_arr);
+        // 保存数据
+        let data_arr = list_new();
+        for v in t.data { list_push(data_arr, v); }
+        dict_set(tensor_obj, "data", data_arr);
+        dict_set(obj, key, tensor_obj);
+    }
+    let json = stdlib_json.stringify(JsonValue.Object(obj));
+    fs_write(path, json);
+}
+
+// 从文件加载模型参数
+pub fn load(path: String) -> Dict<String, Tensor> {
+    let content = fs_read(path);
+    let json = stdlib_json.parse(content);
+    let mut model_state = dict_new();
+    for key in dict_keys(json.object) {
+        let tensor_obj = dict_get(json.object, key);
+        // 解析形状
+        let shape_list = list_new();
+        for s in tensor_obj["shape"].array {
+            list_push(shape_list, int(s));
+        }
+        // 解析数据
+        let data_list = list_new();
+        for v in tensor_obj["data"].array {
+            list_push(data_list, float(v));
+        }
+        let t = ai_tensor.new(data_list, shape_list);
+        dict_set(model_state, key, t);
+    }
+    return model_state;
+}
+
+// 保存完整训练状态（模型 + 优化器 + epoch + loss）
+pub struct TrainingState {
+    epoch: int,
+    best_loss: f64,
+    model_state: Dict<String, Tensor>,
+    optimizer_state: String,
+}
+
+pub fn save_checkpoint(state: TrainingState, path: String) -> unit {
+    let mut obj = dict_new();
+    dict_set(obj, "epoch", state.epoch);
+    dict_set(obj, "best_loss", state.best_loss);
+    // 保存模型
+    let mut model_obj = dict_new();
+    for key in dict_keys(state.model_state) {
+        let t = dict_get(state.model_state, key);
+        let tensor_obj = dict_new();
+        let shape_arr = list_new();
+        for s in t.shape { list_push(shape_arr, s); }
+        dict_set(tensor_obj, "shape", shape_arr);
+        let data_arr = list_new();
+        for v in t.data { list_push(data_arr, v); }
+        dict_set(tensor_obj, "data", data_arr);
+        dict_set(model_obj, key, tensor_obj);
+    }
+    dict_set(obj, "model", model_obj);
+    dict_set(obj, "optimizer", state.optimizer_state);
+    fs_write(path, stdlib_json.stringify(JsonValue.Object(obj)));
+}
+
+pub fn load_checkpoint(path: String) -> TrainingState {
+    let content = fs_read(path);
+    let json = stdlib_json.parse(content);
+    let epoch = int(json["epoch"]);
+    let best_loss = float(json["best_loss"]);
+    // 加载模型
+    let mut model_state = dict_new();
+    for key in dict_keys(json["model"].object) {
+        let tensor_obj = dict_get(json["model"].object, key);
+        let shape_list = list_new();
+        for s in tensor_obj["shape"].array {
+            list_push(shape_list, int(s));
+        }
+        let data_list = list_new();
+        for v in tensor_obj["data"].array {
+            list_push(data_list, float(v));
+        }
+        dict_set(model_state, key, ai_tensor.new(data_list, shape_list));
+    }
+    let optimizer_state = str(json["optimizer"]);
+    return TrainingState {
+        epoch: epoch,
+        best_loss: best_loss,
+        model_state: model_state,
+        optimizer_state: optimizer_state,
+    };
+}
+
+// 导出为 ONNX（预留接口）
+pub fn export_onnx(model: Dict<String, Tensor>, input_shape: List<int>, path: String) -> unit {
+    // TODO: 实现 ONNX 导出
+    println("ONNX 导出接口已预留，路径: " + path);
+}
+
+// 导出为 TorchScript（预留接口）
+pub fn export_torchscript(model: Dict<String, Tensor>, path: String) -> unit {
+    // TODO: 实现 TorchScript 导出
+    println("TorchScript 导出接口已预留，路径: " + path);
+}

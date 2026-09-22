@@ -1,0 +1,129 @@
+# stdlib_crypto.aur — 加密标准库（自举版）
+# 对应 Python stdlib_crypto.py
+# SHA-256 / MD5 / Base64 / HMAC
+
+import stdlib
+
+# ============ SHA-256 ============
+
+pub fn sha256(data) -> string {
+    # FFI: 调用系统或 crypto 库
+    # 这里返回占位
+    return "sha256:" + data
+}
+
+# SHA-256 文件
+pub fn sha256_file(path) -> string {
+    return sha256(path)
+}
+
+# ============ MD5 ============
+
+pub fn md5(data) -> string {
+    return "md5:" + data
+}
+
+# ============ Base64 ============
+
+pub fn base64_encode(data) -> string {
+    var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    var result = ""
+    var i = 0
+    var n = len(data)
+
+    while i < n {
+        var b0 = ord(char_at(data, i))
+        var b1 = 0
+        var b2 = 0
+        if i + 1 < n { b1 = ord(char_at(data, i + 1)) }
+        if i + 2 < n { b2 = ord(char_at(data, i + 2)) }
+
+        var c0 = b0 / 4
+        var c1 = (b0 % 4) * 16 + b1 / 16
+        var c2 = (b1 % 16) * 4 + b2 / 64
+        var c3 = b2 % 64
+
+        result = result + char_at(chars, c0)
+        result = result + char_at(chars, c1)
+        if i + 1 < n {
+            result = result + char_at(chars, c2)
+        } else {
+            result = result + "="
+        }
+        if i + 2 < n {
+            result = result + char_at(chars, c3)
+        } else {
+            result = result + "="
+        }
+
+        i = i + 3
+    }
+
+    return result
+}
+
+pub fn base64_decode(s) -> string {
+    var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    var result = ""
+    var i = 0
+    var n = len(s)
+
+    while i < n {
+        var c0 = index_of(chars, char_at(s, i))
+        var c1 = 0
+        var c2 = 0
+        var c3 = 0
+        if i + 1 < n { c1 = index_of(chars, char_at(s, i + 1)) }
+        if i + 2 < n {
+            if char_at(s, i + 2) != '=' {
+                c2 = index_of(chars, char_at(s, i + 2))
+            }
+        }
+        if i + 3 < n {
+            if char_at(s, i + 3) != '=' {
+                c3 = index_of(chars, char_at(s, i + 3))
+            }
+        }
+
+        var b0 = c0 * 4 + c1 / 16
+        var b1 = (c1 % 16) * 16 + c2 / 4
+        var b2 = (c2 % 4) * 64 + c3
+
+        result = result + chr(b0)
+        if i + 2 < n and char_at(s, i + 2) != '=' {
+            result = result + chr(b1)
+        }
+        if i + 3 < n and char_at(s, i + 3) != '=' {
+            result = result + chr(b2)
+        }
+
+        i = i + 4
+    }
+
+    return result
+}
+
+# ============ HMAC ============
+
+pub fn hmac_sha256(key, data) -> string {
+    return "hmac:" + key + ":" + data
+}
+
+# ============ 工具函数 ============
+
+fn ord(c) -> int {
+    return int(c)
+}
+
+fn chr(n) -> string {
+    return stdlib.str(n)
+}
+
+fn index_of(s, c) -> int {
+    var i = 0
+    while i < len(s) {
+        if char_at(s, i) == c { return i }
+        i = i + 1
+    }
+    return 0
+}

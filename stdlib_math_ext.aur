@@ -1,0 +1,289 @@
+# stdlib_math_ext.aur — 数学扩展标准库（自举版）
+# 对应 Python stdlib_math_ext.py
+# 高阶数学函数：三角函数、对数、随机数、统计
+
+import stdlib
+
+# ============ 三角函数 ============
+# 弧度制
+
+# 正弦（泰勒展开近似）
+pub fn sin(x) -> float {
+    # 简化版：x mod 2π
+    x = mod_two_pi(x)
+    # 泰勒展开：x - x^3/6 + x^5/120 - x^7/5040
+    var x2 = x * x
+    var x3 = x2 * x
+    var x5 = x3 * x2
+    var x7 = x5 * x2
+    return x - x3 / 6.0 + x5 / 120.0 - x7 / 5040.0
+}
+
+# 余弦
+pub fn cos(x) -> float {
+    # cos(x) = sin(x + π/2)
+    return sin(x + 1.5707963267948966)
+}
+
+# 正切
+pub fn tan(x) -> float {
+    var c = cos(x)
+    if c == 0.0 { return 0.0 }
+    return sin(x) / c
+}
+
+# 反正切
+pub fn atan(x) -> float {
+    # 简化版泰勒展开
+    return x - x * x * x / 3.0 + x * x * x * x * x / 5.0
+}
+
+# 反余弦
+pub fn acos(x) -> float {
+    return 1.5707963267948966 - atan(x / sqrt(1.0 - x * x))
+}
+
+# ============ 指数对数 ============
+
+# e^x（泰勒展开）
+pub fn exp(x) -> float {
+    var result = 1.0
+    var term = 1.0
+    var i = 1
+    while i < 20 {
+        term = term * x / float(i)
+        result = result + term
+        i = i + 1
+    }
+    return result
+}
+
+# 自然对数
+pub fn log(x) -> float {
+    if x <= 0.0 { return 0.0 }
+    # ln(x) ≈ 2 * ( (x-1)/(x+1) + ((x-1)/(x+1))^3/3 + ... )
+    var y = (x - 1.0) / (x + 1.0)
+    var y2 = y * y
+    var result = y
+    var term = y
+    var i = 1
+    while i < 20 {
+        term = term * y2
+        result = result + term / float(2 * i + 1)
+        i = i + 1
+    }
+    return 2.0 * result
+}
+
+# log2
+pub fn log2(x) -> float {
+    return log(x) / 0.6931471805599453
+}
+
+# log10
+pub fn log10(x) -> float {
+    return log(x) / 2.302585092994046
+}
+
+# x^y
+pub fn powf(base, exp) -> float {
+    if exp == 0.0 { return 1.0 }
+    if base == 0.0 { return 0.0 }
+    return exp(log(base) * exp)
+}
+
+# ============ 取整 ============
+
+pub fn floor(x) -> int {
+    var i = int(x)
+    if float(i) > x { i = i - 1 }
+    return i
+}
+
+pub fn ceil(x) -> int {
+    var i = int(x)
+    if float(i) < x { i = i + 1 }
+    return i
+}
+
+pub fn round(x) -> int {
+    var i = int(x)
+    var frac = x - float(i)
+    if frac >= 0.5 { i = i + 1 }
+    return i
+}
+
+# ============ 统计 ============
+
+pub fn mean(nums) -> float {
+    var sum = 0.0
+    var i = 0
+    while i < len(nums) {
+        sum = sum + float(nums[i])
+        i = i + 1
+    }
+    return sum / float(len(nums))
+}
+
+pub fn median(nums) -> float {
+    var sorted = copy(nums)
+    sort_float(sorted)
+    var n = len(sorted)
+    if n % 2 == 0 {
+        return (float(sorted[n/2 - 1]) + float(sorted[n/2])) / 2.0
+    }
+    return float(sorted[n/2])
+}
+
+pub fn stddev(nums) -> float {
+    var m = mean(nums)
+    var variance = 0.0
+    var i = 0
+    while i < len(nums) {
+        var diff = float(nums[i]) - m
+        variance = variance + diff * diff
+        i = i + 1
+    }
+    variance = variance / float(len(nums))
+    return sqrt_float(variance)
+}
+
+pub fn variance(nums) -> float {
+    var m = mean(nums)
+    var sum = 0.0
+    var i = 0
+    while i < len(nums) {
+        var diff = float(nums[i]) - m
+        sum = sum + diff * diff
+        i = i + 1
+    }
+    return sum / float(len(nums))
+}
+
+pub fn minf(nums) -> float {
+    if len(nums) == 0 { return 0.0 }
+    var m = float(nums[0])
+    var i = 1
+    while i < len(nums) {
+        if float(nums[i]) < m { m = float(nums[i]) }
+        i = i + 1
+    }
+    return m
+}
+
+pub fn maxf(nums) -> float {
+    if len(nums) == 0 { return 0.0 }
+    var m = float(nums[0])
+    var i = 1
+    while i < len(nums) {
+        if float(nums[i]) > m { m = float(nums[i]) }
+        i = i + 1
+    }
+    return m
+}
+
+# ============ 随机数 ============
+# LCG 线性同余生成器
+
+var rng_state = 1
+
+pub fn seed(s) {
+    rng_state = s
+}
+
+pub fn rand_int() -> int {
+    # LCG: state = (a * state + c) % m
+    rng_state = (1103515245 * rng_state + 12345) % 2147483648
+    return rng_state
+}
+
+pub fn rand_float() -> float {
+    return float(rand_int()) / 2147483648.0
+}
+
+pub fn rand_range(min_val, max_val) -> int {
+    return min_val + rand_int() % (max_val - min_val)
+}
+
+pub fn rand_float_range(min_val, max_val) -> float {
+    return min_val + rand_float() * (max_val - min_val)
+}
+
+pub fn shuffle(nums) {
+    var n = len(nums)
+    var i = n - 1
+    while i > 0 {
+        var j = rand_int() % (i + 1)
+        var temp = nums[i]
+        nums[i] = nums[j]
+        nums[j] = temp
+        i = i - 1
+    }
+}
+
+pub fn choice(nums) {
+    var idx = rand_int() % len(nums)
+    return nums[idx]
+}
+
+# ============ 常量 ============
+
+pub fn pi() -> float {
+    return 3.14159265358979323846
+}
+
+pub fn e() -> float {
+    return 2.71828182845904523536
+}
+
+pub fn golden_ratio() -> float {
+    return 1.61803398874989484820
+}
+
+# ============ 辅助 ============
+
+fn mod_two_pi(x) -> float {
+    var two_pi = 6.28318530717958647692
+    while x > two_pi { x = x - two_pi }
+    while x < 0.0 { x = x + two_pi }
+    return x
+}
+
+fn sqrt_float(x) -> float {
+    if x < 0.0 { return 0.0 }
+    if x == 0.0 { return 0.0 }
+    var g = x / 2.0
+    var i = 0
+    while i < 30 {
+        g = (g + x / g) / 2.0
+        i = i + 1
+    }
+    return g
+}
+
+fn copy(arr) -> [] {
+    var result = []
+    var i = 0
+    while i < len(arr) {
+        push(result, arr[i])
+        i = i + 1
+    }
+    return result
+}
+
+fn sort_float(arr) {
+    var n = len(arr)
+    var i = 0
+    while i < n {
+        var j = 0
+        while j < n - i - 1 {
+            if float(arr[j]) > float(arr[j+1]) {
+                var temp = arr[j]
+                arr[j] = arr[j+1]
+                arr[j+1] = temp
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+}

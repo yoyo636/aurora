@@ -5,14 +5,8 @@ __pycache__/
 *.so
 .Python
 *.egg-info/
-# 构建产物
-build/*.pkg
-build/*.dmg
-!build/pkg/
-!build/pkg/**
 
 # 虚拟环境
-ide/.venv/
 .venv/
 venv/
 env/
@@ -30,26 +24,13 @@ env/
 # Aurora 构建产物
 dist/
 *.pyc
-
-# Rust 构建产物
-examples/interop/rust_math/target/
-
-# C++ 构建产物
-examples/interop/*.o
-examples/interop/*.dylib
-examples/interop/*.so
-
-# 运行时数据
-examples/largeapp/tasks.json
+*.o
+*.s
 *.aurora-cache/
 .aurora_cache/
 *.aurc
-build/
-!build/pkg/
-!build/pkg/**
 
 # VSCode 插件构建
-vscode-aurora/*.vsix
 vscode-aurora/node_modules/
 
 # 临时文件

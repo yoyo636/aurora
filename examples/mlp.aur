@@ -1,0 +1,144 @@
+// examples/mlp.aur — Aurora 手写数字分类器
+// 端到端 AI 示例：自动微分 + 神经网络 + 训练循环
+
+import ai_tensor;
+import ai_autograd;
+
+fn main() {
+    println("=== Aurora MLP 手写数字分类器 ===");
+    println("");
+
+    // 超参数
+    let input_dim = 784;   // 28x28 像素
+    let hidden_dim = 128;
+    let output_dim = 10;   // 0-9
+    let learning_rate = 0.01;
+    let epochs = 10;
+
+    println("架构: " + int_to_str(input_dim) + " -> " +
+             int_to_str(hidden_dim) + " -> " + int_to_str(output_dim));
+    println("学习率: " + float_to_str(learning_rate));
+    println("训练轮数: " + int_to_str(epochs));
+    println("");
+
+    // 创建网络
+    let layer1 = ai_autograd.linear_new(input_dim, hidden_dim);
+    let layer2 = ai_autograd.linear_new(hidden_dim, output_dim);
+
+    println("网络参数初始化完成");
+    println("开始训练...");
+    println("");
+
+    // 训练循环
+    for epoch in range(epochs) {
+        let mut total_loss = 0.0;
+        let mut correct = 0;
+        let mut total = 0;
+
+        // 模拟训练数据（实际项目中从 MNIST 加载）
+        for batch in range(100) {
+            let x = random_tensor(input_dim);
+            let y_true = random_label(output_dim);
+
+            // 前向传播
+            let h = ai_autograd.linear_forward(layer1, x);
+            let h_relu = relu_list(h);
+            let logits = ai_autograd.linear_forward(layer2, h_relu);
+            let probs = softmax_list(logits);
+
+            // 计算损失
+            let loss = cross_entropy(probs, y_true);
+            total_loss = total_loss + loss.data;
+
+            // 反向传播
+            ai_autograd.backward(loss);
+
+            // 梯度下降
+            ai_autograd.step(optimizer);
+            ai_autograd.zero_grad_all(optimizer);
+
+            // 计算准确率
+            let pred = argmax(probs);
+            let target = argmax(y_true);
+            if pred == target { correct = correct + 1; }
+            total = total + 1;
+        }
+
+        let avg_loss = total_loss / 100.0;
+        let accuracy = float(correct) / float(total) * 100.0;
+
+        println("Epoch " + int_to_str(epoch+1) + "/" + int_to_str(epochs) +
+                "  loss=" + float_to_str(avg_loss) +
+                "  acc=" + float_to_str(accuracy) + "%");
+    }
+
+    println("");
+    println("=== 训练完成 ===");
+    println("Aurora 原生训练循环，无需 Python！");
+}
+
+fn relu_list(x: List<Var>) -> List<Var> {
+    let mut out = list_new();
+    for v in x {
+        list_push(out, ai_autograd.relu(v));
+    }
+    return out;
+}
+
+fn softmax_list(logits: List<Var>) -> List<Var> {
+    // 简化版 softmax
+    let mut out = list_new();
+    let mut sum = 0.0;
+    for l in logits {
+        sum = sum + exp(l.data);
+    }
+    for l in logits {
+        list_push(out, ai_autograd.v(exp(l.data) / sum));
+    }
+    return out;
+}
+
+fn cross_entropy(pred: List<Var>, target: List<Var>) -> Var {
+    let mut loss = ai_autograd.v(0.0);
+    for i in range(list_len(pred)) {
+        let p = list_get(pred, i);
+        let t = list_get(target, i);
+        if t.data > 0.5 {
+            loss = ai_autograd.add(loss, ai_autograd.v(-log(p.data + 1e-10)));
+        }
+    }
+    return loss;
+}
+
+fn argmax(x: List<Var>) -> int {
+    let mut max_idx = 0;
+    let mut max_val = list_get(x, 0).data;
+    for i in range(1, list_len(x)) {
+        if list_get(x, i).data > max_val {
+            max_val = list_get(x, i).data;
+            max_idx = i;
+        }
+    }
+    return max_idx;
+}
+
+fn random_tensor(dim: int) -> List<Var> {
+    let mut out = list_new();
+    for i in range(dim) {
+        list_push(out, ai_autograd.v(random_normal()));
+    }
+    return out;
+}
+
+fn random_label(dim: int) -> List<Var> {
+    let mut out = list_new();
+    let label = int(random_float() * float(dim));
+    for i in range(dim) {
+        if i == label {
+            list_push(out, ai_autograd.v(1.0));
+        } else {
+            list_push(out, ai_autograd.v(0.0));
+        }
+    }
+    return out;
+}

@@ -1,0 +1,290 @@
+# native_bindings.aur — Aurora C FFI 原生绑定（自举版）
+# 对应 Python native_bindings.py
+# 用法：
+#   extern "C" {
+#       fn printf(format: string, ...) -> int
+#       fn malloc(size: int) -> *void
+#       fn free(ptr: *void)
+#   }
+
+import stdlib
+
+# 已加载的动态库
+var loaded_libs = {}
+
+# 符号表：函数名 -> 函数指针
+var symbol_table = {}
+
+# 类型映射
+# Aurora int     ↔ C long
+# Aurora float   ↔ C double
+# Aurora string  ↔ C char*
+# Aurora bool    ↔ C int (0/1)
+# Aurora *T      ↔ C T*
+
+# ============ 动态库加载 ============
+
+# 加载系统库
+pub fn load_system_lib(name) -> int {
+    # FFI: dlopen("lib" + name + ".dylib", RTLD_NOW | RTLD_GLOBAL)
+    var handle = sys_dlopen("/usr/lib/lib" + name + ".dylib")
+    if handle == 0 {
+        handle = sys_dlopen("/usr/lib/lib" + name + ".so")
+    }
+    loaded_libs[name] = handle
+    stdlib.println("加载库: " + name + " (handle=" + stdlib.str(handle) + ")")
+    return handle
+}
+
+# 加载自定义动态库
+pub fn load_lib(path) -> int {
+    var handle = sys_dlopen(path)
+    if handle == 0 {
+        stdlib.println("错误: 无法加载 " + path)
+        return 0
+    }
+    var name = basename(path)
+    loaded_libs[name] = handle
+    stdlib.println("加载库: " + path)
+    return handle
+}
+
+# 卸载库
+pub fn unload_lib(name) {
+    if has_key(loaded_libs, name) {
+        sys_dlclose(loaded_libs[name])
+        loaded_libs[name] = 0
+    }
+}
+
+# ============ 符号查找 ============
+
+# 查找函数符号
+pub fn find_symbol(lib_handle, name) -> int {
+    var sym = sys_dlsym(lib_handle, name)
+    if sym == 0 {
+        stdlib.println("警告: 找不到符号 " + name)
+    }
+    return sym
+}
+
+# 注册外部函数（编译期会生成调用 stub）
+pub fn extern_fn(lib_handle, name, arg_types, ret_type) {
+    var sym = find_symbol(lib_handle, name)
+    symbol_table[name] = {
+        ptr: sym,
+        arg_types: arg_types,
+        ret_type: ret_type
+    }
+}
+
+# ============ 常用 C 函数绑定 ============
+
+# 标准库
+pub fn bind_stdlib() {
+    var libc = load_system_lib("c")
+
+    # malloc / free / realloc
+    extern_fn(libc, "malloc", ["int"], "*void")
+    extern_fn(libc, "free", ["*void"], "void")
+    extern_fn(libc, "realloc", ["*void", "int"], "*void")
+    extern_fn(libc, "memcpy", ["*void", "*void", "int"], "*void")
+    extern_fn(libc, "memset", ["*void", "int", "int"], "*void")
+
+    # IO
+    extern_fn(libc, "printf", ["string", "..."], "int")
+    extern_fn(libc, "fprintf", ["*void", "string", "..."], "int")
+    extern_fn(libc, "scanf", ["string", "..."], "int")
+
+    # 字符串
+    extern_fn(libc, "strlen", ["string"], "int")
+    extern_fn(libc, "strcpy", ["string", "string"], "string")
+    extern_fn(libc, "strcmp", ["string", "string"], "int")
+
+    # 数学
+    extern_fn(libc, "sqrt", ["float"], "float")
+    extern_fn(libc, "sin", ["float"], "float")
+    extern_fn(libc, "cos", ["float"], "float")
+    extern_fn(libc, "pow", ["float", "float"], "float")
+    extern_fn(libc, "log", ["float"], "float")
+    extern_fn(libc, "exp", ["float"], "float")
+
+    stdlib.println("✓ libc 绑定完成")
+}
+
+# 系统调用
+pub fn bind_unistd() {
+    var libc = load_system_lib("c")
+
+    # unistd.h
+    extern_fn(libc, "read", ["int", "*void", "int"], "int")
+    extern_fn(libc, "write", ["int", "*void", "int"], "int")
+    extern_fn(libc, "open", ["string", "int", "int"], "int")
+    extern_fn(libc, "close", ["int"], "int")
+    extern_fn(libc, "fork", [], "int")
+    extern_fn(libc, "execve", ["string", "*void", "*void"], "int")
+    extern_fn(libc, "exit", ["int"], "void")
+    extern_fn(libc, "getpid", [], "int")
+    extern_fn(libc, "sleep", ["int"], "int")
+
+    stdlib.println("✓ unistd 绑定完成")
+}
+
+# ============ 类型转换辅助 ============
+
+# C 字符串 → Aurora 字符串
+# FFI: 从 char* 复制到 Aurora 字符串
+pub fn cstr_to_string(cstr) -> string {
+    return ""
+}
+
+# Aurora 字符串 → C 字符串
+# FFI: 分配内存并复制
+pub fn string_to_cstr(s) -> int {
+    return 0
+}
+
+# ============ 回调函数（传给 C）============
+
+# 创建 C 回调（Aurora fn -> C function pointer）
+# FFI: 生成 trampoline
+pub fn make_callback(aurora_fn) -> int {
+    return 0
+}
+
+# ============ 结构体绑定 ============
+
+# 定义 C 结构体
+pub fn bind_struct(name, fields) {
+    var offsets = {}
+    var offset = 0
+    for field_name in fields {
+        var field_type = fields[field_name]
+        offsets[field_name] = offset
+        offset = offset + sizeof_type(field_type)
+    }
+    symbol_table["struct_" + name] = offsets
+    return offsets
+}
+
+# 读取结构体字段
+pub fn read_field(struct_ptr, struct_name, field_name) -> int {
+    var offsets = symbol_table["struct_" + struct_name]
+    var offset = offsets[field_name]
+    return sys_read_mem(struct_ptr + offset)
+}
+
+# 写入结构体字段
+pub fn write_field(struct_ptr, struct_name, field_name, value) {
+    var offsets = symbol_table["struct_" + struct_name]
+    var offset = offsets[field_name]
+    sys_write_mem(struct_ptr + offset, value)
+}
+
+# ============ 内存操作 ============
+
+# 分配内存
+pub fn c_malloc(size) -> int {
+    return sys_call_func(symbol_table["malloc"].ptr, [size])
+}
+
+# 释放内存
+pub fn c_free(ptr) {
+    sys_call_func(symbol_table["free"].ptr, [ptr])
+}
+
+# 复制内存
+pub fn c_memcpy(dst, src, size) {
+    sys_call_func(symbol_table["memcpy"].ptr, [dst, src, size])
+}
+
+# ============ 错误处理 ============
+
+# 获取上次错误（errno）
+pub fn get_errno() -> int {
+    return sys_get_errno()
+}
+
+# 清除错误
+pub fn clear_errno() {
+    sys_set_errno(0)
+}
+
+# ============ 统计 ============
+
+pub fn stats() {
+    stdlib.println("FFI 统计:")
+    stdlib.println("  已加载库: " + stdlib.str(len(loaded_libs)))
+    stdlib.println("  已注册符号: " + stdlib.str(len(symbol_table)))
+}
+
+# ============ FFI 桥接 ============
+
+fn sys_dlopen(path) -> int {
+    # FFI: dlopen()
+    return 0
+}
+
+fn sys_dlsym(handle, name) -> int {
+    # FFI: dlsym()
+    return 0
+}
+
+fn sys_dlclose(handle) {
+    # FFI: dlclose()
+}
+
+fn sys_call_func(ptr, args) -> int {
+    # FFI: 调用函数指针
+    return 0
+}
+
+fn sys_read_mem(addr) -> int {
+    # FFI: 读内存
+    return 0
+}
+
+fn sys_write_mem(addr, value) {
+    # FFI: 写内存
+}
+
+fn sys_get_errno() -> int {
+    # FFI: 获取 errno
+    return 0
+}
+
+fn sys_set_errno(n) {
+    # FFI: 设置 errno
+}
+
+fn sizeof_type(t) -> int {
+    if t == "int" { return 8 }
+    if t == "float" { return 8 }
+    if t == "string" { return 8 }
+    if t == "*void" { return 8 }
+    if t == "bool" { return 4 }
+    return 8
+}
+
+fn basename(path) -> string {
+    var result = ""
+    var i = 0
+    while i < len(path) {
+        var c = char_at(path, i)
+        if c == '/' {
+            result = ""
+        } else {
+            result = result + c
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

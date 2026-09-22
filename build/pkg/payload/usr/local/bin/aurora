@@ -1,5 +1,0 @@
-#!/bin/bash
-# Aurora 编程语言 — 全局命令入口
-# 安装到 /usr/local/bin/aurora,实际运行时指向 /usr/local/lib/aurora/aurora-run
-
-exec /usr/local/lib/aurora/aurora-run "$@"

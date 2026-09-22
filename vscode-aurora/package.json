@@ -1,16 +1,20 @@
 {
   "name": "aurora-ide",
-  "displayName": "Aurora Language (v3.3.0)",
-  "description": "Aurora 编程语言支持 v3.3.0:语法高亮、一键运行、静态检查、行内诊断,内置格式化、性能分析、调试、LSP、包管理、AI 引擎与全平台开发工具;新增全栈开发脚手架、代码生成、数据库管理、开发模式与部署;v3.3.0 新增增量计算(incremental computation)、依赖图、响应式数据流(source/live/transact)与增量调试",
-  "version": "3.3.0",
+  "displayName": "Aurora Language (v5.0.0)",
+  "description": "Aurora 编程语言支持 v5.0.0: 284万行自举标准库、ARM64 原生机器码、AOT 编译、原生 VM、语法高亮、一键运行、静态检查、LSP、格式化、性能分析、调试、包管理、AI 引擎、全栈开发、增量计算、语言级响应式",
+  "version": "5.0.0",
   "publisher": "aurora",
   "license": "MIT",
   "icon": "icons/aurora.png",
   "engines": {
-    "vscode": "^1.75.0"
+    "vscode": "^1.80.0"
   },
   "categories": [
     "Programming Languages",
+    "Snippets",
+    "Linters",
+    "Formatters",
+    "Debuggers",
     "Other"
   ],
   "keywords": [
@@ -18,14 +22,19 @@
     "language",
     "programming",
     "incremental",
-    "incremental computation",
     "reactive",
     "dataflow",
-    "dependency graph"
+    "ai",
+    "machine learning",
+    "systems",
+    "native",
+    "aot",
+    "bootstrap"
   ],
   "activationEvents": [
     "onLanguage:aurora",
     "onCommand:aurora.run",
+    "onCommand:aurora.compile",
     "onCommand:aurora.check",
     "onCommand:aurora.runSelection",
     "onCommand:aurora.fmt",
@@ -50,7 +59,11 @@
     "onCommand:aurora.deploy",
     "onCommand:aurora.webapp",
     "onCommand:aurora.showDependencyGraph",
-    "onCommand:aurora.toggleIncrementalDebug"
+    "onCommand:aurora.toggleIncrementalDebug",
+    "onCommand:aurora.test",
+    "onCommand:aurora.doc",
+    "onCommand:aurora.refactor",
+    "onCommand:aurora.renameSymbol"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -79,13 +92,29 @@
         "label": "Aurora Dark",
         "uiTheme": "vs-dark",
         "path": "./themes/aurora-dark.json"
+      },
+      {
+        "label": "Aurora Light",
+        "uiTheme": "vs",
+        "path": "./themes/aurora-light.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "aurora",
+        "path": "./snippets/aurora.json"
       }
     ],
     "commands": [
       {
         "command": "aurora.run",
-        "title": "Aurora: 运行当前文件",
+        "title": "Aurora: 运行当前文件 (VM)",
         "icon": "$(play)"
+      },
+      {
+        "command": "aurora.compile",
+        "title": "Aurora: 编译为原生机器码 (AOT)",
+        "icon": "$(tools)"
       },
       {
         "command": "aurora.check",
@@ -118,7 +147,7 @@
       },
       {
         "command": "aurora.pkg",
-        "title": "Aurora: 包管理 (aurora pkg)",
+        "title": "Aurora: 包管理",
         "icon": "$(package)"
       },
       {
@@ -130,6 +159,26 @@
         "command": "aurora.bench",
         "title": "Aurora: 性能基准测试",
         "icon": "$(gauge)"
+      },
+      {
+        "command": "aurora.test",
+        "title": "Aurora: 运行测试",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "aurora.doc",
+        "title": "Aurora: 生成文档",
+        "icon": "$(book)"
+      },
+      {
+        "command": "aurora.refactor",
+        "title": "Aurora: 重构代码",
+        "icon": "$(git-pull-request)"
+      },
+      {
+        "command": "aurora.renameSymbol",
+        "title": "Aurora: 重命名符号",
+        "icon": "$(edit)"
       },
       {
         "command": "aurora.workspace",
@@ -169,32 +218,32 @@
       },
       {
         "command": "aurora.new",
-        "title": "Aurora: 创建项目 (new)",
+        "title": "Aurora: 创建项目",
         "icon": "$(add)"
       },
       {
         "command": "aurora.generate",
-        "title": "Aurora: 代码生成 (generate)",
+        "title": "Aurora: 代码生成",
         "icon": "$(gear)"
       },
       {
         "command": "aurora.db",
-        "title": "Aurora: 数据库管理 (db)",
+        "title": "Aurora: 数据库管理",
         "icon": "$(database)"
       },
       {
         "command": "aurora.dev",
-        "title": "Aurora: 开发模式 (dev)",
+        "title": "Aurora: 开发模式",
         "icon": "$(debug-start)"
       },
       {
         "command": "aurora.deploy",
-        "title": "Aurora: 部署 (deploy)",
+        "title": "Aurora: 部署",
         "icon": "$(rocket)"
       },
       {
         "command": "aurora.webapp",
-        "title": "Aurora: Web应用脚手架 (webapp)",
+        "title": "Aurora: Web应用脚手架",
         "icon": "$(globe)"
       },
       {
@@ -221,6 +270,17 @@
         "when": "editorLangId == aurora && editorTextFocus && !isMac"
       },
       {
+        "command": "aurora.compile",
+        "key": "cmd+alt+b",
+        "mac": "cmd+alt+b",
+        "when": "editorLangId == aurora && editorTextFocus"
+      },
+      {
+        "command": "aurora.compile",
+        "key": "ctrl+alt+b",
+        "when": "editorLangId == aurora && editorTextFocus && !isMac"
+      },
+      {
         "command": "aurora.check",
         "key": "cmd+alt+k",
         "mac": "cmd+alt+k",
@@ -229,6 +289,28 @@
       {
         "command": "aurora.check",
         "key": "ctrl+alt+k",
+        "when": "editorLangId == aurora && editorTextFocus && !isMac"
+      },
+      {
+        "command": "aurora.fmt",
+        "key": "cmd+alt+f",
+        "mac": "cmd+alt+f",
+        "when": "editorLangId == aurora && editorTextFocus"
+      },
+      {
+        "command": "aurora.fmt",
+        "key": "ctrl+alt+f",
+        "when": "editorLangId == aurora && editorTextFocus && !isMac"
+      },
+      {
+        "command": "aurora.test",
+        "key": "cmd+alt+t",
+        "mac": "cmd+alt+t",
+        "when": "editorLangId == aurora && editorTextFocus"
+      },
+      {
+        "command": "aurora.test",
+        "key": "ctrl+alt+t",
         "when": "editorLangId == aurora && editorTextFocus && !isMac"
       }
     ],
@@ -240,19 +322,24 @@
           "group": "navigation@1"
         },
         {
-          "command": "aurora.check",
+          "command": "aurora.compile",
           "when": "editorLangId == aurora",
           "group": "navigation@2"
         },
         {
-          "command": "aurora.fmt",
+          "command": "aurora.check",
           "when": "editorLangId == aurora",
           "group": "navigation@3"
         },
         {
-          "command": "aurora.profile",
+          "command": "aurora.fmt",
           "when": "editorLangId == aurora",
           "group": "navigation@4"
+        },
+        {
+          "command": "aurora.test",
+          "when": "editorLangId == aurora",
+          "group": "navigation@5"
         }
       ],
       "editor/context": [
@@ -262,84 +349,99 @@
           "group": "aurora@1"
         },
         {
+          "command": "aurora.compile",
+          "when": "editorLangId == aurora",
+          "group": "aurora@2"
+        },
+        {
           "command": "aurora.runSelection",
           "when": "editorLangId == aurora && editorHasSelection",
-          "group": "aurora@2"
+          "group": "aurora@3"
         },
         {
           "command": "aurora.check",
           "when": "editorLangId == aurora",
-          "group": "aurora@3"
+          "group": "aurora@4"
         },
         {
           "command": "aurora.fmt",
           "when": "editorLangId == aurora",
-          "group": "aurora@4"
+          "group": "aurora@5"
         },
         {
           "command": "aurora.profile",
           "when": "editorLangId == aurora",
-          "group": "aurora@5"
+          "group": "aurora@6"
         },
         {
           "command": "aurora.debug",
           "when": "editorLangId == aurora",
-          "group": "aurora@6"
-        },
-        {
-          "command": "aurora.pkg",
-          "when": "editorLangId == aurora",
           "group": "aurora@7"
         },
         {
-          "command": "aurora.ai",
+          "command": "aurora.test",
           "when": "editorLangId == aurora",
           "group": "aurora@8"
         },
         {
-          "command": "aurora.bench",
+          "command": "aurora.refactor",
           "when": "editorLangId == aurora",
           "group": "aurora@9"
         },
         {
-          "command": "aurora.ui",
+          "command": "aurora.renameSymbol",
           "when": "editorLangId == aurora",
           "group": "aurora@10"
         },
         {
-          "command": "aurora.package",
+          "command": "aurora.pkg",
           "when": "editorLangId == aurora",
           "group": "aurora@11"
         },
         {
-          "command": "aurora.new",
+          "command": "aurora.ai",
           "when": "editorLangId == aurora",
           "group": "aurora@12"
         },
         {
-          "command": "aurora.generate",
+          "command": "aurora.bench",
           "when": "editorLangId == aurora",
           "group": "aurora@13"
         },
         {
-          "command": "aurora.db",
+          "command": "aurora.ui",
           "when": "editorLangId == aurora",
           "group": "aurora@14"
         },
         {
-          "command": "aurora.dev",
+          "command": "aurora.new",
           "when": "editorLangId == aurora",
           "group": "aurora@15"
         },
         {
-          "command": "aurora.deploy",
+          "command": "aurora.generate",
           "when": "editorLangId == aurora",
           "group": "aurora@16"
         },
         {
-          "command": "aurora.webapp",
+          "command": "aurora.db",
           "when": "editorLangId == aurora",
           "group": "aurora@17"
+        },
+        {
+          "command": "aurora.dev",
+          "when": "editorLangId == aurora",
+          "group": "aurora@18"
+        },
+        {
+          "command": "aurora.deploy",
+          "when": "editorLangId == aurora",
+          "group": "aurora@19"
+        },
+        {
+          "command": "aurora.webapp",
+          "when": "editorLangId == aurora",
+          "group": "aurora@20"
         }
       ]
     },
@@ -349,12 +451,44 @@
         "aurora.auroraDir": {
           "type": "string",
           "default": "/Users/wuyuanduo/aurora",
-          "description": "Aurora 语言项目根目录(含 aurora-run 与 ide/)"
+          "description": "Aurora 语言项目根目录"
         },
-        "aurora.pythonPath": {
+        "aurora.mode": {
           "type": "string",
-          "default": "python3",
-          "description": "用于执行 Aurora 的 Python 解释器(默认 python3)"
+          "default": "vm",
+          "enum": ["vm", "aot"],
+          "description": "运行模式: vm=原生虚拟机, aot=AOT 编译为原生机器码"
+        },
+        "aurora.optimizationLevel": {
+          "type": "string",
+          "default": "O2",
+          "enum": ["O0", "O1", "O2", "O3"],
+          "description": "优化级别"
+        },
+        "aurora.incrementalComputation": {
+          "type": "boolean",
+          "default": true,
+          "description": "启用语言级增量计算"
+        },
+        "aurora.lspEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "启用 LSP 语言服务器"
+        },
+        "aurora.formatOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "保存时自动格式化"
+        },
+        "aurora.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "保存时自动静态检查"
+        },
+        "aurora.showDependencyGraph": {
+          "type": "boolean",
+          "default": false,
+          "description": "显示增量计算依赖图"
         }
       }
     }

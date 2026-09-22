@@ -1,0 +1,183 @@
+# project_index.aur — 项目符号索引（自举版）
+# 对应 Python project_index.py
+# 为 LSP 提供符号查找、跳转定义、引用查找
+
+import stdlib
+import stdlib_fs
+import lexer
+import parser
+
+# 索引数据
+var symbols = {}  # name -> { file, line, kind, container }
+var references = {}  # name -> [{file, line}]
+var file_symbols = {}  # file -> [symbol_names]
+
+# 建立项目索引
+pub fn index_project(root_dir) {
+    stdlib.println("索引项目: " + root_dir)
+    symbols = {}
+    references = {}
+    file_symbols = {}
+
+    var files = find_aurora_files(root_dir)
+    stdlib.println("发现 " + stdlib.str(len(files)) + " 个源文件")
+
+    var i = 0
+    while i < len(files) {
+        index_file(files[i])
+        i = i + 1
+    }
+
+    stdlib.println("✓ 索引完成: " + stdlib.str(len(symbols)) + " 个符号")
+}
+
+# 索引单个文件
+fn index_file(path) {
+    var source = stdlib_fs.read_file(path)
+    if source == "" { return }
+
+    var tokens = lexer.tokenize(source)
+    var ast_tree = parser.parse(tokens)
+
+    file_symbols[path] = []
+    extract_symbols(ast_tree, path, "")
+}
+
+# 从 AST 提取符号
+fn extract_symbols(node, file, container) {
+    if node == nil { return }
+
+    if node.tag == "Program" or node.tag == "Block" {
+        var i = 0
+        while i < len(node.stmts) {
+            extract_symbols(node.stmts[i], file, container)
+            i = i + 1
+        }
+        return
+    }
+
+    if node.tag == "FnDef" {
+        var sym = {
+            name: node.name,
+            kind: "function",
+            file: file,
+            line: node.line,
+            container: container
+        }
+        symbols[node.name] = sym
+        push(file_symbols[file], node.name)
+        return
+    }
+
+    if node.tag == "TypeDef" {
+        var sym = {
+            name: node.name,
+            kind: "type",
+            file: file,
+            line: node.line,
+            container: container
+        }
+        symbols[node.name] = sym
+        push(file_symbols[file], node.name)
+        return
+    }
+
+    if node.tag == "Let" or node.tag == "Var" {
+        var sym = {
+            name: node.name,
+            kind: "variable",
+            file: file,
+            line: node.line,
+            container: container
+        }
+        symbols[node.name] = sym
+        push(file_symbols[file], node.name)
+        return
+    }
+}
+
+# 查找符号
+pub fn find_symbol(name) -> {} {
+    if has_key(symbols, name) {
+        return symbols[name]
+    }
+    return nil
+}
+
+# 查找所有引用
+pub fn find_references(name) -> [{}] {
+    if has_key(references, name) {
+        return references[name]
+    }
+    return []
+}
+
+# 模糊搜索
+pub fn search(query) -> [{}] {
+    var results = []
+    for name in symbols {
+        if contains(name, query) {
+            push(results, symbols[name])
+        }
+    }
+    return results
+}
+
+fn find_aurora_files(dir) -> [string] {
+    var result = []
+    var entries = stdlib_fs.list_dir(dir)
+    var i = 0
+    while i < len(entries) {
+        var path = dir + "/" + entries[i]
+        if stdlib_fs.is_dir(path) {
+            var sub = find_aurora_files(path)
+            var j = 0
+            while j < len(sub) {
+                push(result, sub[j])
+                j = j + 1
+            }
+        } elif ends_with(entries[i], ".aur") {
+            push(result, path)
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fn contains(s, sub) -> bool {
+    if len(s) < len(sub) { return false }
+    var i = 0
+    while i <= len(s) - len(sub) {
+        var match = true
+        var j = 0
+        while j < len(sub) {
+            if char_at(s, i + j) != char_at(sub, j) {
+                match = false
+                break
+            }
+            j = j + 1
+        }
+        if match { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn ends_with(s, suffix) -> bool {
+    if len(s) < len(suffix) { return false }
+    var offset = len(s) - len(suffix)
+    var i = 0
+    while i < len(suffix) {
+        if char_at(s, offset + i) != char_at(suffix, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

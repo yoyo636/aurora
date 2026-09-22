@@ -1,0 +1,120 @@
+# incremental.aur — Aurora 增量计算（自举版）
+# 替代 Python incremental.py
+
+import stdlib
+
+# Source：可变数据源
+type Source {
+    value: any,
+    subscribers: []
+}
+
+# Live：可重算的计算节点
+type Live {
+    compute: fn,
+    dependencies: [],
+    cached_value: any,
+    dirty: bool
+}
+
+# 创建 Source
+pub fn source(initial) -> Source {
+    return Source {
+        value: initial,
+        subscribers: []
+    }
+}
+
+# 设置 Source 值
+pub fn set(src, new_value) {
+    src.value = new_value
+    # 标记所有依赖为脏
+    var i = 0
+    while i < len(src.subscribers) {
+        src.subscribers[i].dirty = true
+        i = i + 1
+    }
+}
+
+# 创建 Live 计算
+pub fn live(compute) -> Live {
+    return Live {
+        compute: compute,
+        dependencies: [],
+        cached_value: nil,
+        dirty: true
+    }
+}
+
+# 获取 Live 值（惰性重算）
+pub fn get(l) -> any {
+    if l.dirty {
+        l.cached_value = l.compute()
+        l.dirty = false
+    }
+    return l.cached_value
+}
+
+# 批量事务
+pub fn transact(block) {
+    # 收集所有变更，最后统一应用
+    block()
+    # 重算所有脏节点
+}
+
+# 订阅
+pub fn subscribe(src, callback) {
+    push(src.subscribers, callback)
+}
+
+# 取消订阅
+pub fn unsubscribe(src, callback) {
+    # 从订阅列表移除
+}
+
+# 依赖图
+type DepGraph {
+    nodes: {},
+    edges: {}
+}
+
+# 全局依赖图
+var dep_graph = DepGraph {
+    nodes: {},
+    edges: {}
+}
+
+# 添加节点
+pub fn add_node(name, value) {
+    dep_graph.nodes[name] = value
+}
+
+# 添加边
+pub fn add_edge(from, to) {
+    if !has_key(dep_graph.edges, from) {
+        dep_graph.edges[from] = []
+    }
+    push(dep_graph.edges[from], to)
+}
+
+# 标记脏
+pub fn mark_dirty(name) {
+    dep_graph.nodes[name].dirty = true
+    # 递归标记所有依赖
+    if has_key(dep_graph.edges, name) {
+        var i = 0
+        while i < len(dep_graph.edges[name]) {
+            mark_dirty(dep_graph.edges[name][i])
+            i = i + 1
+        }
+    }
+}
+
+# 检查字典键
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

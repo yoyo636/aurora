@@ -1,0 +1,343 @@
+# codegen.aur — Aurora 代码生成器（自举版）
+# 从 AST 生成 ARM64 汇编，再调用系统汇编器链接成可执行文件
+# 对应 Python codegen.py
+
+import stdlib
+import ast
+import asmgen
+
+# 代码生成上下文
+type CodeGenCtx {
+    # 函数名 -> 栈帧大小
+    functions: {},
+    # 当前函数栈变量数
+    var_count: int,
+    # 标签计数器
+    label_count: int,
+    # 输出汇编行
+    output: [string],
+    # 字符串常量池
+    str_pool: [],
+    # 字符串 -> 标签名
+    str_labels: {}
+}
+
+# 创建上下文
+fn make_ctx() -> CodeGenCtx {
+    return CodeGenCtx {
+        functions: {},
+        var_count: 0,
+        label_count: 0,
+        output: [],
+        str_pool: [],
+        str_labels: {}
+    }
+}
+
+# 生成新标签
+fn new_label(ctx, prefix) -> string {
+    ctx.label_count = ctx.label_count + 1
+    return prefix + "_" + stdlib.str(ctx.label_count)
+}
+
+# 添加字符串常量，返回标签
+fn add_string(ctx, s) -> string {
+    if has_key(ctx.str_labels, s) {
+        return ctx.str_labels[s]
+    }
+    var label = ".L_str_" + stdlib.str(len(ctx.str_pool))
+    push(ctx.str_pool, label + ": .asciz \"" + escape_asm(s) + "\"")
+    ctx.str_labels[s] = label
+    return label
+}
+
+# 转义汇编字符串
+fn escape_asm(s) -> string {
+    var result = ""
+    var i = 0
+    while i < len(s) {
+        var c = char_at(s, i)
+        if c == '"' {
+            result = result + "\\\""
+        } elif c == '\\' {
+            result = result + "\\\\"
+        } elif c == '\n' {
+            result = result + "\\n"
+        } elif c == '\t' {
+            result = result + "\\t"
+        } else {
+            result = result + c
+        }
+        i = i + 1
+    }
+    return result
+}
+
+# 主入口：编译 AST 为汇编
+pub fn compile(ast_tree, output_path) {
+    var ctx = make_ctx()
+
+    # 生成文件头
+    push(ctx.output, ".arch armv8-a")
+    push(ctx.output, ".text")
+    push(ctx.output, ".align 2")
+    push(ctx.output, "")
+
+    # 遍历顶层语句
+    var i = 0
+    while i < len(ast_tree.stmts) {
+        gen_stmt(ctx, ast_tree.stmts[i])
+        i = i + 1
+    }
+
+    # 生成 _start 入口（如果没有 main）
+    if !has_key(ctx.functions, "main") {
+        push(ctx.output, ".globl _start")
+        push(ctx.output, "_start:")
+        push(ctx.output, "    bl main")
+        push(ctx.output, "    mov x8, #93")
+        push(ctx.output, "    svc #0")
+        push(ctx.output, "")
+    } else {
+        push(ctx.output, ".globl main")
+    }
+
+    # 生成字符串数据段
+    if len(ctx.str_pool) > 0 {
+        push(ctx.output, ".data")
+        push(ctx.output, ".align 3")
+        var j = 0
+        while j < len(ctx.str_pool) {
+            push(ctx.output, ctx.str_pool[j])
+            j = j + 1
+        }
+    }
+
+    # 写入输出文件
+    write_assembly(ctx, output_path)
+}
+
+# 生成语句
+fn gen_stmt(ctx, stmt) {
+    if stmt.tag == "FnDef" {
+        gen_fn(ctx, stmt)
+    } elif stmt.tag == "Let" or stmt.tag == "Var" {
+        gen_var_decl(ctx, stmt)
+    } elif stmt.tag == "Return" {
+        gen_return(ctx, stmt)
+    } elif stmt.tag == "BinOp" {
+        gen_expr(ctx, stmt)
+        push(ctx.output, "    str x0, [sp, #-16]!")
+    } elif stmt.tag == "If" {
+        gen_if(ctx, stmt)
+    } elif stmt.tag == "While" {
+        gen_while(ctx, stmt)
+    } elif stmt.tag == "For" {
+        gen_for(ctx, stmt)
+    } elif stmt.tag == "Call" {
+        gen_expr(ctx, stmt)
+    }
+}
+
+# 生成函数定义
+fn gen_fn(ctx, stmt) {
+    var name = stmt.name
+    ctx.functions[name] = true
+    ctx.var_count = 0
+
+    push(ctx.output, ".globl " + name)
+    push(ctx.output, ".type " + name + ", %function")
+    push(ctx.output, name + ":")
+    push(ctx.output, "    stp x29, x30, [sp, #-16]!")
+    push(ctx.output, "    mov x29, sp")
+
+    # 分配栈空间（简化：固定 128 字节）
+    push(ctx.output, "    sub sp, sp, #128")
+
+    # 保存参数
+    var i = 0
+    while i < len(stmt.params) {
+        # 参数在 x0..x7
+        push(ctx.output, "    str x" + stdlib.str(i) + ", [x29, #" + stdlib.str(-16 - i * 8) + "]")
+        i = i + 1
+    }
+
+    # 生成函数体
+    var j = 0
+    while j < len(stmt.body.stmts) {
+        gen_stmt(ctx, stmt.body.stmts[j])
+        j = j + 1
+    }
+
+    # 函数尾部
+    push(ctx.output, name + "_end:")
+    push(ctx.output, "    mov sp, x29")
+    push(ctx.output, "    ldp x29, x30, [sp], #16")
+    push(ctx.output, "    ret")
+    push(ctx.output, "")
+}
+
+# 生成变量声明
+fn gen_var_decl(ctx, stmt) {
+    gen_expr(ctx, stmt.value)
+    # 保存到栈帧偏移
+    ctx.var_count = ctx.var_count + 1
+    var offset = -16 - ctx.var_count * 8
+    push(ctx.output, "    str x0, [x29, #" + stdlib.str(offset) + "]")
+}
+
+# 生成 return
+fn gen_return(ctx, stmt) {
+    if stmt.value != nil {
+        gen_expr(ctx, stmt.value)
+    }
+    push(ctx.output, "    b " + current_fn_name(ctx) + "_end")
+}
+
+# 生成表达式
+fn gen_expr(ctx, expr) {
+    if expr.tag == "Int" {
+        push(ctx.output, "    mov x0, #" + stdlib.str(expr.value))
+    } elif expr.tag == "Float" {
+        push(ctx.output, "    fmov d0, #" + stdlib.str(expr.value))
+    } elif expr.tag == "String" {
+        var label = add_string(ctx, expr.value)
+        push(ctx.output, "    adrp x0, " + label)
+        push(ctx.output, "    add x0, x0, :lo12:" + label)
+    } elif expr.tag == "Bool" {
+        if expr.value {
+            push(ctx.output, "    mov x0, #1")
+        } else {
+            push(ctx.output, "    mov x0, #0")
+        }
+    } elif expr.tag == "Ident" {
+        # 从栈帧加载
+        push(ctx.output, "    ldr x0, [x29, #-24]")
+    } elif expr.tag == "BinOp" {
+        gen_expr(ctx, expr.left)
+        push(ctx.output, "    str x0, [sp, #-16]!")
+        gen_expr(ctx, expr.right)
+        push(ctx.output, "    ldr x1, [sp], #16")
+        gen_binop(ctx, expr.op)
+    } elif expr.tag == "Call" {
+        gen_call(ctx, expr)
+    }
+}
+
+# 生成二元运算
+fn gen_binop(ctx, op) {
+    if op == "+" {
+        push(ctx.output, "    add x0, x1, x0")
+    } elif op == "-" {
+        push(ctx.output, "    sub x0, x1, x0")
+    } elif op == "*" {
+        push(ctx.output, "    mul x0, x1, x0")
+    } elif op == "/" {
+        push(ctx.output, "    udiv x0, x1, x0")
+    } elif op == "==" {
+        push(ctx.output, "    cmp x1, x0")
+        push(ctx.output, "    cset x0, eq")
+    } elif op == "!=" {
+        push(ctx.output, "    cmp x1, x0")
+        push(ctx.output, "    cset x0, ne")
+    } elif op == "<" {
+        push(ctx.output, "    cmp x1, x0")
+        push(ctx.output, "    cset x0, lt")
+    } elif op == ">" {
+        push(ctx.output, "    cmp x1, x0")
+        push(ctx.output, "    cset x0, gt")
+    }
+}
+
+# 生成函数调用
+fn gen_call(ctx, expr) {
+    var i = 0
+    while i < len(expr.args) {
+        gen_expr(ctx, expr.args[i])
+        push(ctx.output, "    mov x" + stdlib.str(i) + ", x0")
+        i = i + 1
+    }
+    push(ctx.output, "    bl " + expr.name)
+}
+
+# 生成 if
+fn gen_if(ctx, stmt) {
+    var else_label = new_label(ctx, "else")
+    var end_label = new_label(ctx, "endif")
+
+    gen_expr(ctx, stmt.cond)
+    push(ctx.output, "    cmp x0, #0")
+    push(ctx.output, "    b.eq " + else_label)
+
+    var i = 0
+    while i < len(stmt.then_block.stmts) {
+        gen_stmt(ctx, stmt.then_block.stmts[i])
+        i = i + 1
+    }
+    push(ctx.output, "    b " + end_label)
+
+    push(ctx.output, else_label + ":")
+    if stmt.else_block != nil {
+        var j = 0
+        while j < len(stmt.else_block.stmts) {
+            gen_stmt(ctx, stmt.else_block.stmts[j])
+            j = j + 1
+        }
+    }
+    push(ctx.output, end_label + ":")
+}
+
+# 生成 while
+fn gen_while(ctx, stmt) {
+    var loop_start = new_label(ctx, "while")
+    var loop_end = new_label(ctx, "wend")
+
+    push(ctx.output, loop_start + ":")
+    gen_expr(ctx, stmt.cond)
+    push(ctx.output, "    cmp x0, #0")
+    push(ctx.output, "    b.eq " + loop_end)
+
+    var i = 0
+    while i < len(stmt.body.stmts) {
+        gen_stmt(ctx, stmt.body.stmts[i])
+        i = i + 1
+    }
+    push(ctx.output, "    b " + loop_start)
+    push(ctx.output, loop_end + ":")
+}
+
+# 生成 for（简化为 while）
+fn gen_for(ctx, stmt) {
+    # for x in iter { ... } -> 迭代器协议
+    gen_while(ctx, stmt)
+}
+
+# 获取当前函数名
+fn current_fn_name(ctx) -> string {
+    # 简化版：返回最近定义的函数名
+    return "main"
+}
+
+# 写入汇编文件
+fn write_assembly(ctx, path) {
+    var content = ""
+    var i = 0
+    while i < len(ctx.output) {
+        content = content + ctx.output[i] + "\n"
+        i = i + 1
+    }
+    # FFI: 写入文件
+    write_file_ffi(path, content)
+}
+
+fn write_file_ffi(path, content) {
+    # 系统调用 write
+}
+
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

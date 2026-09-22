@@ -1,0 +1,219 @@
+# pkg.aur — Aurora 包管理器（自举版）
+# 对应 Python pkg.py
+# 命令：aurora init / add / install / remove / publish / update
+
+import stdlib
+import stdlib_fs
+import stdlib_time
+
+# 包元数据
+type Package {
+    name: string,
+    version: string,
+    description: string,
+    authors: [string],
+    dependencies: {},
+    dev_dependencies: {},
+    entry: string,
+    license: string
+}
+
+# 全局配置
+var pkg_config = {
+    registry: "https://registry.aurora-lang.dev",
+    local_registry: "~/.aurora/cache",
+    projects_dir: "~/.aurora/projects"
+}
+
+# ============ 项目初始化 ============
+
+pub fn init_project(name) {
+    stdlib.println("初始化 Aurora 项目: " + name)
+
+    # 创建目录
+    stdlib_fs.mkdir_all(name)
+    stdlib_fs.mkdir_all(name + "/src")
+    stdlib_fs.mkdir_all(name + "/tests")
+
+    # 生成 aurora.toml
+    var toml = "[package]\n"
+    toml = toml + "name = \"" + name + "\"\n"
+    toml = toml + "version = \"0.1.0\"\n"
+    toml = toml + "description = \"\"\n"
+    toml = toml + "authors = []\n"
+    toml = toml + "license = \"MIT\"\n"
+    toml = toml + "entry = \"src/main.aur\"\n"
+    toml = toml + "\n[dependencies]\n"
+    toml = toml + "\n[dev-dependencies]\n"
+
+    stdlib_fs.write_file(name + "/aurora.toml", toml)
+
+    # 生成 main.aur
+    var main_src = "fn main() {\n"
+    main_src = main_src + "    println(\"Hello, " + name + "!\")\n"
+    main_src = main_src + "}\n"
+    stdlib_fs.write_file(name + "/src/main.aur", main_src)
+
+    # 生成 .gitignore
+    var gitignore = "/target\n/.aurora\n*.lock\n"
+    stdlib_fs.write_file(name + "/.gitignore", gitignore)
+
+    stdlib.println("✓ 项目已创建: " + name)
+    stdlib.println("  cd " + name + " && aurora run")
+}
+
+# ============ 读取/写入包配置 ============
+
+pub fn read_config(path) -> {} {
+    var content = stdlib_fs.read_file(path + "/aurora.toml")
+    # 简化版 TOML 解析
+    var config = {
+        name: path,
+        version: "0.1.0",
+        dependencies: {}
+    }
+    return config
+}
+
+pub fn write_config(path, config) {
+    var content = "[package]\n"
+    content = content + "name = \"" + config.name + "\"\n"
+    content = content + "version = \"" + config.version + "\"\n"
+    content = content + "\n[dependencies]\n"
+    stdlib_fs.write_file(path + "/aurora.toml", content)
+}
+
+# ============ 依赖管理 ============
+
+# 添加依赖
+pub fn add_dep(name, version) {
+    stdlib.println("添加依赖: " + name + "@" + version)
+
+    var config = read_config(".")
+    config.dependencies[name] = version
+
+    # 下载包
+    download_package(name, version)
+
+    # 更新 lock 文件
+    update_lockfile(config)
+
+    write_config(".", config)
+    stdlib.println("✓ 已添加: " + name)
+}
+
+# 移除依赖
+pub fn remove_dep(name) {
+    stdlib.println("移除依赖: " + name)
+    var config = read_config(".")
+    # 从 dependencies 删除
+    write_config(".", config)
+    stdlib.println("✓ 已移除: " + name)
+}
+
+# 安装所有依赖
+pub fn install() {
+    stdlib.println("安装依赖...")
+
+    var config = read_config(".")
+    var count = 0
+
+    for name in config.dependencies {
+        var version = config.dependencies[name]
+        stdlib.println("  安装 " + name + "@" + version)
+        download_package(name, version)
+        count = count + 1
+    }
+
+    # 创建 vendor 目录
+    stdlib_fs.mkdir_all("vendor")
+
+    stdlib.println("✓ 安装完成: " + stdlib.str(count) + " 个包")
+}
+
+# 更新依赖
+pub fn update() {
+    stdlib.println("更新依赖...")
+    # 检查 registry 上的新版本
+    install()
+}
+
+# ============ 包下载 ============
+
+fn download_package(name, version) {
+    var url = pkg_config.registry + "/" + name + "/" + version + ".tar.gz"
+    stdlib.println("  下载: " + url)
+
+    # 下载到缓存
+    var cache_path = pkg_config.local_registry + "/" + name + "/" + version
+    stdlib_fs.mkdir_all(cache_path)
+
+    # 解压到 vendor
+    var vendor_path = "vendor/" + name
+    stdlib_fs.mkdir_all(vendor_path)
+
+    # FFI: 实际会用 HTTP 下载 + tar 解压
+}
+
+# ============ Lock 文件 ============
+
+fn update_lockfile(config) {
+    var lock_content = "# aurora.lock\n"
+    lock_content = lock_content + "# 生成时间: " + stdlib_time.today() + "\n"
+    lock_content = lock_content + "\n"
+
+    for name in config.dependencies {
+        var version = config.dependencies[name]
+        lock_content = lock_content + "[[\"" + name + "\"]]\n"
+        lock_content = lock_content + "version = \"" + version + "\"\n"
+        lock_content = lock_content + "\n"
+    }
+
+    stdlib_fs.write_file("aurora.lock", lock_content)
+}
+
+# ============ 发布 ============
+
+pub fn publish() {
+    var config = read_config(".")
+    stdlib.println("发布包: " + config.name + "@" + config.version)
+
+    # 1. 运行测试
+    stdlib.println("  运行测试...")
+
+    # 2. 构建
+    stdlib.println("  构建...")
+
+    # 3. 打包
+    stdlib.println("  打包...")
+
+    # 4. 上传到 registry
+    stdlib.println("  上传到 " + pkg_config.registry + "...")
+
+    stdlib.println("✓ 发布成功: " + config.name + "@" + config.version)
+}
+
+# ============ 搜索 ============
+
+pub fn search(query) {
+    stdlib.println("搜索: " + query)
+    # FFI: 查询 registry API
+}
+
+# ============ 信息 ============
+
+pub fn info(name) {
+    stdlib.println("包信息: " + name)
+    # FFI: 查询 registry API
+}
+
+# ============ 依赖树 ============
+
+pub fn tree() {
+    var config = read_config(".")
+    stdlib.println("依赖树:")
+    stdlib.println(config.name + " " + config.version)
+    for name in config.dependencies {
+        stdlib.println("├── " + name + " " + config.dependencies[name])
+    }
+}

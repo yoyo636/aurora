@@ -1,0 +1,82 @@
+# stdlib_archive.aur — 压缩包标准库（自举版）
+# zip / tar 打包解压
+
+import stdlib
+import stdlib_fs
+
+# 创建 zip
+pub fn zip_create(path, files) {
+    stdlib.println("创建 zip: " + path)
+    # FFI: 实际调用 zlib/zip 库
+}
+
+# 解压 zip
+pub fn zip_extract(zip_path, dest_dir) {
+    stdlib.println("解压: " + zip_path + " -> " + dest_dir)
+    stdlib_fs.mkdir_all(dest_dir)
+    # FFI
+}
+
+# 创建 tar
+pub fn tar_create(path, files) {
+    stdlib.println("创建 tar: " + path)
+}
+
+# 解压 tar
+pub fn tar_extract(tar_path, dest_dir) {
+    stdlib.println("解压: " + tar_path + " -> " + dest_dir)
+    stdlib_fs.mkdir_all(dest_dir)
+}
+
+# gzip 压缩
+pub fn gzip_compress(data) -> string {
+    return data  # FFI
+}
+
+# gzip 解压
+pub fn gzip_decompress(data) -> string {
+    return data  # FFI
+}
+
+# 压缩目录
+pub fn compress_dir(src_dir, dest_archive) {
+    stdlib.println("压缩目录: " + src_dir + " -> " + dest_archive)
+    var files = collect_files(src_dir)
+    if ends_with(dest_archive, ".zip") {
+        zip_create(dest_archive, files)
+    } else {
+        tar_create(dest_archive, files)
+    }
+}
+
+fn collect_files(dir) -> [string] {
+    var result = []
+    var entries = stdlib_fs.list_dir(dir)
+    var i = 0
+    while i < len(entries) {
+        var path = dir + "/" + entries[i]
+        if stdlib_fs.is_dir(path) {
+            var sub = collect_files(path)
+            var j = 0
+            while j < len(sub) {
+                stdlib.push(result, sub[j])
+                j = j + 1
+            }
+        } else {
+            stdlib.push(result, path)
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fn ends_with(s, suffix) -> bool {
+    if len(s) < len(suffix) { return false }
+    var offset = len(s) - len(suffix)
+    var i = 0
+    while i < len(suffix) {
+        if char_at(s, offset + i) != char_at(suffix, i) { return false }
+        i = i + 1
+    }
+    return true
+}

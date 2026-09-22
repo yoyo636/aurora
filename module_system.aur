@@ -1,0 +1,193 @@
+# module_system.aur — Aurora 模块系统（自举版）
+# 负责 import 解析、模块缓存、循环依赖检测
+
+import stdlib
+import lexer
+import parser
+import interpreter
+
+# 全局模块缓存：模块名 -> AST
+var module_cache = {}
+
+# 正在加载的模块集合（循环依赖检测）
+var loading_modules = []
+
+# 已加载的模块
+var loaded_modules = {}
+
+# 模块搜索路径
+var module_paths = [".", "./lib", "./vendor"]
+
+# 添加搜索路径
+pub fn add_path(path) {
+    push(module_paths, path)
+}
+
+# 解析模块名到文件路径
+fn resolve_module(name) -> string {
+    # 把点号路径转成目录路径：foo.bar -> foo/bar
+    var rel = name
+    var i = 0
+    while i < len(rel) {
+        var c = char_at(rel, i)
+        if c == '.' {
+            rel = replace_char(rel, i, '/')
+        }
+        i = i + 1
+    }
+
+    # 在搜索路径中查找
+    var j = 0
+    while j < len(module_paths) {
+        var full = module_paths[j] + "/" + rel + ".aur"
+        if file_exists(full) {
+            return full
+        }
+        var mod_full = module_paths[j] + "/" + rel + "/mod.aur"
+        if file_exists(mod_full) {
+            return mod_full
+        }
+        j = j + 1
+    }
+    return ""
+}
+
+# 加载模块
+pub fn import_module(name) {
+    # 已缓存
+    if has_key(loaded_modules, name) {
+        return loaded_modules[name]
+    }
+
+    # 循环依赖检测
+    var k = 0
+    while k < len(loading_modules) {
+        if loading_modules[k] == name {
+            stdlib.println("错误: 循环依赖检测到 " + name)
+            stdlib.println("  加载链: " + join(loading_modules, " -> "))
+            return nil
+        }
+        k = k + 1
+    }
+
+    # 解析文件路径
+    var path = resolve_module(name)
+    if path == "" {
+        stdlib.println("错误: 找不到模块 " + name)
+        stdlib.println("  搜索路径: " + join(module_paths, ", "))
+        return nil
+    }
+
+    # 标记为加载中
+    push(loading_modules, name)
+
+    # 读取源文件
+    var source = read_source_file(path)
+    if source == "" {
+        stdlib.println("错误: 无法读取 " + path)
+        pop(loading_modules)
+        return nil
+    }
+
+    # 词法分析
+    var tokens = lexer.tokenize(source)
+
+    # 语法分析
+    var ast_tree = parser.parse(tokens)
+
+    # 解释执行模块顶层语句
+    interpreter.eval(ast_tree)
+
+    # 缓存模块
+    loaded_modules[name] = ast_tree
+    module_cache[name] = path
+
+    # 从加载队列移除
+    pop(loading_modules)
+
+    return ast_tree
+}
+
+# 从模块导入符号
+pub fn import_from(module_name, symbol) {
+    var mod = import_module(module_name)
+    if mod == nil { return nil }
+    # 实际实现会从模块的导出表中查找符号
+    return nil
+}
+
+# 获取模块导出列表
+pub fn list_exports(module_name) -> [string] {
+    var exports = []
+    if !has_key(loaded_modules, module_name) {
+        import_module(module_name)
+    }
+    var mod = loaded_modules[module_name]
+    if mod == nil { return exports }
+    # 遍历顶层语句，收集 pub fn / pub type
+    var i = 0
+    while i < len(mod.stmts) {
+        var stmt = mod.stmts[i]
+        if stmt.tag == "FnDef" and stmt.pub {
+            push(exports, stmt.name)
+        } elif stmt.tag == "TypeDef" and stmt.pub {
+            push(exports, stmt.name)
+        }
+        i = i + 1
+    }
+    return exports
+}
+
+# 获取所有已加载模块
+pub fn loaded_list() -> [string] {
+    var result = []
+    for name in loaded_modules {
+        push(result, name)
+    }
+    return result
+}
+
+# ---- 辅助函数 ----
+
+fn file_exists(path) -> bool {
+    # FFI: 实际调用系统 access()
+    return false
+}
+
+fn read_source_file(path) -> string {
+    # FFI: 实际调用 read()
+    return ""
+}
+
+fn replace_char(s, idx, new_char) -> string {
+    var result = ""
+    var i = 0
+    while i < len(s) {
+        if i == idx {
+            result = result + new_char
+        } else {
+            result = result + char_at(s, i)
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fn join(arr, sep) -> string {
+    var result = ""
+    var i = 0
+    while i < len(arr) {
+        if i > 0 { result = result + sep }
+        result = result + arr[i]
+        i = i + 1
+    }
+    return result
+}
+
+fn has_key(d, key) -> bool {
+    var found = false
+    for k in d {
+        if k == key { found = true }
+    }
+    return found
+}

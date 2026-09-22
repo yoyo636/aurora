@@ -1,0 +1,194 @@
+// ai_autograd.aur — Aurora 自动微分引擎
+// 张量级别的反向传播，替代 PyTorch 的核心竞争力
+
+mod ai_autograd;
+
+// 带梯度的张量
+pub struct Var {
+    data: f64,
+    grad: f64,
+    op: String,
+    parents: List<Var>,
+    backward_fn: fn(Var) -> unit,
+}
+
+// 创建叶子节点
+pub fn v(x: f64) -> Var {
+    return Var {
+        data: x,
+        grad: 0.0,
+        op: "leaf",
+        parents: [],
+        backward_fn: leaf_backward,
+    };
+}
+
+fn leaf_backward(var: Var) -> unit {
+    // 叶子节点没有反向操作
+}
+
+// 加法
+pub fn add(a: Var, b: Var) -> Var {
+    let result = Var {
+        data: a.data + b.data,
+        grad: 0.0,
+        op: "add",
+        parents: [a, b],
+        backward_fn: add_backward,
+    };
+    return result;
+}
+
+fn add_backward(var: Var) -> unit {
+    // d(a+b)/da = 1, d(a+b)/db = 1
+    list_get(var.parents, 0).grad = list_get(var.parents, 0).grad + var.grad;
+    list_get(var.parents, 1).grad = list_get(var.parents, 1).grad + var.grad;
+}
+
+// 乘法
+pub fn mul(a: Var, b: Var) -> Var {
+    let result = Var {
+        data: a.data * b.data,
+        grad: 0.0,
+        op: "mul",
+        parents: [a, b],
+        backward_fn: mul_backward,
+    };
+    return result;
+}
+
+fn mul_backward(var: Var) -> unit {
+    // d(a*b)/da = b, d(a*b)/db = a
+    list_get(var.parents, 0).grad = list_get(var.parents, 0).grad + var.grad * list_get(var.parents, 1).data;
+    list_get(var.parents, 1).grad = list_get(var.parents, 1).grad + var.grad * list_get(var.parents, 0).data;
+}
+
+// ReLU
+pub fn relu(x: Var) -> Var {
+    let result = Var {
+        data: if x.data > 0.0 { x.data } else { 0.0 },
+        grad: 0.0,
+        op: "relu",
+        parents: [x],
+        backward_fn: relu_backward,
+    };
+    return result;
+}
+
+fn relu_backward(var: Var) -> unit {
+    // d(relu(x))/dx = 1 if x > 0 else 0
+    if list_get(var.parents, 0).data > 0.0 {
+        list_get(var.parents, 0).grad = list_get(var.parents, 0).grad + var.grad;
+    }
+}
+
+// Sigmoid
+pub fn sigmoid(x: Var) -> Var {
+    let s = 1.0 / (1.0 + exp(-x.data));
+    let result = Var {
+        data: s,
+        grad: 0.0,
+        op: "sigmoid",
+        parents: [x],
+        backward_fn: sigmoid_backward,
+    };
+    return result;
+}
+
+fn sigmoid_backward(var: Var) -> unit {
+    // d(sigmoid(x))/dx = sigmoid(x) * (1 - sigmoid(x))
+    let s = var.data;
+    list_get(var.parents, 0).grad = list_get(var.parents, 0).grad + var.grad * s * (1.0 - s);
+}
+
+// 平方
+pub fn square(x: Var) -> Var {
+    return mul(x, x);
+}
+
+// 反向传播
+pub fn backward(root: Var) -> unit {
+    root.grad = 1.0;
+    let topo = build_topo(root);
+    for node in reversed(topo) {
+        node.backward_fn(node);
+    }
+}
+
+// 构建拓扑排序
+fn build_topo(root: Var) -> List<Var> {
+    let topo = list_new();
+    let visited = set_new();
+    dfs(root, visited, topo);
+    return topo;
+}
+
+fn dfs(node: Var, visited: Set, topo: List<Var>) -> unit {
+    if set_contains(visited, node) { return; }
+    set_add(visited, node);
+    for parent in node.parents {
+        dfs(parent, visited, topo);
+    }
+    list_push(topo, node);
+}
+
+// 清零梯度
+pub fn zero_grad(var: Var) -> unit {
+    var.grad = 0.0;
+    for parent in var.parents {
+        zero_grad(parent);
+    }
+}
+
+// SGD 优化器
+pub struct SGD {
+    params: List<Var>,
+    lr: f64,
+}
+
+pub fn sgd(params: List<Var>, lr: f64) -> SGD {
+    return SGD { params: params, lr: lr };
+}
+
+pub fn step(opt: SGD) -> unit {
+    for p in opt.params {
+        p.data = p.data - opt.lr * p.grad;
+    }
+}
+
+pub fn zero_grad_all(opt: SGD) -> unit {
+    for p in opt.params {
+        p.grad = 0.0;
+    }
+}
+
+// 线性层
+pub struct Linear {
+    weights: Var,
+    bias: Var,
+}
+
+pub fn linear_new(in_dim: int, out_dim: int) -> Linear {
+    let mut w = list_new();
+    for i in range(in_dim * out_dim) {
+        list_push(w, v(random_normal() * 0.01));
+    }
+    let mut b = list_new();
+    for i in range(out_dim) {
+        list_push(b, v(0.0));
+    }
+    return Linear { weights: w, bias: b };
+}
+
+pub fn linear_forward(l: Linear, x: List<Var>) -> List<Var> {
+    let mut out = list_new();
+    let out_dim = list_len(l.bias);
+    for i in range(out_dim) {
+        let mut sum = list_get(l.bias, i);
+        for j in range(list_len(x)) {
+            sum = add(sum, mul(list_get(x, j), list_get(l.weights, i * list_len(x) + j)));
+        }
+        list_push(out, sum);
+    }
+    return out;
+}

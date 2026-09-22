@@ -1,0 +1,31 @@
+# examples/hello.aur — Aurora Hello World
+
+fn factorial(n) {
+    if n <= 1 { return 1 }
+    return n * factorial(n - 1)
+}
+
+fn main() {
+    println("Hello, Aurora!")
+    println("这是 Aurora 编程语言的第一个程序")
+    println("")
+
+    let a = 10
+    let b = 20
+    let c = a + b
+    println("10 + 20 = " + str(c))
+
+    println("")
+    println("计数:")
+    for i in [1, 2, 3, 4, 5] {
+        println("  " + str(i))
+    }
+
+    println("")
+    println("factorial(5) = " + str(factorial(5)))
+
+    println("")
+    println("✓ Hello World 运行完成")
+}
+
+main()

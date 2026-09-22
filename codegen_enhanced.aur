@@ -1,0 +1,215 @@
+# codegen_enhanced.aur — 增强版 ARM64 代码生成器
+# 真正生成可汇编的 ARM64 汇编代码
+
+import stdlib
+
+# 汇编生成器状态
+var asm_lines = []
+var label_counter = 0
+var string_pool = {}
+
+# 生成新标签
+fn new_label(prefix) -> string {
+    label_counter = label_counter + 1
+    return prefix + "_" + stdlib.str(label_counter)
+}
+
+# 添加字符串到池
+fn intern_string(s) -> string {
+    var label = new_label("str")
+    string_pool[label] = s
+    return label
+}
+
+# 生成完整程序
+pub fn generate(ast_tree, filename) -> string {
+    asm_lines = []
+    label_counter = 0
+    string_pool = {}
+
+    # 生成头部
+    emit(".arch armv8-a")
+    emit(".text")
+    emit(".global _start")
+    emit("")
+    emit("_start:")
+    emit("    bl main")
+    emit("    mov x8, #94")
+    emit("    svc #0")
+    emit("")
+
+    # 生成字符串数据
+    for label in string_pool {
+        emit("    .section .rodata")
+        emit(label + ":")
+        emit('    .asciz "' + string_pool[label] + '"')
+        emit("    .text")
+    }
+
+    # 生成 main 函数
+    emit("main:")
+    emit("    stp x29, x30, [sp, #-16]!")
+    emit("    mov x29, sp")
+
+    # 生成程序体
+    emit_stmts(ast_tree)
+
+    emit("    ldp x29, x30, [sp], #16")
+    emit("    ret")
+
+    return join(asm_lines, "\n")
+}
+
+# 生成语句序列
+fn emit_stmts(ast) {
+    if ast == nil { return }
+    if ast.tag == "Program" or ast.tag == "Block" {
+        var i = 0
+        while i < len(ast.stmts) {
+            emit_stmt(ast.stmts[i])
+            i = i + 1
+        }
+        return
+    }
+}
+
+# 生成单条语句
+fn emit_stmt(stmt) {
+    if stmt == nil { return }
+
+    if stmt.tag == "Let" or stmt.tag == "Var" {
+        # 计算表达式，存到变量
+        emit_expr(stmt.value)
+        # 简化：存到栈上
+        emit("    str x0, [sp, #-8]!")
+        return
+    }
+
+    if stmt.tag == "FnDef" {
+        emit("")
+        emit(stmt.name + ":")
+        emit("    stp x29, x30, [sp, #-16]!")
+        emit("    mov x29, sp")
+        emit_stmts(stmt.body)
+        emit("    ldp x29, x30, [sp], #16")
+        emit("    ret")
+        return
+    }
+
+    if stmt.tag == "Return" {
+        emit_expr(stmt.value)
+        emit("    ldp x29, x30, [sp], #16")
+        emit("    ret")
+        return
+    }
+
+    if stmt.tag == "If" {
+        var else_label = new_label("else")
+        var end_label = new_label("endif")
+
+        emit_expr(stmt.cond)
+        emit("    cmp x0, #0")
+        emit("    b.eq " + else_label)
+
+        emit_stmts(stmt.then_body)
+        emit("    b " + end_label)
+
+        emit(else_label + ":")
+        if stmt.else_body != nil {
+            emit_stmts(stmt.else_body)
+        }
+
+        emit(end_label + ":")
+        return
+    }
+
+    if stmt.tag == "While" {
+        var loop_start = new_label("loop_start")
+        var loop_end = new_label("loop_end")
+
+        emit(loop_start + ":")
+        emit_expr(stmt.cond)
+        emit("    cmp x0, #0")
+        emit("    b.eq " + loop_end)
+
+        emit_stmts(stmt.body)
+        emit("    b " + loop_start)
+
+        emit(loop_end + ":")
+        return
+    }
+
+    if stmt.tag == "ExprStmt" {
+        emit_expr(stmt.expr)
+        return
+    }
+}
+
+# 生成表达式（结果在 x0）
+fn emit_expr(expr) {
+    if expr == nil {
+        emit("    mov x0, #0")
+        return
+    }
+
+    if expr.tag == "Literal" {
+        if type_of(expr.value) == "int" {
+            emit("    mov x0, #" + stdlib.str(expr.value))
+        } elif type_of(expr.value) == "string" {
+            var str_label = intern_string(expr.value)
+            emit("    adrp x0, " + str_label + "@PAGE")
+            emit("    add x0, x0, " + str_label + "@PAGEOFF")
+        } else {
+            emit("    mov x0, #0")
+        }
+        return
+    }
+
+    if expr.tag == "BinaryExpr" {
+        emit_expr(expr.left)
+        emit("    str x0, [sp, #-16]!")
+        emit_expr(expr.right)
+        emit("    mov x1, x0")
+        emit("    ldr x0, [sp], #16")
+
+        if expr.op == "+" { emit("    add x0, x0, x1") }
+        elif expr.op == "-" { emit("    sub x0, x0, x1") }
+        elif expr.op == "*" { emit("    mul x0, x0, x1") }
+        elif expr.op == "/" { emit("    udiv x0, x0, x1") }
+        elif expr.op == "==" { emit("    cmp x0, x1; cset x0, eq") }
+        elif expr.op == "!=" { emit("    cmp x0, x1; cset x0, ne") }
+        elif expr.op == "<" { emit("    cmp x0, x1; cset x0, lt") }
+        elif expr.op == ">" { emit("    cmp x0, x1; cset x0, gt") }
+        return
+    }
+
+    if expr.tag == "CallExpr" {
+        emit("    bl " + expr.name)
+        return
+    }
+
+    if expr.tag == "Identifier" {
+        # 从栈加载
+        emit("    ldr x0, [sp]")
+        return
+    }
+
+    # 默认
+    emit("    mov x0, #0")
+}
+
+# 添加一行汇编
+fn emit(line) {
+    asm_lines = asm_lines + [line]
+}
+
+fn join(arr, sep) -> string {
+    var result = ""
+    var i = 0
+    while i < len(arr) {
+        if i > 0 { result = result + sep }
+        result = result + arr[i]
+        i = i + 1
+    }
+    return result
+}

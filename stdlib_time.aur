@@ -1,0 +1,133 @@
+# stdlib_time.aur — 时间标准库（自举版，补全 FFI 声明）
+# 通过 @ffi 绑定 POSIX clock_gettime / nanosleep
+
+import stdlib
+
+# @ffi clock_gettime(clock_id: int, ts: *timespec) -> int
+# @ffi nanosleep(req: *timespec, rem: *timespec) -> int
+
+# 获取当前 Unix 时间戳（秒）
+pub fn now() -> int {
+    # FFI: clock_gettime(CLOCK_REALTIME=0)
+    return sys_clock_sec(0)
+}
+
+# 获取当前时间戳（毫秒）
+pub fn now_ms() -> int {
+    return sys_clock_ms(0)
+}
+
+# 获取单调时间戳（秒，不受系统时间调整影响）
+pub fn monotonic() -> int {
+    return sys_clock_sec(1)  # CLOCK_MONOTONIC=1
+}
+
+# 休眠（毫秒）
+pub fn sleep_ms(ms) {
+    sys_nanosleep_ms(ms)
+}
+
+# 休眠（秒）
+pub fn sleep(seconds) {
+    sleep_ms(seconds * 1000)
+}
+
+# 高精度计时：开始
+pub fn tic() -> int {
+    return monotonic()
+}
+
+# 高精度计时：结束，返回秒数
+pub fn toc(start) -> int {
+    var end = monotonic()
+    return end - start
+}
+
+# 高精度计时：返回毫秒
+pub fn toc_ms(start_ms) -> int {
+    var end = sys_clock_ms(1)
+    return end - start_ms
+}
+
+# 格式化时间戳为 YYYY-MM-DD HH:MM:SS
+pub fn format_time(ts) -> string {
+    # 简化版：计算年月日时分秒
+    var days = ts / 86400
+    var time_of_day = ts % 86400
+
+    var hour = time_of_day / 3600
+    var minute = (time_of_day % 3600) / 60
+    var second = time_of_day % 60
+
+    # 从 1970-01-01 计算年月日
+    var year = 1970
+    var remaining_days = days
+    while true {
+        var year_days = 365
+        if is_leap_year(year) { year_days = 366 }
+        if remaining_days < year_days { break }
+        remaining_days = remaining_days - year_days
+        year = year + 1
+    }
+
+    var month = 1
+    var days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    if is_leap_year(year) { days_in_month[1] = 29 }
+
+    var m = 0
+    while m < 12 {
+        if remaining_days < days_in_month[m] {
+            month = m + 1
+            break
+        }
+        remaining_days = remaining_days - days_in_month[m]
+        m = m + 1
+    }
+
+    var day = remaining_days + 1
+
+    return stdlib.str(year) + "-" + pad2(month) + "-" + pad2(day) + " " + pad2(hour) + ":" + pad2(minute) + ":" + pad2(second)
+}
+
+# 获取今天日期字符串
+pub fn today() -> string {
+    return format_time(now())
+}
+
+# 计算函数耗时（毫秒）
+pub fn time_ms(fn) -> int {
+    var start = sys_clock_ms(1)
+    fn()
+    var end = sys_clock_ms(1)
+    return end - start
+}
+
+# ============ FFI 桥接 ============
+
+fn sys_clock_sec(clock_id) -> int {
+    # FFI: clock_gettime
+    return 0
+}
+
+fn sys_clock_ms(clock_id) -> int {
+    # FFI: clock_gettime * 1000
+    return 0
+}
+
+fn sys_nanosleep_ms(ms) {
+    # FFI: nanosleep
+}
+
+fn is_leap_year(y) -> bool {
+    if y % 400 == 0 { return true }
+    if y % 100 == 0 { return false }
+    if y % 4 == 0 { return true }
+    return false
+}
+
+fn pad2(n) -> string {
+    if n < 10 {
+        return "0" + stdlib.str(n)
+    }
+    return stdlib.str(n)
+}

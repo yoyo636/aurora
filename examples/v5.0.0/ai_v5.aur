@@ -1,0 +1,67 @@
+# Aurora v5.0.0 AI 原生引擎示例
+# 张量、自动微分、神经网络
+
+import ai_tensor
+import ai_nn
+import ai_optim
+import ai_loss
+
+pub fn main() {
+    println("=== Aurora v5.0.0 AI 原生引擎示例 ===")
+    println("")
+    
+    # 创建张量
+    var x = ai_tensor.tensor([[1.0, 2.0], [3.0, 4.0]])
+    var w = ai_tensor.tensor([[0.1, 0.2], [0.3, 0.4]])
+    var b = ai_tensor.tensor([0.5, 0.6])
+    
+    println("输入张量 x:")
+    ai_tensor.print(x)
+    println("")
+    
+    println("权重张量 w:")
+    ai_tensor.print(w)
+    println("")
+    
+    # 矩阵乘法
+    var y = ai_tensor.matmul(x, w)
+    println("x @ w = ")
+    ai_tensor.print(y)
+    println("")
+    
+    # 构建简单神经网络
+    var model = ai_nn.sequential([
+        ai_nn.linear(2, 4),
+        ai_nn.relu(),
+        ai_nn.linear(4, 2),
+        ai_nn.softmax()
+    ])
+    
+    println("神经网络结构:")
+    ai_nn.summary(model)
+    println("")
+    
+    # 训练循环
+    var optimizer = ai_optim.adam(0.001)
+    var loss_fn = ai_loss.cross_entropy()
+    
+    println("开始训练...")
+    var epoch = 0
+    while epoch < 10 {
+        var pred = ai_nn.forward(model, x)
+        var loss = ai_loss.forward(loss_fn, pred, b)
+        ai_optim.zero_grad(optimizer)
+        ai_loss.backward(loss_fn)
+        ai_nn.backward(model)
+        ai_optim.step(optimizer)
+        
+        if epoch % 5 == 0 {
+            println("  Epoch " + str(epoch) + ", Loss: " + str(loss))
+        }
+        epoch = epoch + 1
+    }
+    
+    println("")
+    println("训练完成！Aurora AI 原生引擎运行成功。")
+    println("打破 Python 对 AI 的垄断！")
+}
