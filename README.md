@@ -42,7 +42,7 @@ Aurora 是一门高性能原生编程语言，用 Aurora 写 Aurora，直接生�
 
 ```bash
 # 方式一：一键安装
-curl -fsSL https://aurora.dev/install.sh | bash
+curl -fsSL https://aurora-lang.com/install.sh | bash
 
 # 方式二：本地安装
 cd aurora
@@ -204,8 +204,8 @@ aurora/
 ## 社区
 
 - GitHub：https://github.com/yoyo636/aurora
-- 官网：https://aurora.dev
-- 文档：https://docs.aurora.dev
+- 官网：https://aurora-lang.com
+- 文档：https://docs.aurora-lang.com
 
 ## 许可证
 
