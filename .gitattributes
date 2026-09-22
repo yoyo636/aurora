@@ -1,0 +1,23 @@
+# Aurora 语言识别
+*.aur linguist-language=Aurora
+*.aur linguist-detectable=true
+
+# 标记生成的代码为非源码（可选，取消注释则不计入语言统计）
+# std_*.aur linguist-generated=true
+# stdlib_*.aur linguist-generated=true
+
+# 标记构建工具
+tools/*.py linguist-vendored=true
+tools/auto_dev/*.py linguist-vendored=true
+
+# 标记二进制文件
+*.vsix binary
+*.tar.gz binary
+*.pkg binary
+*.mp4 binary
+*.o binary
+*.s binary
+
+# 标记文档
+docs/* linguist-documentation
+*.md linguist-documentation
